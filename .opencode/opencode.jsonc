@@ -1,0 +1,11 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "skills": ["./skills"],
+  "mcp": {
+    "android-mcp": {
+      "type": "local",
+      "command": ["bash", "./scripts/run-mcp.sh"],
+      "enabled": true
+    }
+  }
+}

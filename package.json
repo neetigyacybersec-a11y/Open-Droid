@@ -1,0 +1,42 @@
+{
+  "name": "android-mcp",
+  "version": "0.1.0",
+  "description": "Combined MCP server for Android app development: toolchain wrappers (Gradle/ADB/emulator), device screenshots, Maestro flows, Compose previews, and Android skills lookup.",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "android-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node test/smoke.test.mjs",
+    "lint": "eslint src --ext .ts",
+    "format": "prettier --write src",
+    "format:check": "prettier --check src"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.6.0",
+    "eslint": "^8.57.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "prettier": "^3.3.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ]
+}
