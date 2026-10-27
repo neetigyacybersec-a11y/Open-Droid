@@ -44,4 +44,13 @@ fi
 # offline build readiness
 if [ -d "$TOOLCHAIN/gradle-home/caches" ]; then echo "OK   gradle cache warmed (offline builds will resolve)"; else warn "Gradle cache not warmed yet; run scripts/warm-cache.sh once online"; fi
 
+# OpenCode registration
+if command -v opencode >/dev/null 2>&1; then
+  if opencode mcp list 2>/dev/null | grep -q "android-mcp"; then echo "OK   opencode: android-mcp registered"; else warn "opencode: android-mcp NOT registered (run 'make register')"; fi
+  gsk="$(ls -d "$HOME/.config/opencode/skills"/*/SKILL.md 2>/dev/null | wc -l)"
+  if [ "$gsk" -gt 0 ]; then echo "OK   opencode: $gsk global skills present"; else warn "opencode: no global skills found (run 'make register')"; fi
+else
+  warn "opencode CLI not installed; registration skipped"
+fi
+
 exit $fail

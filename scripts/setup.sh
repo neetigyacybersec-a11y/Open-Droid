@@ -218,5 +218,8 @@ if [ -x "$ROOT/.toolchain/gradle/bin/gradle" ]; then
   bash "$ROOT/scripts/warm-cache.sh" || log "WARNING: warm-cache failed; offline builds may not resolve until run once online."
 fi
 
+# ---- Auto-register with OpenCode (MCP + skills) ----
+bash "$ROOT/scripts/register.sh" || log "WARNING: OpenCode registration skipped (see output above)."
+
 log "Setup complete. Source the toolchain with: source .toolchain/env.sh"
 log "Run 'make doctor' to verify."

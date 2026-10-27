@@ -15,6 +15,7 @@ help:
 	@echo "  new-app      Scaffold a new Compose app from templates/compose-starter"
 	@echo "  build-app    Build the app in APP_DIR (default ./my-app)"
 	@echo "  warm-cache   Populate the Gradle cache (enables offline builds)"
+	@echo "  register     Auto-register MCP + skills with OpenCode (global)"
 	@echo "  emulator     Boot the default AVD"
 	@echo "  screenshot   Capture a device screenshot to ./screenshots"
 	@echo "  clean        Remove build artifacts"
@@ -44,6 +45,9 @@ build-app:
 
 warm-cache:
 	bash scripts/warm-cache.sh
+
+register:
+	bash scripts/register.sh
 
 emulator:
 	bash -c 'source .toolchain/env.sh && emulator -avd $${AVD_NAME:-Pixel_9_API_35} -no-snapshot-load'

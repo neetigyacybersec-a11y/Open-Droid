@@ -29,6 +29,12 @@ Errors observed when installing on a fresh host and how this repo prevents them:
 - `android` CLI — enables `android skills list/search`.
 Both are installed by `make setup` when possible and are safe to install later.
 
+## OpenCode registration
+| Symptom | Root cause | Fix |
+|---|---|---|
+| `opencode mcp list` doesn't show android-mcp | Registration only happened in project config (`.opencode/opencode.jsonc`), which is only read when OpenCode starts inside the repo | `make setup`/`make register` adds it **globally** via `opencode mcp add android-mcp --global`; works from any directory |
+| Skills don't appear in the `skill` tool | Skills lived only in the repo; discovery depends on CWD | `make register` copies all skills into `~/.config/opencode/skills/` (always loaded globally); re-run to refresh |
+
 ## Emulator alternative on hosts without KVM
 Use a CI runner with KVM, or run the Android app on a physical device
 (`adb devices` after enabling USB debugging).

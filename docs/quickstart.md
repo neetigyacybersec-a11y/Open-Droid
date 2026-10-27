@@ -22,12 +22,15 @@ Configure OpenCode (`~/.config/opencode/opencode.jsonc`):
 git clone https://github.com/<owner>/android-mcp.git
 cd android-mcp
 make setup          # one-time ~3GB download into ./.toolchain
+                    # + auto-registers MCP (global) + installs skills (global)
 source .toolchain/env.sh
 make doctor
 make build-mcp
 ```
 
-Then configure OpenCode to run `node /path/to/android-mcp/dist/index.js`.
+No manual config editing needed: `make setup` runs `scripts/register.sh`, which
+adds the MCP server globally (`opencode mcp add android-mcp --global`) and copies
+all skills into `~/.config/opencode/skills/`. Refresh anytime with `make register`.
 
 ## Create your first app
 
