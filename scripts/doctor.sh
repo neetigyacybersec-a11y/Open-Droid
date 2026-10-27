@@ -46,7 +46,8 @@ if [ -d "$TOOLCHAIN/gradle-home/caches" ]; then echo "OK   gradle cache warmed (
 
 # OpenCode registration
 if command -v opencode >/dev/null 2>&1; then
-  if opencode mcp list 2>/dev/null | grep -q "android-mcp"; then echo "OK   opencode: android-mcp registered"; else warn "opencode: android-mcp NOT registered (run 'make register')"; fi
+  # check the GLOBAL config files directly (project-level registrations must not count)
+  if { [ -f "$HOME/.config/opencode/opencode.jsonc" ] && grep -q '"android-mcp"' "$HOME/.config/opencode/opencode.jsonc"; } || { [ -f "$HOME/.config/opencode/opencode.json" ] && grep -q '"android-mcp"' "$HOME/.config/opencode/opencode.json"; }; then echo "OK   opencode: android-mcp registered (global)"; else warn "opencode: android-mcp NOT registered globally (run 'make register')"; fi
   gsk="$(ls -d "$HOME/.config/opencode/skills"/*/SKILL.md 2>/dev/null | wc -l)"
   if [ "$gsk" -gt 0 ]; then echo "OK   opencode: $gsk global skills present"; else warn "opencode: no global skills found (run 'make register')"; fi
 else

@@ -27,7 +27,7 @@
   11. Skill rewrite (3 phases + 4 workflows) + `docs/dynamic-analysis.md` + README/troubleshooting + `register.sh` refresh
 
 ## Key facts
-- Push to `origin main` → watch CI with `gh run watch --exit-status <run-id>`; workflows: `mcp`, `docker`, `app-build`; Release runs only on `v*` tags (npm publish needs `NPM_TOKEN`).
+- Push to `origin main` → watch CI with `gh run watch --exit-status <run-id>`; workflows: `mcp`, `docker` (plus `app-build`, added by plan Task 9); Release runs only on `v*` tags (npm publish needs `NPM_TOKEN`).
 - **Recurring bug pattern:** stray `EOF`/`echo done`/`npm run build` lines get appended to files written via tools — verify file tails after every write.
 - `README.md` was once silently replaced by a 12-byte stub during a rebase (`git checkout --ours` kept the wrong side) — verify README stays full after any rebase.
 - This host: no Docker daemon; Android toolchain NOT installed (`make setup` never completed here). User's Ubuntu host (`/home/neetigya/Open-Droid`): toolchain works, emulator needs `sudo gpasswd -a $USER kvm` + re-login.

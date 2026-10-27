@@ -17,9 +17,14 @@ if ! command -v opencode >/dev/null 2>&1; then
 fi
 
 # ---- 1. MCP server (global) ----
+# Check the GLOBAL config files directly (NOT `opencode mcp list`, which also
+# shows project-level registrations — a fresh clone has the project-level
+# entry committed, which must not count as "registered globally").
+# opencode's global config may be opencode.json or opencode.jsonc.
+GLOBALLY_REGISTERED(){ [ -f "$1" ] && grep -q '"android-mcp"' "$1"; }
 if [ -f "$ROOT/scripts/run-mcp.sh" ] && [ -f "$ROOT/dist/index.js" ]; then
   chmod +x "$ROOT/scripts/run-mcp.sh"
-  if opencode mcp list 2>/dev/null | grep -q "android-mcp"; then
+  if GLOBALLY_REGISTERED "$HOME/.config/opencode/opencode.jsonc" || GLOBALLY_REGISTERED "$HOME/.config/opencode/opencode.json"; then
     ok "MCP server android-mcp already registered (global)"
   else
     opencode mcp add android-mcp --global -- bash "$ROOT/scripts/run-mcp.sh" >/dev/null
@@ -45,9 +50,9 @@ else
 fi
 
 # ---- 3. Verify ----
-if opencode mcp list 2>/dev/null | grep -q "android-mcp"; then
-  ok "verified: opencode mcp list shows android-mcp"
+if GLOBALLY_REGISTERED "$HOME/.config/opencode/opencode.jsonc" || GLOBALLY_REGISTERED "$HOME/.config/opencode/opencode.json"; then
+  ok "verified: android-mcp present in global opencode config"
 else
-  warn "verification failed: android-mcp not visible to opencode"
+  warn "verification failed: android-mcp not in global opencode config"
 fi
 echo "[register] done"

@@ -5,6 +5,10 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT/.toolchain/env.sh" 2>/dev/null || true
+if ! command -v gradle >/dev/null 2>&1; then
+  echo "[warm-cache] ERROR: gradle not found — run 'make setup' first (vendors the toolchain)." >&2
+  exit 1
+fi
 export GRADLE_USER_HOME="$ROOT/.toolchain/gradle-home"
 mkdir -p "$GRADLE_USER_HOME"
 cd "$ROOT/templates/compose-starter"

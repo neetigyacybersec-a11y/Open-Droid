@@ -95,7 +95,7 @@ frida tools (idempotent): `adb root` → push → chmod → nohup run.
 ### 2. Vendoring (`setup.sh`, `versions.env`)
 
 - `FRIDA_VERSION` pinned (e.g. 17.x — latest stable at implementation time).
-  Download `frida-server-<ver>-android-{x86_64,arm64-v8a}.xz` from
+  Download `frida-server-<ver>-android-{x86_64,arm64}.xz` from
   frida/frida GitHub releases into `.toolchain/frida/` (both arches, so any
   AVD works).
 - Python venv at `.toolchain/python-venv/` containing `frida-tools` and
@@ -149,7 +149,7 @@ capability for the review/investigation phases.
 - `README.md` — feature list + MCP tool table updated (20 tools).
 - `docs/troubleshooting.md` — new rows for the above errors.
 
-### 7. Instrumented demo app (`examples/vuln-app`) — user decision
+### 6. Instrumented demo app (`examples/vuln-app`) — user decision
 
 A deliberately vulnerable practice target so the integration test asserts real
 behavior and users can exercise every workflow safely:
@@ -165,7 +165,7 @@ behavior and users can exercise every workflow safely:
 
 Clearly labeled as a test/demo target only; never published to any store.
 
-### 8. Tests
+### 7. Tests
 
 - Smoke test updated to the new tool count (all tools registered).
 - Unit-ish test: schema validation + arch-check logic for frida helpers.

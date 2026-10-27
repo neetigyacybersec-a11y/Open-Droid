@@ -76,6 +76,8 @@ Wire into OpenCode (`~/.config/opencode/opencode.jsonc`):
 }
 ```
 
+> Shape verified against what `opencode mcp add --global` itself writes.
+
 > Requires `/dev/kvm` on the host for emulator acceleration.
 
 ---
@@ -129,10 +131,10 @@ Refresh registration any time with `make register`.
 `android-accessibility-audit`, `android-screenshot-diff`, `android-emulator-smoke`,
 `android-gradle-troubleshoot`, `android-performance`
 
-**Senior UI/UX design (12):** `uiux-design-foundations`, `android-material3-design`,
+**Senior UI/UX design (11):** `uiux-design-foundations`, `android-material3-design`,
 `android-adaptive-layouts`, `compose-accessibility`, `wcag-audit`,
 `design-system-tokens`, `ux-research-planning`, `usability-testing`,
-`design-critique`, `motion-design`, `content-design-microcopy`, `figma-to-compose`
+`design-critique`, `motion-design`, `content-design-microcopy`
 
 **Superpowers SDE (13):** `brainstorming`, `dispatching-parallel-agents`,
 `executing-plans`, `finishing-a-development-branch`, `receiving-code-review`,
@@ -244,7 +246,7 @@ KVM permissions, architecture-mismatched AVDs, offline Gradle resolution,
 - [ ] Gradle wrapper in templates (fully offline builds without PATH)
 - [ ] More example apps (list-detail, navigation, theming)
 - [ ] Telemetry/logging improvements
-- [ ] Published npm package `@open-droid/mcp`
+- [ ] Published npm package (`android-mcp`; currently publishable via the Release workflow's `npm publish` on `v*` tags — needs an `NPM_TOKEN` secret)
 
 ---
 

@@ -3,16 +3,19 @@
 ## Option A — Docker (zero downloads)
 
 ```bash
-docker pull ghcr.io/<owner>/android-mcp:latest
+docker pull ghcr.io/neetigyacybersec-a11y/open-droid:latest
 ```
 
-Configure OpenCode (`~/.config/opencode/opencode.jsonc`):
+Configure OpenCode (`~/.config/opencode/opencode.jsonc`; same shape `opencode mcp add --global` writes):
 
 ```jsonc
-"android-mcp": {
-  "type": "local",
-  "command": ["docker", "run", "-i", "--rm", "--device", "/dev/kvm", "ghcr.io/<owner>/android-mcp:latest"],
-  "enabled": true
+"mcp": {
+  "servers": {
+    "android-mcp": {
+      "type": "local",
+      "command": ["docker", "run", "-i", "--rm", "--device", "/dev/kvm", "ghcr.io/neetigyacybersec-a11y/open-droid:latest"]
+    }
+  }
 }
 ```
 
