@@ -35,7 +35,7 @@ ENV PATH="${ANDROID_HOME}/cmdline-tools/latest/bin:${ANDROID_HOME}/platform-tool
 
 RUN mkdir -p ${ANDROID_HOME}/cmdline-tools \
     && cd /tmp \
-    && wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdline.zip \
+    && wget -q https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip -O cmdline.zip \
     && unzip -q cmdline.zip -d ${ANDROID_HOME}/cmdline-tools \
     && mv ${ANDROID_HOME}/cmdline-tools/cmdline-tools ${ANDROID_HOME}/cmdline-tools/latest \
     && rm cmdline.zip
@@ -65,4 +65,5 @@ COPY scripts/run-mcp.sh ./scripts/run-mcp.sh
 RUN chmod +x ./scripts/run-mcp.sh
 
 ENV NODE_ENV=production
+ENV GRADLE_USER_HOME=/opt/gradle-home
 ENTRYPOINT ["./scripts/run-mcp.sh"]

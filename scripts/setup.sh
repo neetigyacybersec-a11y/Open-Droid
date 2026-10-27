@@ -58,13 +58,41 @@ if [ ! -x "$SDK/cmdline-tools/latest/bin/sdkmanager" ]; then
   mv /tmp/cmdline-tools-extract/cmdline-tools "$SDK/cmdline-tools/latest"
 fi
 
+export JAVA_HOME="$TOOLCHAIN/jdk"
 export ANDROID_HOME="$SDK"
 export ANDROID_SDK_ROOT="$SDK"
-export PATH="$SDK/cmdline-tools/latest/bin:$SDK/platform-tools:$PATH"
+export PATH="$JAVA_HOME/bin:$SDK/cmdline-tools/latest/bin:$SDK/platform-tools:$PATH"
 
 # ---- Accept licenses + install packages ----
 log "Installing Android SDK packages (platform-tools, $ANDROID_PLATFORM, build-tools, emulator, system image)..."
 yes | sdkmanager --licenses >/dev/null 2>&1 || true
+
+# Arch-aware image selection (must match host CPU)
+SYSTEM_IMAGE="system-images;$ANDROID_PLATFORM;google_apis;$IMG_ABI"
+# ---- Host architecture / KVM preflight ----
+HOST_ARCH="$(uname -m)"
+log "Host arch: $HOST_ARCH"
+if [ "$HOST_ARCH" = "x86_64" ]; then
+  IMG_ABI="x86_64"
+elif [ "$HOST_ARCH" = "aarch64" ] || [ "$HOST_ARCH" = "arm64" ]; then
+  IMG_ABI="arm64-v8a"
+else
+  echo "ERROR: unsupported host arch $HOST_ARCH (need x86_64 or arm64)." >&2
+  exit 1
+fi
+
+# KVM check: x86_64 emulator requires hardware acceleration
+if [ "$IMG_ABI" = "x86_64" ]; then
+  if [ ! -e /dev/kvm ]; then
+    log "WARNING: /dev/kvm not present. The x86_64 emulator CANNOT run without KVM."
+    log "Fix:  sudo apt install -y qemu-kvm && sudo gpasswd -a \$USER kvm  (then log out/in)."
+  elif [ ! -w /dev/kvm ]; then
+    log "WARNING: /dev/kvm exists but is not writable for this user. Emulator will fail."
+    log "Fix:  sudo gpasswd -a \$USER kvm  (then log out/in)."
+  else
+    log "KVM available: yes"
+  fi
+fi
 
 install_sdk() {
   local img="$1"
@@ -87,9 +115,7 @@ install_sdk() {
 
 if ! install_sdk "$SYSTEM_IMAGE"; then
   log "Primary system image failed; falling back to default (no Google APIs) image..."
-  FALLBACK="system-images;${ANDROID_PLATFORM#platforms;};default;x86_64"
-  # normalize: ANDROID_PLATFORM is like android-35
-  FALLBACK="system-images;$ANDROID_PLATFORM;default;x86_64"
+  FALLBACK="system-images;$ANDROID_PLATFORM;default;$IMG_ABI"
   if install_sdk "$FALLBACK"; then
     SYSTEM_IMAGE="$FALLBACK"
   else
@@ -144,6 +170,26 @@ if [ ! -d "$TOOLCHAIN/android-skills/.git" ]; then
   git clone --depth 1 https://github.com/android/skills.git "$TOOLCHAIN/android-skills" 2>/dev/null || true
 fi
 
+# ---- compose-preview CLI (compose-ai-tools) — best effort ----
+if ! command -v compose-preview >/dev/null 2>&1; then
+  log "Installing compose-ai-tools (compose-preview CLI)..."
+  if curl -fsSL "https://raw.githubusercontent.com/yschimke/skills/main/scripts/install.sh" | bash >/dev/null 2>&1; then
+    log "compose-preview installed."
+  else
+    log "WARNING: compose-preview install failed (optional). Install later: https://github.com/yschimke/compose-ai-tools"
+  fi
+fi
+
+# ---- Android CLI (Google agent CLI) — best effort ----
+if ! command -v android >/dev/null 2>&1; then
+  log "Installing Android CLI..."
+  if curl -fsSL "https://dl.google.com/android/cli/latest/linux_x86_64/install.sh" | bash >/dev/null 2>&1; then
+    log "Android CLI installed."
+  else
+    log "WARNING: Android CLI install failed (optional). Install later: https://developer.android.com/tools/agents/android-cli/download"
+  fi
+fi
+
 # ---- npm deps for MCP server ----
 log "Installing MCP server npm dependencies..."
 cd "$ROOT"
@@ -162,8 +208,15 @@ export ANDROID_HOME="$TOOLCHAIN/android-sdk"
 export ANDROID_SDK_ROOT="$TOOLCHAIN/android-sdk"
 export GRADLE_HOME="$TOOLCHAIN/gradle"
 export MAESTRO_HOME="$TOOLCHAIN/maestro"
+export GRADLE_USER_HOME="$TOOLCHAIN/gradle-home"
 export PATH="\$JAVA_HOME/bin:\$ANDROID_HOME/cmdline-tools/latest/bin:\$ANDROID_HOME/platform-tools:\$ANDROID_HOME/emulator:\$GRADLE_HOME/bin:\$MAESTRO_HOME/bin:\$PATH"
 EOF
+
+# ---- Warm Gradle dependency cache (enables offline builds later) ----
+if [ -x "$ROOT/.toolchain/gradle/bin/gradle" ]; then
+  log "Warming Gradle dependency cache (one-time online build)..."
+  bash "$ROOT/scripts/warm-cache.sh" || log "WARNING: warm-cache failed; offline builds may not resolve until run once online."
+fi
 
 log "Setup complete. Source the toolchain with: source .toolchain/env.sh"
 log "Run 'make doctor' to verify."

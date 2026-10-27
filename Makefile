@@ -14,6 +14,7 @@ help:
 	@echo "  run-mcp      Run the MCP server on stdio"
 	@echo "  new-app      Scaffold a new Compose app from templates/compose-starter"
 	@echo "  build-app    Build the app in APP_DIR (default ./my-app)"
+	@echo "  warm-cache   Populate the Gradle cache (enables offline builds)"
 	@echo "  emulator     Boot the default AVD"
 	@echo "  screenshot   Capture a device screenshot to ./screenshots"
 	@echo "  clean        Remove build artifacts"
@@ -39,14 +40,16 @@ new-app:
 	@bash scripts/new-app.sh "$(APP_DIR)"
 
 build-app:
-	cd "$(APP_DIR)" && gradle :app:assembleDebug
+	bash -c 'source .toolchain/env.sh && cd "$(APP_DIR)" && gradle :app:assembleDebug'
+
+warm-cache:
+	bash scripts/warm-cache.sh
 
 emulator:
-	emulator -avd $${AVD_NAME:-Pixel_9_API_35} -no-snapshot-load
+	bash -c 'source .toolchain/env.sh && emulator -avd $${AVD_NAME:-Pixel_9_API_35} -no-snapshot-load'
 
 screenshot:
-	mkdir -p screenshots
-	adb shell screencap -p /sdcard/screen.png && adb pull /sdcard/screen.png screenshots/screen.png
+	bash -c 'source .toolchain/env.sh && mkdir -p screenshots && adb shell screencap -p /sdcard/screen.png && adb pull /sdcard/screen.png screenshots/screen.png'
 	@echo "saved screenshots/screen.png"
 
 clean:
