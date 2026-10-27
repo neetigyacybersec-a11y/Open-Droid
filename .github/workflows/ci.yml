@@ -27,5 +27,3 @@ jobs:
           context: .
           push: false
           tags: android-mcp:ci
-EOF
-echo done

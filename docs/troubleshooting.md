@@ -38,5 +38,3 @@ Both are installed by `make setup` when possible and are safe to install later.
 ## Emulator alternative on hosts without KVM
 Use a CI runner with KVM, or run the Android app on a physical device
 (`adb devices` after enabling USB debugging).
-EOF
-echo done
