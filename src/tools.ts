@@ -1,6 +1,7 @@
 import { z } from "zod";
-import { constants } from "node:fs";
-import { access, readFile, writeFile } from "node:fs/promises";
+import { closeSync, constants, openSync } from "node:fs";
+import { access, readFile, rm, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -12,7 +13,13 @@ import {
   validateGradleTask,
   validatePackageName,
 } from "./util.js";
-import { ensureServer, resolveFridaCli } from "./frida.js";
+import {
+  PIDFILE,
+  ensureServer,
+  pidRunning,
+  resolveFridaCli,
+  resolveMitmDump,
+} from "./frida.js";
 
 export const ToolSchemas = {
   envCheck: z.object({}),
@@ -87,6 +94,16 @@ export const ToolSchemas = {
     methodRegex: z.string().optional().default(".*"),
     deviceId: z.string().optional(),
     durationSec: z.number().optional().default(30),
+  }),
+  netCapture: z.object({
+    action: z.enum(["start", "stop"]),
+    deviceId: z.string().optional(),
+    port: z.number().optional().default(8080),
+    durationSec: z
+      .number()
+      .optional()
+      .default(30)
+      .describe("Seconds of traffic to collect before auto-stop (start)"),
   }),
 };
 
@@ -488,4 +505,324 @@ export async function handleFridaTraceMethods(args: z.infer<typeof ToolSchemas.f
     spawn: true,
     durationSec: args.durationSec,
   });
+}
+
+// --- net_capture: one mitmdump session + device proxy/CA profile -------------
+
+const MITM_CA_PATH = join(homedir(), ".mitmproxy", "mitmproxy-ca-cert.pem");
+const DEVICE_CA_DIR = "/system/etc/security/cacerts";
+/** Emulator NAT alias for the host loopback (physical devices need `adb reverse`). */
+const EMULATOR_HOST_ALIAS = "10.0.2.2";
+const HAR_WAIT_MS = 10_000;
+
+interface CaptureState {
+  pid: number;
+  /** Absolute path of the HAR file mitmdump flushes on exit. */
+  har: string;
+}
+
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await access(path, constants.F_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The pidfile holds two lines: the mitmdump pid and the HAR path. Keeping the
+ * HAR path here means `stop` can find it without scanning the temp directory
+ * for a stale capture's output. The first line stays a plain pid, so callers
+ * that only need liveness can parse it with parseInt.
+ */
+async function readCaptureState(): Promise<CaptureState | null> {
+  let raw: string;
+  try {
+    raw = await readFile(PIDFILE, "utf8");
+  } catch {
+    return null;
+  }
+  const [pidLine = "", harLine = ""] = raw.split("\n");
+  const pid = Number.parseInt(pidLine.trim(), 10);
+  if (!Number.isInteger(pid) || pid <= 0) return null;
+  return { pid, har: harLine.trim() };
+}
+
+async function waitForFile(path: string, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (path && (await fileExists(path))) return true;
+    if (Date.now() >= deadline) return false;
+    await sleep(250);
+  }
+}
+
+async function setDeviceProxy(
+  deviceId: string | undefined,
+  value: string,
+  timeout: number
+): Promise<{ code: number; detail: string }> {
+  const base = await adbBase(deviceId);
+  const r = await run(
+    "adb",
+    [...base, "shell", "settings", "put", "global", "http_proxy", value],
+    { timeout }
+  );
+  return { code: r.code, detail: (r.stderr || r.stdout).trim() };
+}
+
+/** Best-effort: a failed clear only leaves the device pointing at a dead proxy. */
+async function clearDeviceProxy(deviceId: string | undefined): Promise<string | null> {
+  const cleared = await setDeviceProxy(deviceId, ":0", 30_000);
+  return cleared.code === 0
+    ? null
+    : `failed to clear device HTTP proxy: ${cleared.detail || "no output"}`;
+}
+
+/**
+ * Install the mitmproxy CA into the system store so apps trust intercepted
+ * TLS. Requires a rooted/remountable image; every failure is a warning because
+ * the user can still trust the user cert manually. Returns the installed name.
+ */
+async function installMitmCa(
+  deviceId: string | undefined,
+  warnings: string[]
+): Promise<string | null> {
+  if (!(await fileExists(MITM_CA_PATH))) {
+    warnings.push(`mitmproxy CA not found at ${MITM_CA_PATH}`);
+    return null;
+  }
+
+  // Android keys the store by the OpenSSL subject hash, not by filename.
+  const hashed = await run(
+    "openssl",
+    ["x509", "-inform", "PEM", "-subject_hash_old", "-in", MITM_CA_PATH, "-noout"],
+    { timeout: 30_000 }
+  );
+  const hash = hashed.stdout.split("\n")[0]?.trim();
+  if (hashed.code !== 0 || !hash) {
+    warnings.push(
+      `could not hash mitmproxy CA with openssl: ${(hashed.stderr || hashed.stdout).trim() || "no output"}`
+    );
+    return null;
+  }
+
+  const name = `${hash}.0`;
+  const remote = `${DEVICE_CA_DIR}/${name}`;
+  const base = await adbBase(deviceId);
+
+  const remounted = await run("adb", [...base, "remount"], { timeout: 60_000 });
+  if (remounted.code !== 0) {
+    warnings.push(
+      `adb remount failed, CA not installed: ${(remounted.stderr || remounted.stdout).trim() || "no output"}`
+    );
+    return null;
+  }
+
+  const pushed = await run("adb", [...base, "push", MITM_CA_PATH, remote], {
+    timeout: 60_000,
+  });
+  if (pushed.code !== 0) {
+    warnings.push(
+      `CA push to ${remote} failed: ${(pushed.stderr || pushed.stdout).trim() || "no output"}`
+    );
+    return null;
+  }
+
+  const chmod = await run("adb", [...base, "shell", "chmod", "644", remote], {
+    timeout: 30_000,
+  });
+  if (chmod.code !== 0) {
+    warnings.push(
+      `chmod 644 ${remote} failed: ${(chmod.stderr || chmod.stdout).trim() || "no output"}`
+    );
+    return null;
+  }
+
+  return remote;
+}
+
+/** Guard against the auto-stop timer and an explicit stop racing each other. */
+const stopInFlight = new Set<number>();
+
+/**
+ * SIGTERM the capture, wait up to 10s for mitmdump to flush the HAR, clear the
+ * device proxy, and drop the pidfile. Used by both `stop` and the auto-stop
+ * timer so a timed-out capture does not leave a stale pidfile/proxy behind.
+ */
+async function stopCapture(
+  state: CaptureState,
+  deviceId: string | undefined
+): Promise<{ written: boolean; warnings: string[] }> {
+  if (stopInFlight.has(state.pid)) {
+    return { written: false, warnings: ["capture stop already in progress"] };
+  }
+  stopInFlight.add(state.pid);
+  try {
+    if (pidRunning(state.pid)) {
+      try {
+        process.kill(state.pid, "SIGTERM");
+      } catch {
+        // Died between the liveness check and the signal; nothing to do.
+      }
+    }
+    const written = state.har ? await waitForFile(state.har, HAR_WAIT_MS) : false;
+    const warnings: string[] = [];
+    const clearWarning = await clearDeviceProxy(deviceId);
+    if (clearWarning) warnings.push(clearWarning);
+    await rm(PIDFILE, { force: true });
+    return { written, warnings };
+  } finally {
+    stopInFlight.delete(state.pid);
+  }
+}
+
+export async function handleNetCapture(args: z.infer<typeof ToolSchemas.netCapture>) {
+  if (args.action === "stop") {
+    const state = await readCaptureState();
+    if (!state || !pidRunning(state.pid)) {
+      // A dead pid means the capture crashed or was killed externally; clear
+      // the proxy it left behind so device traffic is not stuck on a dead port.
+      if (state) {
+        await rm(PIDFILE, { force: true });
+        await clearDeviceProxy(args.deviceId);
+      }
+      return { content: [{ type: "text" as const, text: "no active capture" }] };
+    }
+    const { written, warnings } = await stopCapture(state, args.deviceId);
+    const text = [
+      written ? `capture stopped; HAR: ${state.har}` : "capture stopped; HAR: not yet written",
+      ...warnings.map((w) => `warning: ${w}`),
+    ].join("\n");
+    return { content: [{ type: "text" as const, text }] };
+  }
+
+  const existing = await readCaptureState();
+  if (existing && pidRunning(existing.pid)) {
+    throw new Error(
+      `net_capture busy: capture running (pidfile ${PIDFILE}, port ${args.port})`
+    );
+  }
+  // A pidfile whose process is gone is debris from a crashed/killed run.
+  if (existing) await rm(PIDFILE, { force: true });
+
+  const port = args.port ?? 8080;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`invalid port ${port}: expected an integer in 1..65535`);
+  }
+  const durationSec = args.durationSec ?? 30;
+  if (!Number.isFinite(durationSec) || durationSec <= 0) {
+    throw new Error(`invalid durationSec ${durationSec}: expected a positive number of seconds`);
+  }
+
+  const mitm = await resolveMitmDump(REPO_ROOT);
+  if (!mitm) throw new Error("mitmdump not found — run 'make setup' (vendors python-venv)");
+
+  const har = join(tmpdir(), `android-mcp-mitm-${Date.now()}.har`);
+  const warnings: string[] = [];
+
+  // Root the device first: it is needed for the system CA store and is also
+  // what the Frida tools provision. A failure here does not block HTTP capture.
+  let rooted = false;
+  try {
+    await ensureServer(args.deviceId, REPO_ROOT);
+    rooted = true;
+  } catch (e: any) {
+    warnings.push(`device root/profile skipped: ${e?.message ?? String(e)}`);
+  }
+
+  // Detached mitmdump: it must outlive this request, so the MCP server never
+  // waits on the session. stdio goes to a sidecar log for startup diagnostics.
+  const { spawn } = await import("node:child_process");
+  const logPath = `${har}.log`;
+  const fd = openSync(logPath, "a");
+  let pid: number | undefined;
+  try {
+    const child = spawn(mitm, ["-p", String(port), "--set", `hardump=${har}`], {
+      detached: true,
+      stdio: ["ignore", fd, fd],
+    });
+    child.unref();
+    pid = child.pid;
+  } finally {
+    closeSync(fd);
+  }
+  if (!pid) throw new Error("failed to spawn mitmdump");
+
+  try {
+    await writeFile(PIDFILE, `${pid}\n${har}\n`, "utf8");
+  } catch (e) {
+    // Never leave an untracked mitmdump behind if the pidfile cannot be written.
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      // Already gone.
+    }
+    throw e;
+  }
+
+  // `mitmdump --version` does not create the certstore in mitmproxy 12.x; the
+  // CA only appears once the proxy starts. Give it a moment, then install it.
+  await sleep(700);
+  if (!pidRunning(pid)) {
+    await rm(PIDFILE, { force: true });
+    let tail = "";
+    try {
+      tail = (await readFile(logPath, "utf8")).trim().split("\n").slice(-5).join("\n");
+    } catch {
+      // No log; the generic message below is enough.
+    }
+    throw new Error(
+      `mitmdump exited immediately (port ${port} already in use?): ${tail || "no output"}`
+    );
+  }
+
+  let caInstalled: string | null = null;
+  if (rooted) {
+    const caReady = await waitForFile(MITM_CA_PATH, HAR_WAIT_MS);
+    if (!caReady) warnings.push(`mitmproxy CA was not created at ${MITM_CA_PATH}`);
+    else caInstalled = await installMitmCa(args.deviceId, warnings);
+  }
+
+  const proxied = await setDeviceProxy(
+    args.deviceId,
+    `${EMULATOR_HOST_ALIAS}:${port}`,
+    30_000
+  );
+  if (proxied.code !== 0) {
+    await stopCapture({ pid, har }, args.deviceId);
+    throw new Error(
+      `failed to set device HTTP proxy: ${proxied.detail || "no output"} — ` +
+        `check 'adb devices' and that the device is rooted`
+    );
+  }
+
+  // Auto-stop is in-process and unref'd: the MCP server keeps serving, and the
+  // capture still ends by itself while the session is alive.
+  const timer = setTimeout(() => {
+    void stopCapture({ pid, har }, args.deviceId).catch(() => {});
+  }, durationSec * 1000);
+  timer.unref();
+
+  const details = [
+    `proxy set to ${EMULATOR_HOST_ALIAS}:${port} (emulator host alias; on a physical ` +
+      `device use 'adb reverse tcp:${port} tcp:${port}' with http_proxy 127.0.0.1:${port})`,
+    ...(caInstalled
+      ? [`CA installed at ${caInstalled}`]
+      : rooted
+        ? ["CA not installed; HTTPS will fail until you trust the user cert manually"]
+        : ["device not rooted; system CA not installed (trust the user cert manually)"]),
+    `auto-stop in ${durationSec}s — the HAR is flushed when mitmdump exits`,
+    ...warnings.map((w) => `warning: ${w}`),
+  ];
+
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: [`capture started (pid ${pid}, har ${har})`, ...details].join("\n"),
+      },
+    ],
+  };
 }

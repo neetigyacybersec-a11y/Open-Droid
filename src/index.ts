@@ -43,6 +43,7 @@ server.registerTool("runtime_dump", { description: "Structured dumpsys probes: a
 server.registerTool("frida_ps", { description: "Ensure frida-server is running on the device, then list installed apps and running processes.", inputSchema: ToolSchemas.fridaPs }, logged("frida_ps", async (a: any) => H.handleFridaPs(a)));
 server.registerTool("frida_hook", { description: "Spawn or attach to an app and run an inline or file-based Frida hook script for a bounded duration, returning its console output.", inputSchema: ToolSchemas.fridaHook }, logged("frida_hook", async (a: any) => H.handleFridaHook(a)));
 server.registerTool("frida_trace_methods", { description: "Trace a Java class's methods by regex, logging each call's arguments and return value.", inputSchema: ToolSchemas.fridaTraceMethods }, logged("frida_trace_methods", async (a: any) => H.handleFridaTraceMethods(a)));
+server.registerTool("net_capture", { description: "Start or stop a single mitmproxy capture session. Start roots the device, installs the mitmproxy CA (best-effort), points the device HTTP proxy at the host, and writes a HAR file; auto-stops after durationSec.", inputSchema: ToolSchemas.netCapture }, logged("net_capture", async (a: any) => H.handleNetCapture(a)));
 
 async function main() {
   const transport = new StdioServerTransport();

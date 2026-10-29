@@ -5,7 +5,7 @@
 // by the manual emulator smoke run; here we pin the pure/unit-level behaviour
 // that tools depend on.
 import { strict as assert } from "node:assert";
-import { mkdtempSync, writeFileSync, chmodSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync, chmodSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -13,9 +13,10 @@ import {
   parseBuildType,
   resolveFridaCli,
   resolveMitmDump,
+  pidRunning,
   PIDFILE,
 } from "../dist/frida.js";
-import { ToolSchemas, handleFridaHook } from "../dist/tools.js";
+import { ToolSchemas, handleFridaHook, handleNetCapture } from "../dist/tools.js";
 import { which } from "../dist/util.js";
 
 // --- ABI mapping: device getprop ABI -> frida-server release asset suffix ---
@@ -95,5 +96,57 @@ await assert.rejects(
 
 rmSync(fake, { recursive: true, force: true });
 rmSync(noexecRoot, { recursive: true, force: true });
+
+// --- Capture liveness + net_capture schema (Task 7) ---
+assert.equal(pidRunning(-1), false); // dead/invalid pid -> false
+assert.equal(pidRunning(0), false);
+assert.equal(pidRunning(999999999), false);
+assert.equal(pidRunning(process.pid), true); // this test process -> true
+
+const captureDefaults = ToolSchemas.netCapture.parse({ action: "start" });
+assert.equal(captureDefaults.port, 8080);
+assert.equal(captureDefaults.durationSec, 30);
+assert.equal(captureDefaults.deviceId, undefined);
+
+const captureStop = ToolSchemas.netCapture.parse({
+  action: "stop",
+  deviceId: "emulator-5554",
+  port: 9090,
+  durationSec: 5,
+});
+assert.equal(captureStop.action, "stop");
+assert.equal(captureStop.deviceId, "emulator-5554");
+assert.equal(captureStop.port, 9090);
+assert.equal(captureStop.durationSec, 5);
+
+assert.throws(() => ToolSchemas.netCapture.parse({ action: "restart" }));
+assert.throws(() => ToolSchemas.netCapture.parse({}));
+
+// Argument validation happens before mitmdump is resolved, so these are
+// host-independent and safe to run on a machine without a device.
+await assert.rejects(
+  handleNetCapture({ action: "start", port: 0 }),
+  /invalid port 0/
+);
+await assert.rejects(
+  handleNetCapture({ action: "start", port: 8080, durationSec: 0 }),
+  /invalid durationSec 0/
+);
+
+// The busy guard must fire before any mitmdump/adb work. Only run it when no
+// real capture owns the pidfile, so a developer's live session is never lost.
+if (!existsSync(PIDFILE)) {
+  writeFileSync(PIDFILE, `${process.pid}\n/tmp/should-not-be-used.har\n`);
+  try {
+    await assert.rejects(
+      handleNetCapture({ action: "start", port: 12345, durationSec: 5 }),
+      /net_capture busy: capture running \(pidfile .*android-mcp-mitm\.pid, port 12345\)/
+    );
+  } finally {
+    rmSync(PIDFILE, { force: true });
+  }
+} else {
+  console.log("skipping net_capture busy assertion: a capture owns", PIDFILE);
+}
 
 console.log("frida helper test passed");
