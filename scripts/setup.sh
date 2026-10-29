@@ -25,7 +25,8 @@ fi
 
 # ---- python3 preflight (needed for frida/mitmproxy dynamic analysis) ----
 if ! command -v python3 >/dev/null 2>&1; then
-  log "WARNING: python3 not found. Required for frida/mitmproxy (dynamic analysis). Install: sudo apt install -y python3 python3-venv"
+  log "WARNING: python3 not found. Required for frida/mitmproxy (dynamic analysis). Core build/test still work without it."
+  log "         Install python3 + python3-venv via your package manager (or a user-level Python) to enable dynamic analysis."
 fi
 
 # ---- JDK (auto-download Temurin if no system JDK is present) ----

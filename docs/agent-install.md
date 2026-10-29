@@ -30,6 +30,23 @@ OpenCode CLI; they consume the stdio server directly via their own config.
 
 ---
 
+## 0.5 Root / sudo requirements (important)
+
+**No root is required for the core install.** `make setup` writes everything into
+`./.toolchain/` (user-owned) and registers MCP/skills in `~/.config/opencode/`
+(user-owned). You only need elevated privileges for two optional things:
+
+| Item | Needs root? | If you lack root |
+|---|---|---|
+| JDK (Temurin 21) | No — auto-downloaded by `make setup` into `.toolchain/jdk` | Nothing; works automatically |
+| Android SDK, Gradle, Maestro, frida, mitmproxy | No — all vendored into `.toolchain/` | Nothing |
+| MCP registration / skills | No — written to `~/.config/opencode/` | Nothing |
+| `python3` / `python3-venv` | Only if not already installed (apt) | Dynamic analysis is skipped; core build/test still work. Install via your distro's package manager or a user-level Python (pyenv). |
+| KVM group membership (`/dev/kvm` writable) | Yes (for x86_64 emulator) | Use an ARM64 host with arm64 images, a physical Android device via `adb`, or ask your admin: `sudo gpasswd -a $USER kvm` + re-login. |
+
+If `make doctor` reports a missing optional item, the rest of the toolkit still
+works — only the related feature (dynamic analysis / emulator) is unavailable.
+
 ## 1. Fresh install (clone + one-time setup)
 
 ### 1.1 Clone

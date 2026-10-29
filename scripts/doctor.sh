@@ -14,7 +14,7 @@ for c in compose-preview android; do
 done
 # dynamic analysis (frida + mitmproxy via .toolchain/python-venv, frida-server binaries)
 for c in frida frida-ps mitmdump python3; do
-  if command -v "$c" >/dev/null 2>&1; then echo "OK   $c (dynamic)"; else warn "$c missing (run 'make setup'; dynamic analysis unavailable)"; fi
+  if command -v "$c" >/dev/null 2>&1; then echo "OK   $c (dynamic)"; else warn "$c missing (optional; dynamic analysis unavailable). Install python3/python3-venv if possible"; fi
 done
 # Decompressed binaries only: a leftover *.xz means the download/decompress step lagged behind.
 if find "$TOOLCHAIN/frida" -maxdepth 1 -type f -name 'frida-server-*' ! -name '*.xz' -print -quit 2>/dev/null | grep -q .; then

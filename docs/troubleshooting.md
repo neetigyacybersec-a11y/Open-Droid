@@ -1,5 +1,20 @@
 # Troubleshooting (new-host install checklist)
 
+## No-root / no-sudo installs
+
+The core install needs **no root**. Everything goes into `./.toolchain/` and
+`~/.config/opencode/`. Only these two things may require elevated privileges,
+and both are optional:
+
+- **`/dev/kvm` not writable** (x86_64 emulator): ask your admin to add you to
+  the `kvm` group, or use an ARM64 host / a physical device.
+- **`python3-venv` missing**: dynamic analysis is skipped; core build and tests
+  still pass. Install python3-venv via your package manager if you have sudo,
+  otherwise use a user-level Python (pyenv/conda) or skip dynamic analysis.
+
+`make doctor` reports each optional item as a warning, not a failure, so a
+no-root host still gets a usable MCP server.
+
 Errors observed when installing on a fresh host and how this repo prevents them:
 
 ## Build phase
