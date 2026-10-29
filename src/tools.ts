@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { join } from "node:path";
+import { constants } from "node:fs";
+import { access, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   run,
   which,
@@ -9,6 +12,7 @@ import {
   validateGradleTask,
   validatePackageName,
 } from "./util.js";
+import { ensureServer, resolveFridaCli } from "./frida.js";
 
 export const ToolSchemas = {
   envCheck: z.object({}),
@@ -67,6 +71,22 @@ export const ToolSchemas = {
     deviceId: z.string().optional(),
     kind: z.enum(["activity", "service", "package", "meminfo"]),
     packageName: z.string().optional(),
+  }),
+  fridaPs: z.object({ deviceId: z.string().optional() }),
+  fridaHook: z.object({
+    packageName: z.string(),
+    deviceId: z.string().optional(),
+    script: z.string().optional().describe("Inline Frida JS; takes precedence over scriptPath"),
+    scriptPath: z.string().optional(),
+    spawn: z.boolean().optional().default(true).describe("true: spawn+resume via -f; false: attach to running process by name"),
+    durationSec: z.number().optional().default(30),
+  }),
+  fridaTraceMethods: z.object({
+    packageName: z.string(),
+    className: z.string().describe("Exact class or regex-resolvable FQN, e.g. com.example.app.Crypto"),
+    methodRegex: z.string().optional().default(".*"),
+    deviceId: z.string().optional(),
+    durationSec: z.number().optional().default(30),
   }),
 };
 
@@ -327,4 +347,145 @@ export async function handleRuntimeDump(args: z.infer<typeof ToolSchemas.runtime
   const note = ignored ? `\nnote=packageName ignored for kind=${args.kind}` : "";
   const out = `${head}${note}\nexit=${r.code}\n--- stdout ---\n${capOutput(r.stdout)}\n--- stderr ---\n${r.stderr}`;
   return { content: [{ type: "text" as const, text: out }], isError: r.code !== 0 };
+}
+
+/** Repo root as seen from src/ (tsx) or dist/ (compiled) — one level up in both cases. */
+const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
+
+const HOOK_METHOD_SCRIPT = join(REPO_ROOT, "frida-scripts", "hook-method.js");
+
+async function requireFridaCli(): Promise<string> {
+  const cli = await resolveFridaCli(REPO_ROOT);
+  if (!cli) throw new Error("frida CLI not found — run 'make setup' (vendors python-venv)");
+  return cli;
+}
+
+/** `frida-ps` next to the resolved frida CLI (offline venv), else the PATH one. */
+async function fridaPsPath(cli: string): Promise<string> {
+  const sibling = join(dirname(cli), "frida-ps");
+  try {
+    await access(sibling, constants.X_OK);
+    return sibling;
+  } catch {
+    return "frida-ps";
+  }
+}
+
+function fridaDeviceArgs(deviceId?: string): string[] {
+  return deviceId ? ["-D", deviceId] : ["-U"];
+}
+
+export async function handleFridaPs(args: z.infer<typeof ToolSchemas.fridaPs>) {
+  const cli = await requireFridaCli();
+  const server = await ensureServer(args.deviceId, REPO_ROOT);
+  const ps = await fridaPsPath(cli);
+  const deviceArgs = fridaDeviceArgs(args.deviceId);
+  const r = await run(ps, [...deviceArgs, "-a", "-i"], { timeout: 60_000 });
+  const header = [
+    `server=${server.server} (${server.abi})`,
+    `cmd=frida-ps ${deviceArgs.join(" ")} -a -i`,
+    `exit=${r.code}`,
+  ];
+  const out = [...header, "--- stdout ---", capOutput(r.stdout), "--- stderr ---", r.stderr].join(
+    "\n",
+  );
+  return { content: [{ type: "text" as const, text: out }], isError: r.code !== 0 };
+}
+
+interface FridaScriptRun {
+  packageName: string;
+  deviceId?: string;
+  source: string;
+  spawn?: boolean;
+  durationSec?: number;
+}
+
+/**
+ * Write the script to a temp file and run frida for a duration-derived budget.
+ * Frida has no "trace for N seconds" flag, so the timeout kill is how a live
+ * session normally ends; that specific case is reported as success.
+ */
+async function runFridaScript(o: FridaScriptRun) {
+  const cli = await requireFridaCli();
+  const spawn = o.spawn !== false;
+  const durationSec = o.durationSec ?? 30;
+  const target = [
+    ...fridaDeviceArgs(o.deviceId),
+    ...(spawn ? ["-f", o.packageName] : [o.packageName]),
+  ];
+  const dir = await tmpDir("android-mcp-frida-");
+  const scriptFile = join(dir, "hook.js");
+  await writeFile(scriptFile, o.source, "utf8");
+  const timeoutMs = Math.max(1, durationSec) * 1000 + 15_000;
+  const started = Date.now();
+  try {
+    const r = await run(cli, [...target, "-l", scriptFile], { timeout: timeoutMs });
+    const budgetKill = r.code !== 0 && Date.now() - started >= timeoutMs - 1_000;
+    const header = [
+      `cmd=frida ${[...target, "-l", "<tmp>/hook.js"].join(" ")}`,
+      `durationSec=${durationSec}` +
+        (budgetKill ? " (session killed at the duration budget; expected for live traces)" : ""),
+      `exit=${r.code}`,
+    ];
+    const out = [
+      ...header,
+      "--- stdout ---",
+      capOutput(r.stdout),
+      "--- stderr ---",
+      r.stderr.trim(),
+    ].join("\n");
+    return {
+      content: [{ type: "text" as const, text: out }],
+      isError: r.code !== 0 && !budgetKill,
+    };
+  } finally {
+    await cleanup(dir);
+  }
+}
+
+async function readHookSource(args: { script?: string; scriptPath?: string }): Promise<string> {
+  if (args.script && args.script.trim().length > 0) return args.script;
+  if (!args.scriptPath) {
+    throw new Error("frida_hook needs a hook script: pass 'script' (inline JS) or 'scriptPath'");
+  }
+  try {
+    return await readFile(args.scriptPath, "utf8");
+  } catch (e: any) {
+    throw new Error(`failed to read scriptPath '${args.scriptPath}': ${e?.message ?? String(e)}`);
+  }
+}
+
+export async function handleFridaHook(args: z.infer<typeof ToolSchemas.fridaHook>) {
+  const source = await readHookSource(args);
+  return runFridaScript({
+    packageName: args.packageName,
+    deviceId: args.deviceId,
+    source,
+    spawn: args.spawn,
+    durationSec: args.durationSec,
+  });
+}
+
+export async function handleFridaTraceMethods(args: z.infer<typeof ToolSchemas.fridaTraceMethods>) {
+  let lib: string;
+  try {
+    lib = await readFile(HOOK_METHOD_SCRIPT, "utf8");
+  } catch (e: any) {
+    throw new Error(
+      `built-in trace script not found at frida-scripts/hook-method.js: ${e?.message ?? String(e)}`,
+    );
+  }
+  // JSON.stringify keeps an odd className/regex from breaking out of the JS literal.
+  const config = `var CONFIG = ${JSON.stringify({
+    className: args.className,
+    methodRegex: args.methodRegex ?? ".*",
+    maxLen: 256,
+  })};\n`;
+  return runFridaScript({
+    packageName: args.packageName,
+    deviceId: args.deviceId,
+    source: config + lib,
+    spawn: true,
+    durationSec: args.durationSec,
+  });
 }

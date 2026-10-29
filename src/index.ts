@@ -40,6 +40,9 @@ server.registerTool("sdkmanager_install", { description: "Install Android SDK pa
 server.registerTool("adb_shell", { description: "Raw shell command passthrough to a device/emulator (high-trust; no blocklist).", inputSchema: ToolSchemas.adbShell }, logged("adb_shell", async (a: any) => H.handleAdbShell(a)));
 server.registerTool("adb_logcat", { description: "Capture filtered device logcat (clear, wait, dump, regex-filter).", inputSchema: ToolSchemas.adbLogcat }, logged("adb_logcat", async (a: any) => H.handleAdbLogcat(a)));
 server.registerTool("runtime_dump", { description: "Structured dumpsys probes: activity, service, package, meminfo.", inputSchema: ToolSchemas.runtimeDump }, logged("runtime_dump", async (a: any) => H.handleRuntimeDump(a)));
+server.registerTool("frida_ps", { description: "Ensure frida-server is running on the device, then list installed apps and running processes.", inputSchema: ToolSchemas.fridaPs }, logged("frida_ps", async (a: any) => H.handleFridaPs(a)));
+server.registerTool("frida_hook", { description: "Spawn or attach to an app and run an inline or file-based Frida hook script for a bounded duration, returning its console output.", inputSchema: ToolSchemas.fridaHook }, logged("frida_hook", async (a: any) => H.handleFridaHook(a)));
+server.registerTool("frida_trace_methods", { description: "Trace a Java class's methods by regex, logging each call's arguments and return value.", inputSchema: ToolSchemas.fridaTraceMethods }, logged("frida_trace_methods", async (a: any) => H.handleFridaTraceMethods(a)));
 
 async function main() {
   const transport = new StdioServerTransport();

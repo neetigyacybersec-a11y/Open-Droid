@@ -15,6 +15,7 @@ import {
   resolveMitmDump,
   PIDFILE,
 } from "../dist/frida.js";
+import { ToolSchemas, handleFridaHook } from "../dist/tools.js";
 import { which } from "../dist/util.js";
 
 // --- ABI mapping: device getprop ABI -> frida-server release asset suffix ---
@@ -58,6 +59,39 @@ assert.equal(await resolveMitmDump("/nonexistent-root-xyz"), await which("mitmdu
 
 // --- Shared state path ---
 assert.equal(PIDFILE, join(tmpdir(), "android-mcp-mitm.pid"));
+
+// --- MCP tool schemas (Task 6): defaults and required fields the handlers rely on ---
+const hookDefaults = ToolSchemas.fridaHook.parse({ packageName: "com.example.app" });
+assert.equal(hookDefaults.spawn, true);
+assert.equal(hookDefaults.durationSec, 30);
+assert.equal(hookDefaults.script, undefined);
+assert.equal(hookDefaults.scriptPath, undefined);
+
+const hookAttach = ToolSchemas.fridaHook.parse({
+  packageName: "com.example.app",
+  spawn: false,
+  durationSec: 5,
+});
+assert.equal(hookAttach.spawn, false);
+assert.equal(hookAttach.durationSec, 5);
+
+const traceDefaults = ToolSchemas.fridaTraceMethods.parse({
+  packageName: "com.example.app",
+  className: "com.example.app.Crypto",
+});
+assert.equal(traceDefaults.methodRegex, ".*");
+assert.equal(traceDefaults.durationSec, 30);
+
+assert.throws(() => ToolSchemas.fridaHook.parse({ script: "console.log(1)" }));
+assert.throws(() => ToolSchemas.fridaTraceMethods.parse({ packageName: "com.example.app" }));
+assert.deepEqual(ToolSchemas.fridaPs.parse({}), {});
+
+// The handler rejects a missing script before it ever resolves the frida CLI,
+// so this stays host-independent on machines without frida installed.
+await assert.rejects(
+  handleFridaHook({ packageName: "com.example.app" }),
+  /hook script.*script.*scriptPath/,
+);
 
 rmSync(fake, { recursive: true, force: true });
 rmSync(noexecRoot, { recursive: true, force: true });
