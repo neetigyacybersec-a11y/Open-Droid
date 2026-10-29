@@ -16,7 +16,12 @@ done
 for c in frida frida-ps mitmdump python3; do
   if command -v "$c" >/dev/null 2>&1; then echo "OK   $c (dynamic)"; else warn "$c missing (run 'make setup'; dynamic analysis unavailable)"; fi
 done
-ls "$TOOLCHAIN"/frida/frida-server-* >/dev/null 2>&1 && echo "OK   frida-server binaries present" || warn "frida-server binaries missing (dynamic analysis unavailable)"
+# Decompressed binaries only: a leftover *.xz means the download/decompress step lagged behind.
+if find "$TOOLCHAIN/frida" -maxdepth 1 -type f -name 'frida-server-*' ! -name '*.xz' -print -quit 2>/dev/null | grep -q .; then
+  echo "OK   frida-server binaries present"
+else
+  warn "frida-server binaries missing (dynamic analysis unavailable)"
+fi
 echo "ANDROID_HOME=${ANDROID_HOME:-unset}"
 echo "JAVA_HOME=${JAVA_HOME:-unset}"
 echo "GRADLE_USER_HOME=${GRADLE_USER_HOME:-unset}"

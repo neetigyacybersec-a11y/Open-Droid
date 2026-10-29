@@ -140,12 +140,27 @@ fi
 _AVDS_DONE=1
 
 # ---- Vendored dynamic-analysis tooling (frida + mitmproxy) ----
+# The venv is gated on a stamp holding all three pins, so bumping any pin in
+# versions.env reinstalls instead of silently keeping stale packages.
 VENV="$TOOLCHAIN/python-venv"
-if command -v python3 >/dev/null 2>&1 && [ ! -x "$VENV/bin/frida" ]; then
-  log "Creating python venv (frida-tools $FRIDA_TOOLS_VERSION, mitmproxy $MITMPROXY_VERSION)..."
-  python3 -m venv "$VENV" && "$VENV/bin/pip" install --quiet \
-    "frida-tools==${FRIDA_TOOLS_VERSION}" "mitmproxy==${MITMPROXY_VERSION}" \
-    || log "WARNING: venv setup failed; frida/net_capture tools unavailable"
+VENV_STAMP="$VENV/.pins"
+VENV_PINS="frida==${FRIDA_VERSION}
+frida-tools==${FRIDA_TOOLS_VERSION}
+mitmproxy==${MITMPROXY_VERSION}"
+if command -v python3 >/dev/null 2>&1; then
+  if [ ! -x "$VENV/bin/frida" ] || [ ! -f "$VENV_STAMP" ] \
+     || [ "$(cat "$VENV_STAMP")" != "$VENV_PINS" ]; then
+    log "Creating python venv (frida $FRIDA_VERSION, frida-tools $FRIDA_TOOLS_VERSION, mitmproxy $MITMPROXY_VERSION)..."
+    if python3 -m venv "$VENV" && "$VENV/bin/pip" install --quiet \
+        "frida==${FRIDA_VERSION}" \
+        "frida-tools==${FRIDA_TOOLS_VERSION}" \
+        "mitmproxy==${MITMPROXY_VERSION}"; then
+      # Stamp last, only after a successful install, so failures retry next run.
+      printf '%s\n' "$VENV_PINS" > "$VENV_STAMP"
+    else
+      log "WARNING: venv setup failed; frida/net_capture tools unavailable"
+    fi
+  fi
 fi
 FRIDA_DIR="$TOOLCHAIN/frida"
 mkdir -p "$FRIDA_DIR"
