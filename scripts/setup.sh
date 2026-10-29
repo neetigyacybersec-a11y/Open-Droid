@@ -23,6 +23,11 @@ if ! command -v node >/dev/null 2>&1 || [ "$(node -v | cut -d. -f1 | tr -d v)" -
   nvm use "$NODE_MAJOR"
 fi
 
+# ---- python3 preflight (needed for frida/mitmproxy dynamic analysis) ----
+if ! command -v python3 >/dev/null 2>&1; then
+  log "WARNING: python3 not found. Required for frida/mitmproxy (dynamic analysis). Install: sudo apt install -y python3 python3-venv"
+fi
+
 # ---- JDK ----
 if [ ! -x "$TOOLCHAIN/jdk/bin/java" ]; then
   log "Downloading Temurin JDK $JAVA_MAJOR..."
@@ -63,12 +68,6 @@ export ANDROID_HOME="$SDK"
 export ANDROID_SDK_ROOT="$SDK"
 export PATH="$JAVA_HOME/bin:$SDK/cmdline-tools/latest/bin:$SDK/platform-tools:$PATH"
 
-# ---- Accept licenses + install packages ----
-log "Installing Android SDK packages (platform-tools, $ANDROID_PLATFORM, build-tools, emulator, system image)..."
-yes | sdkmanager --licenses >/dev/null 2>&1 || true
-
-# Arch-aware image selection (must match host CPU)
-SYSTEM_IMAGE="system-images;$ANDROID_PLATFORM;google_apis;$IMG_ABI"
 # ---- Host architecture / KVM preflight ----
 HOST_ARCH="$(uname -m)"
 log "Host arch: $HOST_ARCH"
@@ -93,6 +92,13 @@ if [ "$IMG_ABI" = "x86_64" ]; then
     log "KVM available: yes"
   fi
 fi
+
+# ---- Accept licenses + install packages ----
+log "Installing Android SDK packages (platform-tools, $ANDROID_PLATFORM, build-tools, emulator, system image)..."
+yes | sdkmanager --licenses >/dev/null 2>&1 || true
+
+# Arch-aware image selection (must match host CPU)
+SYSTEM_IMAGE="system-images;$ANDROID_PLATFORM;google_apis;$IMG_ABI"
 
 install_sdk() {
   local img="$1"
