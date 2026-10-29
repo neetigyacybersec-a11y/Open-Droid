@@ -415,10 +415,10 @@ async function runFridaScript(o: FridaScriptRun) {
   ];
   const dir = await tmpDir("android-mcp-frida-");
   const scriptFile = join(dir, "hook.js");
-  await writeFile(scriptFile, o.source, "utf8");
   const timeoutMs = Math.max(1, durationSec) * 1000 + 15_000;
   const started = Date.now();
   try {
+    await writeFile(scriptFile, o.source, "utf8");
     const r = await run(cli, [...target, "-l", scriptFile], { timeout: timeoutMs });
     const budgetKill = r.code !== 0 && Date.now() - started >= timeoutMs - 1_000;
     const header = [

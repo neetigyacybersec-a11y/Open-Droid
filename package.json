@@ -36,6 +36,7 @@
   "license": "MIT",
   "files": [
     "dist",
+    "frida-scripts",
     "README.md",
     "LICENSE"
   ]
