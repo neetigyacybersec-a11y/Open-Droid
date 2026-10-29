@@ -14,6 +14,16 @@ setTimeout(() => {
   proc.kill();
   const lines = out.trim().split("\n").map((l) => JSON.parse(l));
   const tools = lines.find((l) => l.id === 2)?.result?.tools;
-  assert.ok(Array.isArray(tools) && tools.length >= 10, "expected >=10 tools");
-  console.log("smoke test passed:", tools.length, "tools");
+  const EXPECTED = new Set([
+    "android_env_check", "gradle_task", "adb_devices", "adb_screenshot",
+    "adb_install", "adb_launch", "emulator_list_avds", "emulator_boot",
+    "maestro_run", "compose_preview_render", "android_skills_list",
+    "android_skills_search", "sdkmanager_install",
+    "adb_shell", "adb_logcat", "runtime_dump",
+    "frida_ps", "frida_hook", "frida_trace_methods", "net_capture",
+  ]);
+  assert.equal(tools.length, EXPECTED.size, "tool count drifted from 20");
+  const names = new Set(tools.map((t) => t.name));
+  for (const n of EXPECTED) assert.ok(names.has(n), `missing tool: ${n}`);
+  console.log("smoke test passed: 20 tools");
 }, 2000);
