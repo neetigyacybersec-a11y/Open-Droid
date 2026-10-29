@@ -243,11 +243,17 @@ function sleep(ms: number): Promise<void> {
   return new Promise((res) => setTimeout(res, ms));
 }
 
+const SHELL_MAX_CHARS = 40_000;
+
 export async function handleAdbShell(args: z.infer<typeof ToolSchemas.adbShell>) {
   const timeoutMs = Math.max(1_000, (args.timeoutSec ?? 60) * 1000);
   const base = await adbBase(args.deviceId);
   const r = await run("adb", [...base, "shell", args.command], { timeout: timeoutMs });
-  const out = `exit=${r.code}\n--- stdout ---\n${r.stdout}\n--- stderr ---\n${r.stderr}`;
+  const trunc = r.stdout.length > SHELL_MAX_CHARS;
+  const stdout = trunc
+    ? `${r.stdout.slice(0, SHELL_MAX_CHARS)}\n[truncated: ${r.stdout.length} chars total]`
+    : r.stdout;
+  const out = `exit=${r.code}\n--- stdout ---\n${stdout}\n--- stderr ---\n${r.stderr}`;
   return { content: [{ type: "text" as const, text: out }], isError: r.code !== 0 };
 }
 
@@ -309,9 +315,11 @@ export async function handleRuntimeDump(args: z.infer<typeof ToolSchemas.runtime
   }
   const base = await adbBase(args.deviceId);
   const dumpArgs = ["shell", "dumpsys", args.kind];
+  const ignored = args.packageName && !wantsPackage;
   if (wantsPackage && args.packageName) dumpArgs.push(args.packageName);
   const r = await run("adb", [...base, ...dumpArgs], { timeout: 120_000 });
   const head = `cmd=adb ${base.join(" ")} ${dumpArgs.join(" ")}`.replace(/\s+/g, " ").trim();
-  const out = `${head}\nexit=${r.code}\n--- stdout ---\n${r.stdout.slice(0, 40_000)}\n--- stderr ---\n${r.stderr}`;
+  const note = ignored ? `\nnote=packageName ignored for kind=${args.kind}` : "";
+  const out = `${head}${note}\nexit=${r.code}\n--- stdout ---\n${r.stdout.slice(0, 40_000)}\n--- stderr ---\n${r.stderr}`;
   return { content: [{ type: "text" as const, text: out }], isError: r.code !== 0 };
 }
