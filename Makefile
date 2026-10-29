@@ -3,7 +3,10 @@ ROOT := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 TOOLCHAIN := $(ROOT).toolchain
 -include $(TOOLCHAIN)/env.sh
 
-.PHONY: help setup doctor build-mcp test-mcp run-mcp new-app build-app emulator screenshot warm-cache register clean distclean
+.PHONY: help setup doctor build-mcp test-mcp run-mcp new-app build-app emulator screenshot warm-cache register clean distclean check-readme
+
+help:
+	@echo "android-mcp product targets:"
 
 help:
 	@echo "android-mcp product targets:"
@@ -48,6 +51,9 @@ warm-cache:
 
 register:
 	bash scripts/register.sh
+
+check-readme:
+	bash scripts/check-readme.sh
 
 emulator:
 	bash -c 'source .toolchain/env.sh && emulator -avd $${AVD_NAME:-Pixel_9_API_35} -no-snapshot-load'

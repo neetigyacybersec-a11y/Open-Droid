@@ -16,6 +16,7 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm test --if-present
+      - run: bash scripts/check-readme.sh
 
   app-build:
     runs-on: ubuntu-latest
