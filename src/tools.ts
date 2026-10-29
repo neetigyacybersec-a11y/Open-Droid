@@ -101,6 +101,7 @@ export const ToolSchemas = {
     port: z.number().optional().default(8080),
     durationSec: z
       .number()
+      .max(86400)
       .optional()
       .default(30)
       .describe("Seconds of traffic to collect before auto-stop (start)"),
@@ -514,11 +515,17 @@ const DEVICE_CA_DIR = "/system/etc/security/cacerts";
 /** Emulator NAT alias for the host loopback (physical devices need `adb reverse`). */
 const EMULATOR_HOST_ALIAS = "10.0.2.2";
 const HAR_WAIT_MS = 10_000;
+// Tracks the in-process auto-stop timer so a manual `stop` can cancel it and
+// a stale timer from a previous capture cannot clobber a later one (H1).
+let activeAutoStopTimer: NodeJS.Timeout | null = null;
+let activeAutoStopPid: number | null = null;
 
 interface CaptureState {
   pid: number;
   /** Absolute path of the HAR file mitmdump flushes on exit. */
   har: string;
+  /** Port the running capture is listening on (if recorded). */
+  port?: number;
 }
 
 async function fileExists(path: string): Promise<boolean> {
@@ -543,10 +550,11 @@ async function readCaptureState(): Promise<CaptureState | null> {
   } catch {
     return null;
   }
-  const [pidLine = "", harLine = ""] = raw.split("\n");
+  const [pidLine = "", harLine = "", portLine = ""] = raw.split("\n");
   const pid = Number.parseInt(pidLine.trim(), 10);
   if (!Number.isInteger(pid) || pid <= 0) return null;
-  return { pid, har: harLine.trim() };
+  const port = Number.parseInt(portLine.trim(), 10);
+  return { pid, har: harLine.trim(), port: Number.isInteger(port) && port > 0 ? port : undefined };
 }
 
 async function waitForFile(path: string, timeoutMs: number): Promise<boolean> {
@@ -658,6 +666,13 @@ async function stopCapture(
   if (stopInFlight.has(state.pid)) {
     return { written: false, warnings: ["capture stop already in progress"] };
   }
+  // Cancel any pending auto-stop timer for this capture so a manual stop does
+  // not race with a later stale timer (H1).
+  if (activeAutoStopPid === state.pid && activeAutoStopTimer) {
+    clearTimeout(activeAutoStopTimer);
+    activeAutoStopTimer = null;
+    activeAutoStopPid = null;
+  }
   stopInFlight.add(state.pid);
   try {
     if (pidRunning(state.pid)) {
@@ -668,6 +683,12 @@ async function stopCapture(
       }
     }
     const written = state.har ? await waitForFile(state.har, HAR_WAIT_MS) : false;
+    // Guard against a stale auto-stop timer (or a duplicate stop) clobbering
+    // a newer capture that has since taken over the pidfile (H1).
+    const current = await readCaptureState();
+    if (!current || current.pid !== state.pid) {
+      return { written, warnings: ["capture superseded; no proxy/pidfile changes made"] };
+    }
     const warnings: string[] = [];
     const clearWarning = await clearDeviceProxy(deviceId);
     if (clearWarning) warnings.push(clearWarning);
@@ -700,8 +721,9 @@ export async function handleNetCapture(args: z.infer<typeof ToolSchemas.netCaptu
 
   const existing = await readCaptureState();
   if (existing && pidRunning(existing.pid)) {
+    const runningPort = existing.port ?? args.port;
     throw new Error(
-      `net_capture busy: capture running (pidfile ${PIDFILE}, port ${args.port})`
+      `net_capture busy: capture running (pidfile ${PIDFILE}, port ${runningPort})`
     );
   }
   // A pidfile whose process is gone is debris from a crashed/killed run.
@@ -712,8 +734,8 @@ export async function handleNetCapture(args: z.infer<typeof ToolSchemas.netCaptu
     throw new Error(`invalid port ${port}: expected an integer in 1..65535`);
   }
   const durationSec = args.durationSec ?? 30;
-  if (!Number.isFinite(durationSec) || durationSec <= 0) {
-    throw new Error(`invalid durationSec ${durationSec}: expected a positive number of seconds`);
+  if (!Number.isFinite(durationSec) || durationSec <= 0 || durationSec > 86400) {
+    throw new Error(`invalid durationSec ${durationSec}: expected a number in 1..86400 seconds`);
   }
 
   const mitm = await resolveMitmDump(REPO_ROOT);
@@ -739,19 +761,24 @@ export async function handleNetCapture(args: z.infer<typeof ToolSchemas.netCaptu
   const fd = openSync(logPath, "a");
   let pid: number | undefined;
   try {
-    const child = spawn(mitm, ["-p", String(port), "--set", `hardump=${har}`], {
-      detached: true,
-      stdio: ["ignore", fd, fd],
+    pid = await new Promise<number>((resolve, reject) => {
+      const child = spawn(mitm, ["-p", String(port), "--set", `hardump=${har}`], {
+        detached: true,
+        stdio: ["ignore", fd, fd],
+      });
+      child.once("spawn", () => {
+        child.unref();
+        resolve(child.pid as number);
+      });
+      child.once("error", (e) => reject(e instanceof Error ? e : new Error(String(e))));
     });
-    child.unref();
-    pid = child.pid;
   } finally {
     closeSync(fd);
   }
   if (!pid) throw new Error("failed to spawn mitmdump");
 
   try {
-    await writeFile(PIDFILE, `${pid}\n${har}\n`, "utf8");
+    await writeFile(PIDFILE, `${pid}\n${har}\n${port}\n`, "utf8");
   } catch (e) {
     // Never leave an untracked mitmdump behind if the pidfile cannot be written.
     try {
@@ -801,9 +828,13 @@ export async function handleNetCapture(args: z.infer<typeof ToolSchemas.netCaptu
   // Auto-stop is in-process and unref'd: the MCP server keeps serving, and the
   // capture still ends by itself while the session is alive.
   const timer = setTimeout(() => {
-    void stopCapture({ pid, har }, args.deviceId).catch(() => {});
+    activeAutoStopTimer = null;
+    activeAutoStopPid = null;
+    void stopCapture({ pid, har, port }, args.deviceId).catch(() => {});
   }, durationSec * 1000);
   timer.unref();
+  activeAutoStopTimer = timer;
+  activeAutoStopPid = pid;
 
   const details = [
     `proxy set to ${EMULATOR_HOST_ALIAS}:${port} (emulator host alias; on a physical ` +
