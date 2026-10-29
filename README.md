@@ -87,7 +87,7 @@ Wire into OpenCode (`~/.config/opencode/opencode.jsonc`):
 ## Quick start — Clone + setup (automatic registration)
 
 ```bash
-git clone git@github.com:neetigyacybersec-a11y/Open-Droid.git
+git clone https://github.com/neetigyacybersec-a11y/Open-Droid.git
 cd Open-Droid
 
 make setup          # one-time ~3 GB download + auto-registers with OpenCode

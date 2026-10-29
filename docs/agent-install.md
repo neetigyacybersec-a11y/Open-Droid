@@ -35,10 +35,15 @@ OpenCode CLI; they consume the stdio server directly via their own config.
 ### 1.1 Clone
 
 ```bash
-git clone https://github.com/<owner>/android-mcp.git
-cd android-mcp
+git clone https://github.com/neetigyacybersec-a11y/Open-Droid.git
+cd Open-Droid
 export REPO="$(pwd)"
 ```
+
+> **SSH vs HTTPS:** The clone above uses HTTPS, which works for everyone without
+> any key setup. If you prefer SSH (`git@github.com:...`), you must have a
+> configured GitHub SSH key, otherwise you get `Permission denied (publickey)`.
+> See `docs/troubleshooting.md` (Git clone row).
 
 ### 1.2 One-time setup (downloads ~3 GB into `./.toolchain/`)
 

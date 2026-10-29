@@ -50,3 +50,8 @@ Use a CI runner with KVM, or run the Android app on a physical device
 | HTTPS bodies missing from HAR | API 34+ ignores runtime CA additions, and `targetSdk >= 24` apps do not trust user CAs by default | Do not rely on a user cert; use an APEX/Magisk system-CA module or `frida-scripts/ssl-unpin.js` |
 | `could not hash mitmproxy CA with openssl` | `openssl` not on `PATH` | `sudo apt install -y openssl` |
 | python3 missing | Not installed | `sudo apt install -y python3 python3-venv` |
+
+## Git clone
+| Symptom | Root cause | Fix |
+|---|---|---|
+| `git@github.com: Permission denied (publickey)` | No SSH key configured for GitHub | Use the HTTPS URL instead: `git clone https://github.com/neetigyacybersec-a11y/Open-Droid.git`. Or set up an SSH key: https://docs.github.com/en/authentication/connecting-to-github-with-ssh |

@@ -22,7 +22,7 @@ Configure OpenCode (`~/.config/opencode/opencode.jsonc`; same shape `opencode mc
 ## Option B — Clone + one-time setup (offline afterwards)
 
 ```bash
-git clone https://github.com/<owner>/android-mcp.git
+git clone https://github.com/neetigyacybersec-a11y/Open-Droid.git
 cd android-mcp
 make setup          # one-time ~3GB download into ./.toolchain
                     # + auto-registers MCP (global) + installs skills (global)
