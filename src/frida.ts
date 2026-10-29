@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { access, readFile, readdir } from "node:fs/promises";
+import { access, readFile, readdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,10 +33,10 @@ async function isExecutable(path: string): Promise<boolean> {
   }
 }
 
-async function isFile(path: string): Promise<boolean> {
+async function isReadableFile(path: string): Promise<boolean> {
   try {
-    await access(path, constants.R_OK);
-    return true;
+    const st = await stat(path);
+    return st.isFile();
   } catch {
     return false;
   }
@@ -102,7 +102,7 @@ async function resolveServerFile(root: string, asset: string): Promise<string> {
   const version = await fridaVersion(root);
   if (version) {
     const pinned = join(dir, `frida-server-${version}-android-${asset}`);
-    if (await isFile(pinned)) return pinned;
+    if (await isReadableFile(pinned)) return pinned;
   }
 
   const entries = await readdir(dir).catch(() => [] as string[]);
@@ -222,7 +222,8 @@ export async function ensureServer(
   const deadline = Date.now() + 15_000;
   let last = "";
   for (;;) {
-    const check = await run(fridaPs, ["-U"], { timeout: TIMEOUT });
+    const psArgs = deviceId ? ["-D", deviceId] : ["-U"];
+    const check = await run(fridaPs, psArgs, { timeout: 5_000 });
     if (check.code === 0) return { server: DEVICE_SERVER_PATH, abi };
     last = (check.stderr || check.stdout).trim();
     if (Date.now() >= deadline) break;
