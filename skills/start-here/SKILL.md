@@ -20,10 +20,8 @@ each phase. Acts like a senior product/engineering team lead.
 ## Phase 1 — Discovery & Design (use design skills)
 - ux-research-planning: personas, journey maps, research questions.
 - usability-testing: test plan template.
-- uiux-design-foundations + android-material3-design: visual system.
-- android-adaptive-layouts: responsive/foldable strategy.
-- design-system-tokens: tokens + theming.
-- motion-design: animation plan.
+- android-compose-ui-ux: visual system, M3 tokens, motion, adaptive layouts, foundations (consolidated).
+- design-tokens: tokens + theming.
 - content-design-microcopy: copy guidelines.
 - figma-to-compose: handoff mapping via Figma MCP (get_design_context, get_variable_defs, get_screenshot).
 - Produce wireframes/prototypes in Figma; review with design-critique.
@@ -39,14 +37,15 @@ each phase. Acts like a senior product/engineering team lead.
 - subagent-driven-development / dispatching-parallel-agents: parallel tasks.
 - test-driven-development: red-green-refactor per task.
 - android-gradle-troubleshoot: build issues.
-- compose-accessibility + wcag-audit: accessibility as you build.
+- android-accessibility: accessibility as you build.
 - android-emulator-smoke: run on device.
 
 ## Phase 4 — Review & QA
 - requesting-code-review / receiving-code-review: code review.
 - design-critique: UI review.
 - android-screenshot-diff: visual regression baselines.
-- wcag-audit: accessibility audit.
+- android-accessibility: accessibility audit.
+- wcag-audit: WCAG conformance audit.
 - usability-testing: run real tests; capture SUS/task success.
 
 ## Phase 5 — Verification & Ship

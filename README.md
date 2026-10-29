@@ -123,18 +123,16 @@ Refresh registration any time with `make register`.
 
 ---
 
-## Skills (35)
+## Skills (29)
 
 **Orchestrator (1):** `start-here` — idea → discovery → design → spec → TDD → review → ship
 
-**Android / UI (8):** `android-compose-ui-ux`, `android-design-tokens`, `figma-to-compose`,
-`android-accessibility-audit`, `android-screenshot-diff`, `android-emulator-smoke`,
+**Android / UI (8):** `android-compose-ui-ux`, `design-tokens`, `figma-to-compose`,
+`android-accessibility`, `android-screenshot-diff`, `android-emulator-smoke`,
 `android-gradle-troubleshoot`, `android-performance`
 
-**Senior UI/UX design (11):** `uiux-design-foundations`, `android-material3-design`,
-`android-adaptive-layouts`, `compose-accessibility`, `wcag-audit`,
-`design-system-tokens`, `ux-research-planning`, `usability-testing`,
-`design-critique`, `motion-design`, `content-design-microcopy`
+**Senior UI/UX design (5):** `wcag-audit`, `ux-research-planning`,
+`usability-testing`, `design-critique`, `content-design-microcopy`
 
 **Superpowers SDE (13):** `brainstorming`, `dispatching-parallel-agents`,
 `executing-plans`, `finishing-a-development-branch`, `receiving-code-review`,
