@@ -94,7 +94,7 @@ var CONFIG = CONFIG || {};
       log("hook-method: reflection failed for " + className + ": " + e);
       return;
     }
-    var seen = {};
+    var seen = Object.create(null);
     var count = 0;
     for (var i = 0; i < declared.length; i++) {
       var methodName;
