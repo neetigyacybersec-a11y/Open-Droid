@@ -24,7 +24,7 @@ No scattered MCP servers. No repeated downloads. No "works on my machine."
 - [Quick start — Docker (zero downloads)](#quick-start--docker-zero-downloads)
 - [Quick start — Clone + setup (automatic registration)](#quick-start--clone--setup-automatic-registration)
 - [What's included](#whats-included)
-- [Skills (29)](#skills-29)
+- [Skills (31)](#skills-31)
 - [MCP tools (20)](#mcp-tools-20)
 - [Create your first app](#create-your-first-app)
 - [Live visual output](#live-visual-output)
@@ -100,7 +100,7 @@ What `make setup` does automatically:
 2. Warms the Gradle cache once so later builds work with `--offline`.
 3. **Registers the MCP server globally** (`opencode mcp add android-mcp --global`), so it
    works from any working directory.
-4. **Installs all 29 skills globally** into `~/.config/opencode/skills/`, so they are
+4. **Installs all 31 skills globally** into `~/.config/opencode/skills/`, so they are
    discovered everywhere.
 5. Creates the project-level `.opencode/` config + skills symlink for repo-local use.
 
@@ -117,7 +117,7 @@ Refresh registration any time with `make register`.
 | `scripts/` | `setup.sh`, `register.sh`, `doctor.sh`, `new-app.sh`, `run-mcp.sh`, `warm-cache.sh` |
 | `templates/compose-starter/` | Material 3 Compose starter app (AGP 8.7.2, Java 17, launcher icons) |
 | `examples/hello-compose/` | Finished example app |
-| `skills/` | 29 OpenCode skills |
+| `skills/` | 31 OpenCode skills |
 | `docker/` | Dockerfile + entrypoint |
 | `docs/` | Quickstart, architecture, offline contract, publishing, troubleshooting |
 | `.github/workflows/` | CI + release pipelines |
@@ -125,7 +125,7 @@ Refresh registration any time with `make register`.
 
 ---
 
-## Skills (29)
+## Skills (31)
 
 **Orchestrator (1):** `start-here` — idea → discovery → design → spec → TDD → review → ship
 
@@ -135,6 +135,8 @@ Refresh registration any time with `make register`.
 
 **Senior UI/UX design (5):** `wcag-audit`, `ux-research-planning`,
 `usability-testing`, `design-critique`, `content-design-microcopy`
+
+**Design research (2, optional):** `appllama-usage`, `appllama-app-design-skill` (Appllama MCP, paid)
 
 **Superpowers SDE (13):** `brainstorming`, `dispatching-parallel-agents`,
 `executing-plans`, `finishing-a-development-branch`, `receiving-code-review`,

@@ -265,7 +265,7 @@ make doctor
 opencode mcp list | grep -q android-mcp && echo "MCP OK" || echo "MCP MISSING"
 
 # 6. Skills count
-ls ~/.config/opencode/skills | wc -l   # expect 29
+ls ~/.config/opencode/skills | wc -l   # expect 31
 
 # 7. Dynamic tools present
 node -e "const {spawn}=require('child_process');const p=spawn('node',['dist/index.js'],{stdio:['pipe','pipe','pipe']});let o='';p.stdout.on('data',d=>o+=d);const i=JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'t',version:'1'}}});const l=JSON.stringify({jsonrpc:'2.0',id:2,method:'tools/list',params:{}});p.stdin.write(i+'\n');p.stdin.write(l+'\n');setTimeout(()=>{p.kill();const t=JSON.parse(o.trim().split('\\n').find(x=>JSON.parse(x).id===2)).result.tools.map(x=>x.name);console.log('tools:',t.length);console.log('has net_capture:',t.includes('net_capture'));},2000);"
@@ -315,7 +315,7 @@ $REPO/
 
 Global (outside repo, created by `make register`):
 - `~/.config/opencode/opencode.jsonc` — global MCP entry for `android-mcp`
-- `~/.config/opencode/skills/` — copies of all 29 skills + `.android-mcp-manifest`
+- `~/.config/opencode/skills/` — copies of all 31 skills + `.android-mcp-manifest`
 - `~/.config/opencode/skills/<name>/SKILL.md`
 
 ---

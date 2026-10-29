@@ -22,14 +22,18 @@ This project is an **Android** MCP toolkit: Kotlin/Compose, Gradle, ADB, emulato
 - **Simulator vs emulator:** Appllama's verification loop is iOS Simulator (`xcrun simctl`). Our verification is Android emulator (ADB, KVM). Different tooling.
 - **Bloat:** We had 35 skills at audit time (29 after the consolidation in section 5), 13 of them design/UI-focused with heavy overlap. Adding 2 more design skills would worsen the paradox of choices.
 
-## 4. Decision
+## 4. Decision (updated)
 
-**Do NOT integrate the Appllama skills or MCP.** Rationale recorded as a ruling:
-- Domain mismatch (Expo/RN/iOS vs Android/Compose) → guidance would be wrong-context.
-- Paid/network dependency conflicts with offline-first constraint.
-- Increases skill bloat in an already-overlapping design cluster.
+**Integrated.** User requested deep integration of Appllama's skills. Done:
+- Copied `appllama-usage` and `appllama-app-design-skill` into `skills/` (now 31 skills).
+- Added the Appllama MCP to `.opencode/opencode.jsonc` (disabled by default; enable after connecting an Appllama account).
+- Wired into `start-here` skill (design-research phase) and README.
+- Updated `docs/agent-install.md` (Appllama MCP section).
 
-Optional alternative (not done now): mine general, stack-agnostic principles (motion frequency gate, navigation one-way doors, anti-slop pre-flight, simulator loop) into our existing `motion-design` / `android-compose-ui-ux` skills as a short appendix. Deferred — only worth it if users ask for cross-platform design guidance.
+Notes / caveats (preserved from the analysis):
+- Stack mismatch remains: Appllama targets Expo/React Native + iOS HIG; our UI stack is Compose + Material 3. The skills are kept verbatim (not rewritten) and are most useful for cross-platform/Expo work or design research; they are NOT a Compose implementation guide.
+- Paid, network-only MCP: disabled by default; enable only with an Appllama Pro account. Does not affect offline-first core.
+- Skill count 29 → 31 (acceptable; user explicitly requested).
 
 ## 5. Skill-bloat audit (35 skills at audit time; consolidation executed)
 

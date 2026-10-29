@@ -23,6 +23,7 @@ each phase. Acts like a senior product/engineering team lead.
 - android-compose-ui-ux: visual system, M3 tokens, motion, adaptive layouts, foundations (consolidated).
 - design-tokens: tokens + theming.
 - content-design-microcopy: copy guidelines.
+- appllama-usage + appllama-app-design-skill: study top-grossing app screens/flows before designing (requires Appllama MCP, optional).
 - figma-to-compose: handoff mapping via Figma MCP (get_design_context, get_variable_defs, get_screenshot).
 - Produce wireframes/prototypes in Figma; review with design-critique.
 

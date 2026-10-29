@@ -2,6 +2,13 @@
   "$schema": "https://opencode.ai/config.json",
   "skills": ["./skills"],
   "mcp": {
+    // Appllama: paid design-research MCP (https://mcp.appllama.io/mcp). Disabled by
+    // default — enable after connecting your Appllama account (Pro). See docs/appllama-integration.md.
+    "Appllama": {
+      "type": "remote",
+      "url": "https://mcp.appllama.io/mcp",
+      "enabled": false
+    },
     "android-mcp": {
       "type": "local",
       "command": ["bash", "./scripts/run-mcp.sh"],
