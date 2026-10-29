@@ -93,16 +93,18 @@ var CONFIG = CONFIG || {};
 
     try {
       var Socket = Java.use("java.net.Socket");
-      Socket.connect.overload("java.net.SocketAddress").implementation = function (address) {
-        try {
-          var addr = String(address);
-          var host = addr.replace(/^.*\//, "").replace(/:\d+$/, "");
-          if (wanted(host)) log("api-trace: socket - " + clip(addr, 200));
-        } catch (e) {
-          log("api-trace: socket log failed: " + e);
-        }
-        return this.connect(address);
-      };
+      Socket.connect.overloads.forEach(function (overload) {
+        overload.implementation = function (address) {
+          try {
+            var addr = String(address);
+            var host = addr.replace(/^.*\//, "").replace(/:\d+$/, "");
+            if (wanted(host)) log("api-trace: socket - " + clip(addr, 200));
+          } catch (e) {
+            log("api-trace: socket log failed: " + e);
+          }
+          return this.connect.apply(this, arguments);
+        };
+      });
       log("api-trace: hooked java.net.Socket.connect");
     } catch (e) {
       log("api-trace: java.net.Socket hook failed (" + e + ")");
