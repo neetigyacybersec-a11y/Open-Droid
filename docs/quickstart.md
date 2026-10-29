@@ -50,3 +50,7 @@ make emulator          # boot AVD
 # install + launch via adb, then:
 make screenshot        # captures screenshots/screen.png
 ```
+
+## Dynamic analysis (optional)
+
+`make setup` now also vendors Frida + mitmproxy for dynamic analysis. See `docs/dynamic-analysis.md`.

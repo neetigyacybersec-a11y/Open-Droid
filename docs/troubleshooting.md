@@ -38,3 +38,13 @@ Both are installed by `make setup` when possible and are safe to install later.
 ## Emulator alternative on hosts without KVM
 Use a CI runner with KVM, or run the Android app on a physical device
 (`adb devices` after enabling USB debugging).
+## Dynamic analysis
+| Symptom | Root cause | Fix |
+|---|---|---|
+| `device image 'release-keys' cannot adb root` | `default` (non-rootable) system image installed | Re-run `make setup` on a host with KVM; ensure `google_apis` image selected |
+| `frida-server ... missing` / ABI mismatch | Server ABI ≠ AVD ABI | `make setup` vendors both arches; `mapAbiToAsset` errors name the offending ABI |
+| `frida CLI not found` | Venv not created | `make setup` (requires python3 + python3-venv) |
+| `net_capture busy` | A capture is already running | `net_capture stop`, then retry |
+| Proxy stuck after capture | `stop` not called / server exited | `adb shell settings put global http_proxy :0` |
+| CA not installed | System image read-only | Trust the user cert manually, or use a rootable image |
+| python3 missing | Not installed | `sudo apt install -y python3 python3-venv` |

@@ -47,6 +47,7 @@ each phase. Acts like a senior product/engineering team lead.
 - android-accessibility: accessibility audit.
 - wcag-audit: WCAG conformance audit.
 - usability-testing: run real tests; capture SUS/task success.
+- For reverse engineering / dynamic analysis of a shipped APK, use `android-reverse-engineering` (Frida + mitmproxy on emulator).
 
 ## Phase 5 — Verification & Ship
 - verification-before-completion: run all tests, lint, build.

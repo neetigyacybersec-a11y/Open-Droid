@@ -25,7 +25,7 @@ No scattered MCP servers. No repeated downloads. No "works on my machine."
 - [Quick start — Clone + setup (automatic registration)](#quick-start--clone--setup-automatic-registration)
 - [What's included](#whats-included)
 - [Skills (35)](#skills-35)
-- [MCP tools (13)](#mcp-tools-13)
+- [MCP tools (20)](#mcp-tools-20)
 - [Create your first app](#create-your-first-app)
 - [Live visual output](#live-visual-output)
 - [Architecture](#architecture)
@@ -52,7 +52,8 @@ No scattered MCP servers. No repeated downloads. No "works on my machine."
   spec → TDD implementation → review → ship, pulling in the right skills at each phase.
 - **Visual verification** — emulator + ADB screenshots + Maestro E2E + Compose previews
   + screenshot regression.
-- **Self-contained Docker image** — `docker pull` and run; no host toolchain needed.
+- **Dynamic analysis** — static→dynamic reverse-engineering loop: Frida hooks,
+  mitmproxy capture, runtime observation, root/SSL bypass (7 new MCP tools).
 - **CI/CD** — GitHub Actions build/test on PR; on tag, publish Docker image to GHCR.
 
 ---
@@ -115,7 +116,7 @@ Refresh registration any time with `make register`.
 | `scripts/` | `setup.sh`, `register.sh`, `doctor.sh`, `new-app.sh`, `run-mcp.sh`, `warm-cache.sh` |
 | `templates/compose-starter/` | Material 3 Compose starter app (AGP 8.7.2, Java 17, launcher icons) |
 | `examples/hello-compose/` | Finished example app |
-| `skills/` | 35 OpenCode skills |
+| `skills/` | 29 OpenCode skills |
 | `docker/` | Dockerfile + entrypoint |
 | `docs/` | Quickstart, architecture, offline contract, publishing, troubleshooting |
 | `.github/workflows/` | CI + release pipelines |
@@ -146,7 +147,7 @@ See `THIRD-PARTY.md` for attribution.
 
 ---
 
-## MCP tools (13)
+## MCP tools (20)
 
 | Tool | Purpose |
 |---|---|
@@ -162,6 +163,13 @@ See `THIRD-PARTY.md` for attribution.
 | `compose_preview_render` | Render Compose previews |
 | `android_skills_list` / `android_skills_search` | Android CLI skills |
 | `sdkmanager_install` | Install SDK packages |
+| `adb_shell` | Raw shell passthrough (no blocklist) |
+| `adb_logcat` | Clear, wait, dump, regex-filter |
+| `runtime_dump` | dumpsys: activity/service/package/meminfo |
+| `frida_ps` | Process list via frida-server |
+| `frida_hook` | Spawn/attach with inline or file script |
+| `frida_trace_methods` | Trace all overloads of a class's methods |
+| `net_capture` | Single-session mitmproxy capture (start/stop) |
 
 ---
 
@@ -189,7 +197,7 @@ make screenshot        # -> screenshots/screen.png
 ```
 Open-Droid/
 ├── src/            # MCP server (TypeScript, stdio)
-├── skills/         # 35 OpenCode skills
+├── skills/         # 29 OpenCode skills
 ├── templates/      # Compose starter
 ├── examples/       # Finished sample app
 ├── scripts/        # setup, register, doctor, new-app, run-mcp, warm-cache
@@ -209,7 +217,7 @@ per-agent).
 ```bash
 npm install
 npm run build        # compile TypeScript
-npm test             # smoke test (13 tools)
+npm test             # smoke test (20 tools)
 npm run lint         # eslint
 npm run format       # prettier
 make doctor          # toolchain + registration checks

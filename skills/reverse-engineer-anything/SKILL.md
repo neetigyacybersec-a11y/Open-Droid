@@ -218,3 +218,7 @@ Explain findings in plain language and tie them to returned evidence. When the
 user asks to build something, use normal coding tools and separate observed
 behavior from design choices. Close an opened native session with
 `close_binary` when the investigation is complete.
+
+## Android dynamic analysis
+
+For Android APKs, prefer the `android-reverse-engineering` skill, which adds a dynamic layer on top of REA: emulator boot, Frida hooking (`frida_hook`, `frida_trace_methods`), crypto/network tracing, root/SSL bypass, and mitmproxy capture (`net_capture`).
