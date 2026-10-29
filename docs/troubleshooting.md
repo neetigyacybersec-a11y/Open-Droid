@@ -10,6 +10,7 @@ Errors observed when installing on a fresh host and how this repo prevents them:
 | `package="..." in AndroidManifest.xml is no longer supported` | Legacy manifest attribute | Template sets `namespace` in `build.gradle.kts` only; no `package=` attr |
 | `resource mipmap/ic_launcher not found` | Manifest referenced missing icons | Template ships adaptive launcher icons (`mipmap-anydpi-v26`) |
 | `source/target value 8 is obsolete` | Old Java target | Template uses Java 17 |
+| `JDK not found` / download fails | No system JDK and no network to Adoptium | Install Temurin JDK 21 manually (https://adoptium.net) or ensure network access; `make setup` auto-downloads when possible |
 
 ## Toolchain / environment
 | Symptom | Root cause | Fix (now built in) |

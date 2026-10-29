@@ -19,7 +19,7 @@ has an expected output.
 |---|---|---|
 | Git | `git --version` | `sudo apt install -y git` |
 | Node ≥ 22 | `node --version` | via nvm or `make setup` |
-| Java 17 (JDK) | `java -version` | `sudo apt install -y temurin-17-jdk` or Adoptium |
+| Java 21 (JDK) | `java -version` | Auto-downloaded by `make setup` (Temurin, via Adoptium) if absent; or `sudo apt install -y temurin-21-jdk` |
 | Python 3 + venv | `python3 --version` | `sudo apt install -y python3 python3-venv` |
 | KVM (x86_64 only) | `ls -l /dev/kvm` | `sudo apt install -y qemu-kvm && sudo gpasswd -a $USER kvm` (then re-login) |
 | Docker (optional) | `docker --version` | `sudo apt install -y docker.io` |

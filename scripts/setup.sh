@@ -28,16 +28,31 @@ if ! command -v python3 >/dev/null 2>&1; then
   log "WARNING: python3 not found. Required for frida/mitmproxy (dynamic analysis). Install: sudo apt install -y python3 python3-venv"
 fi
 
-# ---- JDK ----
+# ---- JDK (auto-download Temurin if no system JDK is present) ----
 if [ ! -x "$TOOLCHAIN/jdk/bin/java" ]; then
-  log "Downloading Temurin JDK $JAVA_MAJOR..."
-  mkdir -p "$TOOLCHAIN/jdk"
-  # Use system JDK if available and matches
   if command -v java >/dev/null 2>&1; then
     log "Reusing system JDK: $(java -version 2>&1 | head -1)"
-    # symlink system JDK
     SYSJDK="$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")"
+    mkdir -p "$TOOLCHAIN/jdk"
     ln -sfn "$SYSJDK"/* "$TOOLCHAIN/jdk/" 2>/dev/null || true
+  else
+    log "No system JDK found; downloading Temurin JDK $JAVA_MAJOR from Adoptium..."
+    mkdir -p "$TOOLCHAIN/jdk"
+    cd /tmp
+    JDK_TGZ="temurin-${JAVA_MAJOR}-jdk-linux-$(uname -m).tar.gz"
+    if [ ! -f "/tmp/$JDK_TGZ" ]; then
+      curl -fsSL "https://api.adoptium.net/v3/binary/latest/${JAVA_MAJOR}/ga/linux/$(uname -m | sed 's/x86_64/x64/;s/aarch64/aarch64/')/jdk/hotspot/normal/eclipse?project=jdk" -o "/tmp/$JDK_TGZ"         || wget -q "https://api.adoptium.net/v3/binary/latest/${JAVA_MAJOR}/ga/linux/$(uname -m | sed 's/x86_64/x64/;s/aarch64/aarch64/')/jdk/hotspot/normal/eclipse?project=jdk" -O "/tmp/$JDK_TGZ"
+    fi
+    rm -rf /tmp/temurin-extract && mkdir -p /tmp/temurin-extract
+    tar -xzf "/tmp/$JDK_TGZ" -C /tmp/temurin-extract
+    # Temurin tarball extracts to a single jdk-* directory.
+    EXTRACTED="$(ls -d /tmp/temurin-extract/jdk-* 2>/dev/null | head -1)"
+    if [ -z "$EXTRACTED" ] || [ ! -x "$EXTRACTED/bin/java" ]; then
+      echo "ERROR: Temurin JDK download/extraction failed. Install manually from https://adoptium.net" >&2
+      exit 1
+    fi
+    cp -a "$EXTRACTED"/. "$TOOLCHAIN/jdk/"
+    cd "$ROOT"
   fi
 fi
 if [ ! -x "$TOOLCHAIN/jdk/bin/java" ]; then
