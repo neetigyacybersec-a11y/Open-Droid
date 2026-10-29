@@ -20,7 +20,7 @@ This project is an **Android** MCP toolkit: Kotlin/Compose, Gradle, ADB, emulato
 - **Stack mismatch:** Appllama targets Expo/React Native + iOS HIG (SF Symbols, Dynamic Island, `expo-router`, Reanimated). Our UI stack is Jetpack Compose + Material 3. The skill's concrete guidance (Reanimated springs, expo-image, SF Symbols) would mislead an agent building Compose UI.
 - **Runtime dependency:** Appllama MCP is a paid, network-only service. Our project is explicitly offline-first (vendored toolchain, zero downloads after setup). Adding a paid MCP dependency contradicts that.
 - **Simulator vs emulator:** Appllama's verification loop is iOS Simulator (`xcrun simctl`). Our verification is Android emulator (ADB, KVM). Different tooling.
-- **Bloat:** We already have 35 skills, 13 of them design/UI-focused with heavy overlap. Adding 2 more design skills worsens the paradox of choices.
+- **Bloat:** We had 35 skills at audit time (29 after the consolidation in section 5), 13 of them design/UI-focused with heavy overlap. Adding 2 more design skills would worsen the paradox of choices.
 
 ## 4. Decision
 
@@ -31,7 +31,7 @@ This project is an **Android** MCP toolkit: Kotlin/Compose, Gradle, ADB, emulato
 
 Optional alternative (not done now): mine general, stack-agnostic principles (motion frequency gate, navigation one-way doors, anti-slop pre-flight, simulator loop) into our existing `motion-design` / `android-compose-ui-ux` skills as a short appendix. Deferred — only worth it if users ask for cross-platform design guidance.
 
-## 5. Skill-bloat audit (our 35 skills)
+## 5. Skill-bloat audit (35 skills at audit time; consolidation executed)
 
 ### Overlap clusters
 
@@ -59,6 +59,21 @@ android-compose-ui-ux, android-material3-design, android-design-tokens, design-s
 
 Net: remove ~7-9 skill directories, merge content into survivors. Reversible via git.
 
-## 6. What I will do now
+## 6. What was done
 
-I will NOT delete skills without confirmation (destructive). I have recorded the integration ruling (no integrate) in this doc. Please confirm whether to execute the consolidation plan above (merge 6 clusters, net -7 skills) or adjust. If you want a different scope (e.g., only merge the token skills), say so.
+The consolidation plan above was **approved and executed** on the `dynamic-analysis`
+branch. `skills/` now holds 29 skill directories (down from 35):
+
+- The six merged clusters were folded into `design-tokens`, `android-accessibility`,
+  and `android-compose-ui-ux`; the removed directories are gone.
+- README counts/anchors and the skill listing were updated to 29.
+- `scripts/register.sh` now also prunes global skill copies that no longer exist in
+  `skills/` (only directories containing `SKILL.md`), so removed/renamed skills stop
+  being discovered in `~/.config/opencode/skills/`.
+
+The Appllama ruling in section 4 is unchanged: **no** Appllama skills or MCP were
+added. The consolidation is reversible via git history (`c7ad43a`).
+
+Optional follow-up (still deferred): mine general, stack-agnostic principles (motion
+frequency gate, navigation one-way doors, anti-slop pre-flight, simulator loop) into
+`android-compose-ui-ux` as a short appendix.

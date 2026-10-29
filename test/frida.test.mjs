@@ -8,16 +8,17 @@ import { strict as assert } from "node:assert";
 import { existsSync, mkdtempSync, writeFileSync, chmodSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import {
-  mapAbiToAsset,
-  parseBuildType,
-  resolveFridaCli,
-  resolveMitmDump,
-  pidRunning,
-  PIDFILE,
-} from "../dist/frida.js";
-import { ToolSchemas, handleFridaHook, handleNetCapture } from "../dist/tools.js";
-import { which } from "../dist/util.js";
+
+// Point the capture pidfile at a temp path before loading the modules, so this
+// test never touches (or races) a developer's live mitmproxy session.
+const stateDir = mkdtempSync(join(tmpdir(), "android-mcp-frida-state-"));
+const TEST_PIDFILE = join(stateDir, "android-mcp-mitm.pid");
+process.env.ANDROID_MCP_PIDFILE = TEST_PIDFILE;
+
+const { mapAbiToAsset, parseBuildType, resolveFridaCli, resolveMitmDump, pidRunning, PIDFILE } =
+  await import("../dist/frida.js");
+const { ToolSchemas, handleFridaHook, handleNetCapture } = await import("../dist/tools.js");
+const { which } = await import("../dist/util.js");
 
 // --- ABI mapping: device getprop ABI -> frida-server release asset suffix ---
 assert.equal(mapAbiToAsset("x86_64"), "x86_64");
@@ -59,7 +60,8 @@ assert.equal(await resolveFridaCli("/nonexistent-root-xyz"), await which("frida"
 assert.equal(await resolveMitmDump("/nonexistent-root-xyz"), await which("mitmdump"));
 
 // --- Shared state path ---
-assert.equal(PIDFILE, join(tmpdir(), "android-mcp-mitm.pid"));
+assert.equal(PIDFILE, TEST_PIDFILE);
+assert.equal(PIDFILE, process.env.ANDROID_MCP_PIDFILE);
 
 // --- MCP tool schemas (Task 6): defaults and required fields the handlers rely on ---
 const hookDefaults = ToolSchemas.fridaHook.parse({ packageName: "com.example.app" });
@@ -86,6 +88,22 @@ assert.equal(traceDefaults.durationSec, 30);
 assert.throws(() => ToolSchemas.fridaHook.parse({ script: "console.log(1)" }));
 assert.throws(() => ToolSchemas.fridaTraceMethods.parse({ packageName: "com.example.app" }));
 assert.deepEqual(ToolSchemas.fridaPs.parse({}), {});
+
+// Duration/timeout bounds: every long-running tool is capped so a typo cannot
+// pin the MCP server (or a device) for days.
+assert.throws(() =>
+  ToolSchemas.fridaHook.parse({ packageName: "com.example.app", durationSec: 86401 })
+);
+assert.throws(() =>
+  ToolSchemas.fridaTraceMethods.parse({
+    packageName: "com.example.app",
+    className: "C",
+    durationSec: 86401,
+  })
+);
+assert.throws(() => ToolSchemas.adbLogcat.parse({ durationSec: 86401 }));
+assert.throws(() => ToolSchemas.adbShell.parse({ command: "id", timeoutSec: 601 }));
+assert.equal(ToolSchemas.adbShell.parse({ command: "id", timeoutSec: 600 }).timeoutSec, 600);
 
 // The handler rejects a missing script before it ever resolves the frida CLI,
 // so this stays host-independent on machines without frida installed.
@@ -133,14 +151,14 @@ await assert.rejects(
   /invalid durationSec 0/
 );
 
-// The busy guard must fire before any mitmdump/adb work. Only run it when no
-// real capture owns the pidfile, so a developer's live session is never lost.
+// The busy guard must fire before any mitmdump/adb work. The pidfile is a
+// per-test temp path (ANDROID_MCP_PIDFILE), so no live session is touched.
 if (!existsSync(PIDFILE)) {
   writeFileSync(PIDFILE, `${process.pid}\n/tmp/should-not-be-used.har\n`);
   try {
     await assert.rejects(
       handleNetCapture({ action: "start", port: 12345, durationSec: 5 }),
-      /net_capture busy: capture running \(pidfile .*android-mcp-mitm\.pid, port 12345\)/
+      /net_capture busy: capture running \(pidfile .*\.pid, port 12345\)/
     );
   } finally {
     rmSync(PIDFILE, { force: true });
@@ -148,5 +166,7 @@ if (!existsSync(PIDFILE)) {
 } else {
   console.log("skipping net_capture busy assertion: a capture owns", PIDFILE);
 }
+
+rmSync(stateDir, { recursive: true, force: true });
 
 console.log("frida helper test passed");

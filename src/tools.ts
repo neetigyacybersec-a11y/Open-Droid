@@ -65,13 +65,18 @@ export const ToolSchemas = {
   adbShell: z.object({
     deviceId: z.string().optional(),
     command: z.string().min(1).describe("Raw shell command, e.g. dumpsys activity top"),
-    timeoutSec: z.number().optional().default(60),
+    timeoutSec: z.number().max(600).optional().default(60),
   }),
   adbLogcat: z.object({
     deviceId: z.string().optional(),
     tag: z.string().optional().describe("Filter: adb logcat tag selector, e.g. MyActivity:E or *:W"),
     pattern: z.string().optional().describe("Regex applied to captured log text"),
-    durationSec: z.number().optional().default(10).describe("Seconds to wait before dumping (logcat -c then -d)"),
+    durationSec: z
+      .number()
+      .max(86400)
+      .optional()
+      .default(10)
+      .describe("Seconds to wait before dumping (logcat -c then -d)"),
     clear: z.boolean().optional().default(true).describe("Clear the device log buffer before waiting"),
   }),
   runtimeDump: z.object({
@@ -86,14 +91,14 @@ export const ToolSchemas = {
     script: z.string().optional().describe("Inline Frida JS; takes precedence over scriptPath"),
     scriptPath: z.string().optional(),
     spawn: z.boolean().optional().default(true).describe("true: spawn+resume via -f; false: attach to running process by name"),
-    durationSec: z.number().optional().default(30),
+    durationSec: z.number().max(86400).optional().default(30),
   }),
   fridaTraceMethods: z.object({
     packageName: z.string(),
     className: z.string().describe("Exact class or regex-resolvable FQN, e.g. com.example.app.Crypto"),
     methodRegex: z.string().optional().default(".*"),
     deviceId: z.string().optional(),
-    durationSec: z.number().optional().default(30),
+    durationSec: z.number().max(86400).optional().default(30),
   }),
   netCapture: z.object({
     action: z.enum(["start", "stop"]),
@@ -296,7 +301,7 @@ export async function handleAdbShell(args: z.infer<typeof ToolSchemas.adbShell>)
   const timeoutMs = Math.max(1_000, (args.timeoutSec ?? 60) * 1000);
   const base = await adbBase(args.deviceId);
   const r = await run("adb", [...base, "shell", args.command], { timeout: timeoutMs });
-  const out = `exit=${r.code}\n--- stdout ---\n${capOutput(r.stdout)}\n--- stderr ---\n${r.stderr}`;
+  const out = `exit=${r.code}\n--- stdout ---\n${capOutput(r.stdout)}\n--- stderr ---\n${capOutput(r.stderr)}`;
   return { content: [{ type: "text" as const, text: out }], isError: r.code !== 0 };
 }
 
@@ -363,7 +368,7 @@ export async function handleRuntimeDump(args: z.infer<typeof ToolSchemas.runtime
   const r = await run("adb", [...base, ...dumpArgs], { timeout: 120_000 });
   const head = `cmd=adb ${base.join(" ")} ${dumpArgs.join(" ")}`.replace(/\s+/g, " ").trim();
   const note = ignored ? `\nnote=packageName ignored for kind=${args.kind}` : "";
-  const out = `${head}${note}\nexit=${r.code}\n--- stdout ---\n${capOutput(r.stdout)}\n--- stderr ---\n${r.stderr}`;
+  const out = `${head}${note}\nexit=${r.code}\n--- stdout ---\n${capOutput(r.stdout)}\n--- stderr ---\n${capOutput(r.stderr)}`;
   return { content: [{ type: "text" as const, text: out }], isError: r.code !== 0 };
 }
 
@@ -425,6 +430,9 @@ interface FridaScriptRun {
  */
 async function runFridaScript(o: FridaScriptRun) {
   const cli = await requireFridaCli();
+  // Hooking spawns/attaches on the device, so provision frida-server first.
+  // ensureServer is idempotent and surfaces ABI/rootability failures early.
+  const server = await ensureServer(o.deviceId, REPO_ROOT);
   const spawn = o.spawn !== false;
   const durationSec = o.durationSec ?? 30;
   const target = [
@@ -441,6 +449,7 @@ async function runFridaScript(o: FridaScriptRun) {
     const budgetKill = r.code !== 0 && Date.now() - started >= timeoutMs - 1_000;
     const header = [
       `cmd=frida ${[...target, "-l", "<tmp>/hook.js"].join(" ")}`,
+      `server=${server.server} (${server.abi})`,
       `durationSec=${durationSec}` +
         (budgetKill ? " (session killed at the duration budget; expected for live traces)" : ""),
       `exit=${r.code}`,
@@ -662,9 +671,13 @@ const stopInFlight = new Set<number>();
 async function stopCapture(
   state: CaptureState,
   deviceId: string | undefined
-): Promise<{ written: boolean; warnings: string[] }> {
+): Promise<{ written: boolean; warnings: string[]; har: string }> {
   if (stopInFlight.has(state.pid)) {
-    return { written: false, warnings: ["capture stop already in progress"] };
+    return {
+      written: false,
+      warnings: ["capture stop already in progress"],
+      har: state.har,
+    };
   }
   // Cancel any pending auto-stop timer for this capture so a manual stop does
   // not race with a later stale timer (H1).
@@ -687,13 +700,17 @@ async function stopCapture(
     // a newer capture that has since taken over the pidfile (H1).
     const current = await readCaptureState();
     if (!current || current.pid !== state.pid) {
-      return { written, warnings: ["capture superseded; no proxy/pidfile changes made"] };
+      return {
+        written,
+        warnings: ["capture superseded; no proxy/pidfile changes made"],
+        har: state.har,
+      };
     }
     const warnings: string[] = [];
     const clearWarning = await clearDeviceProxy(deviceId);
     if (clearWarning) warnings.push(clearWarning);
     await rm(PIDFILE, { force: true });
-    return { written, warnings };
+    return { written, warnings, har: state.har };
   } finally {
     stopInFlight.delete(state.pid);
   }
@@ -702,18 +719,25 @@ async function stopCapture(
 export async function handleNetCapture(args: z.infer<typeof ToolSchemas.netCapture>) {
   if (args.action === "stop") {
     const state = await readCaptureState();
-    if (!state || !pidRunning(state.pid)) {
+    if (!state) {
+      return { content: [{ type: "text" as const, text: "no active capture (no pidfile)" }] };
+    }
+    if (!pidRunning(state.pid)) {
       // A dead pid means the capture crashed or was killed externally; clear
       // the proxy it left behind so device traffic is not stuck on a dead port.
-      if (state) {
-        await rm(PIDFILE, { force: true });
-        await clearDeviceProxy(args.deviceId);
-      }
-      return { content: [{ type: "text" as const, text: "no active capture" }] };
+      await rm(PIDFILE, { force: true });
+      await clearDeviceProxy(args.deviceId);
+      return {
+        content: [
+          { type: "text" as const, text: `no active capture (stale pidfile removed); HAR: ${state.har}` },
+        ],
+      };
     }
-    const { written, warnings } = await stopCapture(state, args.deviceId);
+    const { written, warnings, har } = await stopCapture(state, args.deviceId);
     const text = [
-      written ? `capture stopped; HAR: ${state.har}` : "capture stopped; HAR: not yet written",
+      written
+        ? `capture stopped; HAR: ${har}`
+        : `capture stopped; HAR: ${har} (not yet written — check the mitmdump log)`,
       ...warnings.map((w) => `warning: ${w}`),
     ].join("\n");
     return { content: [{ type: "text" as const, text }] };

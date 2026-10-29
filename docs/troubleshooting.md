@@ -46,5 +46,7 @@ Use a CI runner with KVM, or run the Android app on a physical device
 | `frida CLI not found` | Venv not created | `make setup` (requires python3 + python3-venv) |
 | `net_capture busy` | A capture is already running | `net_capture stop`, then retry |
 | Proxy stuck after capture | `stop` not called / server exited | `adb shell settings put global http_proxy :0` |
-| CA not installed | System image read-only | Trust the user cert manually, or use a rootable image |
+| CA not installed | System image read-only | Use a rootable image; on API 34+ pushing to the system store is often blocked, so plan for an APEX/Magisk CA overlay or an unpinning hook |
+| HTTPS bodies missing from HAR | API 34+ ignores runtime CA additions, and `targetSdk >= 24` apps do not trust user CAs by default | Do not rely on a user cert; use an APEX/Magisk system-CA module or `frida-scripts/ssl-unpin.js` |
+| `could not hash mitmproxy CA with openssl` | `openssl` not on `PATH` | `sudo apt install -y openssl` |
 | python3 missing | Not installed | `sudo apt install -y python3 python3-venv` |

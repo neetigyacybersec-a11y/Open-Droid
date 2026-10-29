@@ -10,7 +10,7 @@
 Open-Droid is a self-contained toolkit that turns [OpenCode](https://opencode.ai) into a
 full Android product studio: a single combined **MCP server** wrapping the entire
 Android toolchain, a **vendored toolchain bootstrap** (fully offline after the first run),
-**35 curated skills** (Android/UI, senior UI/UX design, Superpowers SDE, reverse
+**29 curated skills** (Android/UI, senior UI/UX design, Superpowers SDE, reverse
 engineering, and an end-to-end `start-here` orchestrator), a **Material 3 Compose
 starter template**, and a **self-contained Docker image**.
 
@@ -24,7 +24,7 @@ No scattered MCP servers. No repeated downloads. No "works on my machine."
 - [Quick start — Docker (zero downloads)](#quick-start--docker-zero-downloads)
 - [Quick start — Clone + setup (automatic registration)](#quick-start--clone--setup-automatic-registration)
 - [What's included](#whats-included)
-- [Skills (35)](#skills-35)
+- [Skills (29)](#skills-29)
 - [MCP tools (20)](#mcp-tools-20)
 - [Create your first app](#create-your-first-app)
 - [Live visual output](#live-visual-output)
@@ -54,6 +54,7 @@ No scattered MCP servers. No repeated downloads. No "works on my machine."
   + screenshot regression.
 - **Dynamic analysis** — static→dynamic reverse-engineering loop: Frida hooks,
   mitmproxy capture, runtime observation, root/SSL bypass (7 new MCP tools).
+- **Self-contained Docker image** — `docker pull` and run; no host toolchain needed.
 - **CI/CD** — GitHub Actions build/test on PR; on tag, publish Docker image to GHCR.
 
 ---
@@ -99,7 +100,7 @@ What `make setup` does automatically:
 2. Warms the Gradle cache once so later builds work with `--offline`.
 3. **Registers the MCP server globally** (`opencode mcp add android-mcp --global`), so it
    works from any working directory.
-4. **Installs all 35 skills globally** into `~/.config/opencode/skills/`, so they are
+4. **Installs all 29 skills globally** into `~/.config/opencode/skills/`, so they are
    discovered everywhere.
 5. Creates the project-level `.opencode/` config + skills symlink for repo-local use.
 

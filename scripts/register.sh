@@ -45,6 +45,23 @@ if [ -d "$SKILLS_SRC" ]; then
     count=$((count+1))
   done
   ok "Installed/refreshed $count skills into $SKILLS_DST"
+
+  # Prune skills that no longer exist in the source tree (removed, renamed, or
+  # merged by a consolidation). Only directories that look like skills (contain
+  # SKILL.md) are touched, so unrelated user content in the skills dir survives.
+  pruned=0
+  for d in "$SKILLS_DST"/*/; do
+    [ -d "$d" ] || continue
+    [ -f "$d/SKILL.md" ] || continue
+    name="$(basename "$d")"
+    if [ ! -d "$SKILLS_SRC/$name" ]; then
+      rm -rf "$d"
+      pruned=$((pruned+1))
+    fi
+  done
+  if [ "$pruned" -gt 0 ]; then
+    ok "Pruned $pruned skill(s) no longer present in skills/"
+  fi
 else
   warn "skills/ not found at $SKILLS_SRC"
 fi
