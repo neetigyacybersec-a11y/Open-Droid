@@ -37,6 +37,9 @@ server.registerTool("compose_preview_render", { description: "Render Compose @Pr
 server.registerTool("android_skills_list", { description: "List available Android skills via the Android CLI (if installed).", inputSchema: ToolSchemas.skillsList }, logged("android_skills_list", async () => H.handleSkillsList()));
 server.registerTool("android_skills_search", { description: "Search Android skills via the Android CLI.", inputSchema: ToolSchemas.skillsSearch }, logged("android_skills_search", async (a: any) => H.handleSkillsSearch(a)));
 server.registerTool("sdkmanager_install", { description: "Install Android SDK packages via sdkmanager.", inputSchema: ToolSchemas.sdkmanagerInstall }, logged("sdkmanager_install", async (a: any) => H.handleSdkmanagerInstall(a)));
+server.registerTool("adb_shell", { description: "Raw shell command passthrough to a device/emulator (high-trust; no blocklist).", inputSchema: ToolSchemas.adbShell }, logged("adb_shell", async (a: any) => H.handleAdbShell(a)));
+server.registerTool("adb_logcat", { description: "Capture filtered device logcat (clear, wait, dump, regex-filter).", inputSchema: ToolSchemas.adbLogcat }, logged("adb_logcat", async (a: any) => H.handleAdbLogcat(a)));
+server.registerTool("runtime_dump", { description: "Structured dumpsys probes: activity, service, package, meminfo.", inputSchema: ToolSchemas.runtimeDump }, logged("runtime_dump", async (a: any) => H.handleRuntimeDump(a)));
 
 async function main() {
   const transport = new StdioServerTransport();

@@ -51,6 +51,23 @@ export const ToolSchemas = {
   sdkmanagerInstall: z.object({
     packages: z.array(z.string()).describe("sdkmanager package ids"),
   }),
+  adbShell: z.object({
+    deviceId: z.string().optional(),
+    command: z.string().min(1).describe("Raw shell command, e.g. dumpsys activity top"),
+    timeoutSec: z.number().optional().default(60),
+  }),
+  adbLogcat: z.object({
+    deviceId: z.string().optional(),
+    tag: z.string().optional().describe("Filter: adb logcat tag selector, e.g. MyActivity:E or *:W"),
+    pattern: z.string().optional().describe("Regex applied to captured log text"),
+    durationSec: z.number().optional().default(10).describe("Seconds to wait before dumping (logcat -c then -d)"),
+    clear: z.boolean().optional().default(true).describe("Clear the device log buffer before waiting"),
+  }),
+  runtimeDump: z.object({
+    deviceId: z.string().optional(),
+    kind: z.enum(["activity", "service", "package", "meminfo"]),
+    packageName: z.string().optional(),
+  }),
 };
 
 export type ToolName = keyof typeof ToolSchemas;
@@ -220,4 +237,81 @@ export async function handleSdkmanagerInstall(args: z.infer<typeof ToolSchemas.s
   }
   const r = await run(cli, args.packages, { timeout: 600_000 });
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((res) => setTimeout(res, ms));
+}
+
+export async function handleAdbShell(args: z.infer<typeof ToolSchemas.adbShell>) {
+  const timeoutMs = Math.max(1_000, (args.timeoutSec ?? 60) * 1000);
+  const base = await adbBase(args.deviceId);
+  const r = await run("adb", [...base, "shell", args.command], { timeout: timeoutMs });
+  const out = `exit=${r.code}\n--- stdout ---\n${r.stdout}\n--- stderr ---\n${r.stderr}`;
+  return { content: [{ type: "text" as const, text: out }], isError: r.code !== 0 };
+}
+
+const LOGCAT_MAX_LINES = 4_000;
+
+export async function handleAdbLogcat(args: z.infer<typeof ToolSchemas.adbLogcat>) {
+  const base = await adbBase(args.deviceId);
+  const notes: string[] = [];
+
+  if (args.clear !== false) {
+    const cleared = await run("adb", [...base, "logcat", "-c"], { timeout: 60_000 });
+    if (cleared.code !== 0) notes.push(`logcat -c failed: ${cleared.stderr.trim()}`);
+  }
+
+  const waitMs = Math.max(0, (args.durationSec ?? 10) * 1000);
+  if (waitMs > 0) await sleep(waitMs);
+
+  const r = await run("adb", [...base, "logcat", "-d", "-v", "time", ...(args.tag ? [args.tag] : [])], {
+    timeout: 120_000,
+  });
+  if (r.code !== 0) {
+    const err = [`logcat -d failed (exit=${r.code})`, r.stderr.trim(), ...notes].filter(Boolean).join("\n");
+    return { content: [{ type: "text" as const, text: err }], isError: true };
+  }
+
+  const allLines = r.stdout.split("\n").filter((l) => l.trim().length > 0);
+  let lines = allLines;
+  if (args.pattern) {
+    let re: RegExp;
+    try {
+      re = new RegExp(args.pattern, "m");
+    } catch (e: any) {
+      return {
+        content: [{ type: "text" as const, text: `Invalid pattern regex: ${e?.message ?? String(e)}` }],
+        isError: true,
+      };
+    }
+    lines = allLines.filter((l) => re.test(l));
+  }
+
+  const truncated = lines.length > LOGCAT_MAX_LINES;
+  const body = truncated ? lines.slice(-LOGCAT_MAX_LINES) : lines;
+  const header = [
+    `total=${allLines.length} matched=${lines.length} shown=${body.length}` +
+      (truncated ? ` (last ${LOGCAT_MAX_LINES})` : ""),
+    ...(args.pattern ? [`pattern=${args.pattern}`] : []),
+    ...(args.tag ? [`tag=${args.tag}`] : []),
+    ...notes,
+  ];
+  return {
+    content: [{ type: "text" as const, text: [...header, "--- logcat ---", ...body].join("\n") }],
+  };
+}
+
+export async function handleRuntimeDump(args: z.infer<typeof ToolSchemas.runtimeDump>) {
+  const wantsPackage = args.kind === "package" || args.kind === "meminfo";
+  if (args.packageName && !validatePackageName(args.packageName)) {
+    return { content: [{ type: "text" as const, text: "Invalid package name." }], isError: true };
+  }
+  const base = await adbBase(args.deviceId);
+  const dumpArgs = ["shell", "dumpsys", args.kind];
+  if (wantsPackage && args.packageName) dumpArgs.push(args.packageName);
+  const r = await run("adb", [...base, ...dumpArgs], { timeout: 120_000 });
+  const head = `cmd=adb ${base.join(" ")} ${dumpArgs.join(" ")}`.replace(/\s+/g, " ").trim();
+  const out = `${head}\nexit=${r.code}\n--- stdout ---\n${r.stdout.slice(0, 40_000)}\n--- stderr ---\n${r.stderr}`;
+  return { content: [{ type: "text" as const, text: out }], isError: r.code !== 0 };
 }
