@@ -20,10 +20,9 @@ each phase. Acts like a senior product/engineering team lead.
 ## Phase 1 — Discovery & Design (use design skills)
 - ux-research-planning: personas, journey maps, research questions.
 - usability-testing: test plan template.
-- android-compose-ui-ux: visual system, M3 tokens, motion, adaptive layouts, foundations (consolidated).
+- android-compose-ui-ux: visual system, M3 tokens, motion, adaptive layouts, foundations, and the Appllama-derived design bar (study real apps first, motion/navigation/anti-slop laws, simulator loop) (consolidated).
 - design-tokens: tokens + theming.
 - content-design-microcopy: copy guidelines.
-- appllama-usage + appllama-app-design-skill: study top-grossing app screens/flows before designing (requires Appllama MCP, optional).
 - figma-to-compose: handoff mapping via Figma MCP (get_design_context, get_variable_defs, get_screenshot).
 - Produce wireframes/prototypes in Figma; review with design-critique.
 

@@ -25,7 +25,7 @@ This project is an **Android** MCP toolkit: Kotlin/Compose, Gradle, ADB, emulato
 ## 4. Decision (updated)
 
 **Integrated.** User requested deep integration of Appllama's skills. Done:
-- Copied `appllama-usage` and `appllama-app-design-skill` into `skills/` (now 31 skills).
+- Folded the stack-agnostic design principles (motion laws, navigation one-way doors, anti-slop pre-flight, simulator loop, state architecture, perceived performance) into the consolidated `android-compose-ui-ux` skill as a "Design bar (adapted from Appllama)" section. The Appllama skills themselves were NOT kept as separate skills (avoiding bloat); the original Appllama skills remain available upstream for Expo/RN work.
 - Added the Appllama MCP to `.opencode/opencode.jsonc` (disabled by default; enable after connecting an Appllama account).
 - Wired into `start-here` skill (design-research phase) and README.
 - Updated `docs/agent-install.md` (Appllama MCP section).
