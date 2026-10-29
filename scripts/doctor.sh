@@ -59,7 +59,13 @@ if command -v opencode >/dev/null 2>&1; then
   # check the GLOBAL config files directly (project-level registrations must not count)
   if { [ -f "$HOME/.config/opencode/opencode.jsonc" ] && grep -q '"android-mcp"' "$HOME/.config/opencode/opencode.jsonc"; } || { [ -f "$HOME/.config/opencode/opencode.json" ] && grep -q '"android-mcp"' "$HOME/.config/opencode/opencode.json"; }; then echo "OK   opencode: android-mcp registered (global)"; else warn "opencode: android-mcp NOT registered globally (run 'make register')"; fi
   gsk="$(ls -d "$HOME/.config/opencode/skills"/*/SKILL.md 2>/dev/null | wc -l)"
-  if [ "$gsk" -gt 0 ]; then echo "OK   opencode: $gsk global skills present"; else warn "opencode: no global skills found (run 'make register')"; fi
+  srcsk="$(ls -d "$ROOT/skills"/*/SKILL.md 2>/dev/null | wc -l)"
+  if [ "$gsk" -gt 0 ]; then
+    echo "OK   opencode: $gsk global skills present (source has $srcsk)"
+    if [ "$gsk" -ne "$srcsk" ]; then warn "opencode: global skill count ($gsk) != source count ($srcsk) — run 'make register' to refresh"; fi
+  else
+    warn "opencode: no global skills found (run 'make register')"
+  fi
 else
   warn "opencode CLI not installed; registration skipped"
 fi

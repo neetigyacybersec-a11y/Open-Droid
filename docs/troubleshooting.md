@@ -45,6 +45,12 @@ Errors observed when installing on a fresh host and how this repo prevents them:
 - `android` CLI — enables `android skills list/search`.
 Both are installed by `make setup` when possible and are safe to install later.
 
+## Skill discovery / visibility
+| Symptom | Root cause | Fix |
+|---|---|---|
+| Only some skills show up (e.g. only UI skills) | Global skills dir is stale or partially populated; `make register` never ran or failed halfway | Run `make register` (refreshes all skills) and `make doctor` (compares global vs source counts). Also ensure OpenCode is started inside the repo OR skills are installed globally. |
+| A skill was removed but still appears | Old register.sh didn't prune; stale copy remains | Update to latest, run `make register` (manifest-based prune removes repo-dropped skills only). |
+
 ## OpenCode registration
 | Symptom | Root cause | Fix |
 |---|---|---|
