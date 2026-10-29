@@ -24,6 +24,8 @@ jobs:
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: "21" }
       - uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-35 build-tools;35.0.0 platform-tools"
       - run: cd examples/vuln-app && gradle :app:assembleDebug --no-daemon
 
   docker:
