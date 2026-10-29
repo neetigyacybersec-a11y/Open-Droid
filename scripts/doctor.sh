@@ -12,6 +12,11 @@ for c in node java javac gradle adb emulator sdkmanager avdmanager maestro; do c
 for c in compose-preview android; do
   if command -v "$c" >/dev/null 2>&1; then echo "OK   $c (optional)"; else echo "MISS $c (optional)"; fi
 done
+# dynamic analysis (frida + mitmproxy via .toolchain/python-venv, frida-server binaries)
+for c in frida frida-ps mitmdump python3; do
+  if command -v "$c" >/dev/null 2>&1; then echo "OK   $c (dynamic)"; else warn "$c missing (run 'make setup'; dynamic analysis unavailable)"; fi
+done
+ls "$TOOLCHAIN"/frida/frida-server-* >/dev/null 2>&1 && echo "OK   frida-server binaries present" || warn "frida-server binaries missing (dynamic analysis unavailable)"
 echo "ANDROID_HOME=${ANDROID_HOME:-unset}"
 echo "JAVA_HOME=${JAVA_HOME:-unset}"
 echo "GRADLE_USER_HOME=${GRADLE_USER_HOME:-unset}"

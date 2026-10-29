@@ -139,6 +139,29 @@ fi
 # skip the original AVD block below by guarding
 _AVDS_DONE=1
 
+# ---- Vendored dynamic-analysis tooling (frida + mitmproxy) ----
+VENV="$TOOLCHAIN/python-venv"
+if command -v python3 >/dev/null 2>&1 && [ ! -x "$VENV/bin/frida" ]; then
+  log "Creating python venv (frida-tools $FRIDA_TOOLS_VERSION, mitmproxy $MITMPROXY_VERSION)..."
+  python3 -m venv "$VENV" && "$VENV/bin/pip" install --quiet \
+    "frida-tools==${FRIDA_TOOLS_VERSION}" "mitmproxy==${MITMPROXY_VERSION}" \
+    || log "WARNING: venv setup failed; frida/net_capture tools unavailable"
+fi
+FRIDA_DIR="$TOOLCHAIN/frida"
+mkdir -p "$FRIDA_DIR"
+for ASSET_ARCH in x86_64 arm64; do
+  F="$FRIDA_DIR/frida-server-${FRIDA_VERSION}-android-${ASSET_ARCH}"
+  if [ ! -f "$F" ]; then
+    log "Downloading frida-server $FRIDA_VERSION ($ASSET_ARCH)..."
+    if ! curl -fsSL "https://github.com/frida/frida/releases/download/${FRIDA_VERSION}/frida-server-${FRIDA_VERSION}-android-${ASSET_ARCH}.xz" -o "$F.xz"; then
+      rm -f "$F.xz"
+      log "WARNING: frida-server $ASSET_ARCH download failed (dynamic analysis unavailable for this ABI)"
+    elif ! unxz -f "$F.xz"; then
+      log "WARNING: could not decompress frida-server $ASSET_ARCH (install xz-utils: sudo apt install -y xz-utils)"
+    fi
+  fi
+done
+
 # ---- Gradle ----
 if [ ! -x "$TOOLCHAIN/gradle/bin/gradle" ]; then
   log "Downloading Gradle $GRADLE_VERSION..."
@@ -215,7 +238,7 @@ export ANDROID_SDK_ROOT="$TOOLCHAIN/android-sdk"
 export GRADLE_HOME="$TOOLCHAIN/gradle"
 export MAESTRO_HOME="$TOOLCHAIN/maestro"
 export GRADLE_USER_HOME="$TOOLCHAIN/gradle-home"
-export PATH="\$JAVA_HOME/bin:\$ANDROID_HOME/cmdline-tools/latest/bin:\$ANDROID_HOME/platform-tools:\$ANDROID_HOME/emulator:\$GRADLE_HOME/bin:\$MAESTRO_HOME/bin:\$PATH"
+export PATH="$TOOLCHAIN/python-venv/bin:\$JAVA_HOME/bin:\$ANDROID_HOME/cmdline-tools/latest/bin:\$ANDROID_HOME/platform-tools:\$ANDROID_HOME/emulator:\$GRADLE_HOME/bin:\$MAESTRO_HOME/bin:\$PATH"
 EOF
 
 # ---- Warm Gradle dependency cache (enables offline builds later) ----
