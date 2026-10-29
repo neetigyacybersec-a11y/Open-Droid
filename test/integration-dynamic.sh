@@ -24,7 +24,7 @@ if [ ! -e /dev/kvm ] || ! command -v adb >/dev/null 2>&1 \
   exit 77
 fi
 
-AVD_NAME="${AVD_NAME:-Pixel_6_API_34}"
+AVD_NAME="${AVD_NAME:-Pixel_9_API_35}"
 APK="$ROOT/examples/vuln-app/app/build/outputs/apk/debug/app-debug.apk"
 FRIDA_DIR="$ROOT/.toolchain/frida"
 FRIDA_VERSION="$(sed -n 's/^FRIDA_VERSION[[:space:]]*=[[:space:]]*//p' "$ROOT/versions.env" | head -1)"

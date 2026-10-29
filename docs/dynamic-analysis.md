@@ -65,7 +65,7 @@ So do not assume that pushing the CA or trusting a user certificate makes HTTPS
 interception work on modern images. Depending on the target you may need an
 APEX/Conscrypt overlay, a Magisk module that mounts a system CA store, or an
 in-process unpinning hook (`frida-scripts/ssl-unpin.js`). Without a trusted CA,
-`net_capture` still records HTTP and TLS metadata (hosts/SNI) in the HAR, but
+`net_capture` may still record cleartext HTTP and connection metadata, but
 decrypted HTTPS bodies will be missing.
 
 ## Workflows

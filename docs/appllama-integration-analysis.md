@@ -44,7 +44,7 @@ android-compose-ui-ux, android-material3-design, android-design-tokens, design-s
 
 **Process/superpowers (13):** brainstorming, dispatching-parallel-agents, executing-plans, finishing-a-development-branch, receiving-code-review, requesting-code-review, subagent-driven-development, systematic-debugging, test-driven-development, using-git-worktrees, verification-before-completion, writing-plans, writing-skills (standard, keep)
 
-### Proposed consolidation (reduces 35 → ~26)
+### Executed consolidation (35 → 29)
 
 | Action | Skills | Rationale |
 |---|---|---|

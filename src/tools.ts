@@ -600,7 +600,7 @@ async function clearDeviceProxy(deviceId: string | undefined): Promise<string | 
 /**
  * Install the mitmproxy CA into the system store so apps trust intercepted
  * TLS. Requires a rooted/remountable image; every failure is a warning because
- * the user can still trust the user cert manually. Returns the installed name.
+ * on API 34+ the system CA store is in the Conscrypt APEX, so this may need an overlay. Returns the installed name.
  */
 async function installMitmCa(
   deviceId: string | undefined,
@@ -866,8 +866,8 @@ export async function handleNetCapture(args: z.infer<typeof ToolSchemas.netCaptu
     ...(caInstalled
       ? [`CA installed at ${caInstalled}`]
       : rooted
-        ? ["CA not installed; HTTPS will fail until you trust the user cert manually"]
-        : ["device not rooted; system CA not installed (trust the user cert manually)"]),
+        ? ["CA not installed; on API 34+ the system CA store lives in the Conscrypt APEX, so system-trust install may fail — see docs/troubleshooting.md (APEX overlay/Magisk)"]
+        : ["device not rooted; system CA not installed (a rootable google_apis image is required)"]),
     `auto-stop in ${durationSec}s — the HAR is flushed when mitmdump exits`,
     ...warnings.map((w) => `warning: ${w}`),
   ];

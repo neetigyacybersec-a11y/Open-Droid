@@ -46,22 +46,41 @@ if [ -d "$SKILLS_SRC" ]; then
   done
   ok "Installed/refreshed $count skills into $SKILLS_DST"
 
-  # Prune skills that no longer exist in the source tree (removed, renamed, or
-  # merged by a consolidation). Only directories that look like skills (contain
-  # SKILL.md) are touched, so unrelated user content in the skills dir survives.
+  # Prune only skills that were previously installed by THIS repo (tracked in a
+  # manifest), so unrelated user skills in the global skills dir are never
+  # deleted. The manifest is rewritten on every run.
+  MANIFEST="$SKILLS_DST/.android-mcp-manifest"
   pruned=0
-  for d in "$SKILLS_DST"/*/; do
-    [ -d "$d" ] || continue
-    [ -f "$d/SKILL.md" ] || continue
-    name="$(basename "$d")"
-    if [ ! -d "$SKILLS_SRC/$name" ]; then
-      rm -rf "$d"
-      pruned=$((pruned+1))
-    fi
-  done
+  if [ -f "$MANIFEST" ]; then
+    while IFS= read -r name; do
+      [ -n "$name" ] || continue
+      if [ ! -d "$SKILLS_SRC/$name" ] && [ -d "$SKILLS_DST/$name" ]; then
+        rm -rf "$SKILLS_DST/$name"
+        pruned=$((pruned+1))
+      fi
+    done < "$MANIFEST"
+  fi
   if [ "$pruned" -gt 0 ]; then
     ok "Pruned $pruned skill(s) no longer present in skills/"
   fi
+
+  # One-time cleanup of skills removed/renamed by the 2026-10 consolidation.
+  # (Safe: only the eight names this repo dropped; unrelated user skills untouched.)
+  for legacy in android-design-tokens design-system-tokens compose-accessibility \
+                android-accessibility-audit android-material3-design motion-design \
+                uiux-design-foundations android-adaptive-layouts; do
+    if [ -d "$SKILLS_DST/$legacy" ]; then
+      rm -rf "$SKILLS_DST/$legacy"
+      pruned=$((pruned+1))
+    fi
+  done
+  # Write the current manifest (one skill name per line).
+  : > "$MANIFEST"
+  for d in "$SKILLS_SRC"/*/; do
+    name="$(basename "$d")"
+    [ -f "$d/SKILL.md" ] || continue
+    printf '%s\n' "$name" >> "$MANIFEST"
+  done
 else
   warn "skills/ not found at $SKILLS_SRC"
 fi
