@@ -1,7 +1,6 @@
 SHELL := /bin/bash
 ROOT := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 TOOLCHAIN := $(ROOT).toolchain
--include $(TOOLCHAIN)/env.sh
 
 .PHONY: help setup doctor build-mcp test-mcp run-mcp new-app build-app emulator screenshot warm-cache register clean distclean check-readme
 

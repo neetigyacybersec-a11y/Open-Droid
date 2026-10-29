@@ -167,14 +167,14 @@ if command -v python3 >/dev/null 2>&1; then
   if [ ! -x "$VENV/bin/frida" ] || [ ! -f "$VENV_STAMP" ] \
      || [ "$(cat "$VENV_STAMP")" != "$VENV_PINS" ]; then
     log "Creating python venv (frida $FRIDA_VERSION, frida-tools $FRIDA_TOOLS_VERSION, mitmproxy $MITMPROXY_VERSION)..."
-    if python3 -m venv "$VENV" && "$VENV/bin/pip" install --quiet \
+    if { python3 -m venv "$VENV" 2>/dev/null || virtualenv "$VENV" 2>/dev/null; } && "$VENV/bin/pip" install --quiet \
         "frida==${FRIDA_VERSION}" \
         "frida-tools==${FRIDA_TOOLS_VERSION}" \
         "mitmproxy==${MITMPROXY_VERSION}"; then
       # Stamp last, only after a successful install, so failures retry next run.
       printf '%s\n' "$VENV_PINS" > "$VENV_STAMP"
     else
-      log "WARNING: venv setup failed; frida/net_capture tools unavailable"
+      log "WARNING: venv setup failed (need python3-venv or virtualenv); frida/net_capture tools unavailable"
     fi
   fi
 fi
@@ -251,9 +251,9 @@ if ! command -v android >/dev/null 2>&1; then
 fi
 
 # ---- npm deps for MCP server ----
-log "Installing MCP server npm dependencies..."
+log "Installing MCP server npm dependencies (including dev deps for build)..."
 cd "$ROOT"
-npm install --omit=dev 2>/dev/null || npm install
+npm install
 npm run build
 
 # ---- Expose skills to OpenCode (project-level discovery) ----
