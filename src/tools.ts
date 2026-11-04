@@ -943,8 +943,6 @@ export async function handleGradleLint(a: z.infer<typeof ToolSchemas.gradleLint>
   return { content: [{ type: "text" as const, text: `exit=${r.code}\n${(r.stdout + "\n" + r.stderr).slice(-12000)}` }], isError: r.code !== 0 };
 }
 export async function handleGradleDependencies(a: z.infer<typeof ToolSchemas.gradleDependencies>) {
-  const r = await run("gradle", [`${a.configuration || "debugRuntimeClasspath"}:dependencies`.replace(/^/, ":"), "dependencies", "--configuration", a.configuration || "debugRuntimeClasspath"], { cwd: a.projectPath, timeout: 300_000 });
-  // simpler: run dependencies task with configuration filter
   const r2 = await run("gradle", ["dependencies", "--configuration", a.configuration || "debugRuntimeClasspath"], { cwd: a.projectPath, timeout: 300_000 });
   return { content: [{ type: "text" as const, text: `exit=${r2.code}\n${(r2.stdout + "\n" + r2.stderr).slice(-12000)}` }], isError: r2.code !== 0 };
 }
