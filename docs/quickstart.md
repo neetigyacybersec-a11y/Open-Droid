@@ -1,9 +1,11 @@
 # Quickstart
 
-## Option A — Docker (zero downloads)
+## Option A — Docker (no host toolchain)
+
+No pre-built image is published yet, so build it locally first:
 
 ```bash
-docker pull ghcr.io/neetigyacybersec-a11y/open-droid:latest
+docker build -t open-droid:latest .
 ```
 
 Configure OpenCode (`~/.config/opencode/opencode.jsonc`; same shape `opencode mcp add --global` writes):
@@ -13,11 +15,16 @@ Configure OpenCode (`~/.config/opencode/opencode.jsonc`; same shape `opencode mc
   "servers": {
     "android-mcp": {
       "type": "local",
-      "command": ["docker", "run", "-i", "--rm", "--device", "/dev/kvm", "ghcr.io/neetigyacybersec-a11y/open-droid:latest"]
+      "command": ["docker", "run", "-i", "--rm", "open-droid:latest"]
     }
   }
 }
 ```
+
+> The container route cannot run the Android emulator (Docker Desktop does not
+> expose `/dev/kvm`). Use a physical device (`adb_wifi { action: "connect",
+> host: "<phone-ip>" }`) or a host/WSL2 emulator bridged with
+> `-e ADB_SERVER_SOCKET=tcp:host.docker.internal:5037`.
 
 ## Option B — Clone + one-time setup (offline afterwards)
 

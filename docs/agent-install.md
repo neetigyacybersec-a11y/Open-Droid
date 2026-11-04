@@ -166,10 +166,12 @@ For skills, copy manually:
 cp -r "$REPO/skills/"* ~/.claude/skills/   # or ~/.cursor/skills/, etc.
 ```
 
-### 2.3 Docker (zero host toolchain)
+### 2.3 Docker (no host toolchain)
+
+No pre-built image is published yet, so build it locally first:
 
 ```bash
-docker pull ghcr.io/neetigyacybersec-a11y/open-droid:latest
+docker build -t open-droid:latest .
 ```
 
 MCP config:
@@ -179,15 +181,16 @@ MCP config:
     "android-mcp": {
       "type": "stdio",
       "command": "docker",
-      "args": ["run", "-i", "--rm", "--device", "/dev/kvm",
-               "ghcr.io/neetigyacybersec-a11y/open-droid:latest"]
+      "args": ["run", "-i", "--rm", "open-droid:latest"]
     }
   }
 }
 ```
 
-Note: dynamic analysis (Frida/mitmproxy) is available in the image only if the
-image was built with `make setup` baked in; check `make doctor` inside the container.
+> The container route cannot run the Android emulator (Docker Desktop does not
+> expose `/dev/kvm`). For a running emulator use a physical device
+> (`adb_wifi { action: "connect", host: "<phone-ip>" }`) or a host/WSL2
+> emulator bridged with `-e ADB_SERVER_SOCKET=tcp:host.docker.internal:5037`.
 
 ### 2.4 Appllama MCP (optional, separate)
 
@@ -254,7 +257,9 @@ make register
 ### 3.7 Updating a Docker install
 
 ```bash
-docker pull ghcr.io/neetigyacybersec-a11y/open-droid:latest
+cd "$REPO"
+git pull --ff-only origin main
+docker build -t open-droid:latest .
 # restart your client; no further steps
 ```
 

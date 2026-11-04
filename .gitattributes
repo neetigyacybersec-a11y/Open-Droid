@@ -1,0 +1,7 @@
+# Force LF line endings for shell scripts and Docker files, regardless of
+# the host's core.autocrlf setting (fixes Windows checkouts producing CRLF
+# that breaks the shebang in scripts/run-mcp.sh).
+*.sh text eol=lf
+Dockerfile text eol=lf
+.dockerignore text eol=lf
+docker/* text eol=lf

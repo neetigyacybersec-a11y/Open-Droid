@@ -73,6 +73,54 @@ Use a CI runner with KVM, or run the Android app on a physical device
 | `could not hash mitmproxy CA with openssl` | `openssl` not on `PATH` | `sudo apt install -y openssl` |
 | python3 missing | Not installed | `sudo apt install -y python3 python3-venv` |
 
+## Docker route cannot run the emulator
+
+The image ships AVD `Pixel_9_API_35`, the emulator binary and the system image, but
+Docker Desktop on Windows/macOS does not expose `/dev/kvm`, so the container cannot
+accelerate (or, practically, boot) an emulator:
+
+- `ls /dev/kvm` in the container → `No such file or directory`
+- `emulator -accel-check` → `KVM requires a CPU that supports vmx or svm` (exit 3)
+- Software rendering (`-accel off`, swiftshader) does boot and `adb` lists
+  `emulator-5554`, but a first boot takes ~13 minutes (TCG + first-boot `dex2oat`),
+  and `--rm` discards the AVD state so every run pays that cost again.
+
+**Use one of the working alternatives instead:**
+
+- **Physical device:** `adb_wifi { action: "connect", host: "<phone-ip>" }`
+- **Host/WSL2 emulator, bridged:** run the container with
+  `-e ADB_SERVER_SOCKET=tcp:host.docker.internal:5037`; the MCP server's
+  `adb_devices` then talks to the remote adb server on the host.
+
+## Windows / WSL2 prerequisites for `/dev/kvm`
+
+The docs recommend WSL2 for emulator work on Windows, but the Windows-side
+prerequisites are non-obvious. Verify them **before** committing to that route:
+
+```bash
+ls -l /dev/kvm
+dmesg | grep -i -E 'kvm|nested'
+grep -m1 -oE 'svm|vmx' /proc/cpuinfo
+```
+
+Requirements and gotchas:
+
+- WSL 3.0+ (kernel 6.x) — `wsl --update`. Older WSL (2.4.x / kernel 5.15) ships
+  no `kvm*.ko` modules at all, so `/dev/kvm` never appears.
+- Windows features enabled: **Virtual Machine Platform** and **Windows Hypervisor
+  Platform** (both `InstallState = 1`). HypervisorPlatform alone is not enough.
+- **Memory Integrity (HVCI) must be off** (and the machine rebooted) — otherwise
+  `Hyper-V: Nested features: 0x0` and `modprobe kvm_amd` fails with
+  `SVM not supported by CPU`.
+- The CPU must actually expose virtualization to the guest: `svm` (AMD) or `vmx`
+  (Intel) must show up in `/proc/cpuinfo`. Some boards (e.g. Gigabyte B450M K
+  with a Ryzen 5 4600G) report `VirtualizationFirmwareEnabled=True` on the host
+  yet never pass `svm` into the WSL guest, so `/dev/kvm` stays absent even with
+  everything else correct. There is no workaround on such hardware — use a
+  physical device or the Docker route's ADB bridge instead.
+- `wsl --shutdown` also kills Docker Desktop's `docker-desktop` distro, which takes
+  a containerised MCP server offline with it. Plan restarts accordingly.
+
 ## Git clone
 | Symptom | Root cause | Fix |
 |---|---|---|

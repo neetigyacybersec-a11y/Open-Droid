@@ -1,18 +1,20 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "skills": ["./skills"],
+  // Note: `android-mcp` is intentionally NOT registered here. It is registered
+  // globally by `make setup`/`make register` (see scripts/register.sh), so a
+  // project-level entry would only shadow that working global registration —
+  // and on hosts without `bash` (e.g. Windows) it would fail to start. Run
+  // `make register` to (re)install it globally.
   "mcp": {
-    // Appllama: paid design-research MCP (https://mcp.appllama.io/mcp). Disabled by
-    // default — enable after connecting your Appllama account (Pro). See docs/appllama-integration.md.
-    "Appllama": {
-      "type": "remote",
-      "url": "https://mcp.appllama.io/mcp",
-      "enabled": false
-    },
-    "android-mcp": {
-      "type": "local",
-      "command": ["bash", "./scripts/run-mcp.sh"],
-      "enabled": true
+    "servers": {
+      // Appllama: paid design-research MCP (https://mcp.appllama.io/mcp). Disabled by
+      // default — enable after connecting your Appllama account (Pro). See docs/appllama-integration.md.
+      "Appllama": {
+        "type": "remote",
+        "url": "https://mcp.appllama.io/mcp",
+        "disabled": true
+      }
     }
   }
 }

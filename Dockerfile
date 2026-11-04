@@ -62,7 +62,8 @@ COPY --from=builder /build/dist ./dist
 COPY --from=builder /build/node_modules ./node_modules
 COPY --from=builder /build/package.json ./
 COPY scripts/run-mcp.sh ./scripts/run-mcp.sh
-RUN chmod +x ./scripts/run-mcp.sh
+# Normalize line endings so a Windows (CRLF) checkout can't break the shebang.
+RUN sed -i 's/\r$//' ./scripts/run-mcp.sh && chmod +x ./scripts/run-mcp.sh
 
 ENV NODE_ENV=production
 ENV GRADLE_USER_HOME=/opt/gradle-home

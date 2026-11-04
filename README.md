@@ -54,15 +54,17 @@ No scattered MCP servers. No repeated downloads. No "works on my machine."
   + screenshot regression.
 - **Dynamic analysis** — static→dynamic reverse-engineering loop: Frida hooks,
   mitmproxy capture, runtime observation, root/SSL bypass (7 new MCP tools).
-- **Self-contained Docker image** — `docker pull` and run; no host toolchain needed.
+- **Self-contained Docker image** — `docker build` and run; no host toolchain needed.
 - **CI/CD** — GitHub Actions build/test on PR; on tag, publish Docker image to GHCR.
 
 ---
 
 ## Quick start — Docker (zero downloads)
 
+No pre-built image is published yet, so build it locally first (one-time):
+
 ```bash
-docker pull ghcr.io/neetigyacybersec-a11y/open-droid:latest
+docker build -t open-droid:latest .
 ```
 
 Wire into OpenCode (`~/.config/opencode/opencode.jsonc`):
@@ -72,7 +74,7 @@ Wire into OpenCode (`~/.config/opencode/opencode.jsonc`):
   "servers": {
     "android-mcp": {
       "type": "local",
-      "command": ["docker", "run", "-i", "--rm", "--device", "/dev/kvm", "ghcr.io/neetigyacybersec-a11y/open-droid:latest"]
+      "command": ["docker", "run", "-i", "--rm", "open-droid:latest"]
     }
   }
 }
@@ -80,7 +82,9 @@ Wire into OpenCode (`~/.config/opencode/opencode.jsonc`):
 
 > Shape verified against what `opencode mcp add --global` itself writes.
 
-> Requires `/dev/kvm` on the host for emulator acceleration.
+> The container route cannot run the Android emulator (Docker Desktop does not
+> expose `/dev/kvm`). See [Docker](#docker) for the supported alternatives
+> (physical device or a host/WSL2 emulator bridged via `ADB_SERVER_SOCKET`).
 
 ---
 
@@ -235,8 +239,20 @@ Pre-commit hook runs `build` + `test`.
 
 ```bash
 docker build -t open-droid:latest .
-docker run -i --rm --device /dev/kvm open-droid:latest
+docker run -i --rm open-droid:latest
 ```
+
+> **Limitation:** the container cannot run the Android emulator. Docker Desktop on
+> Windows/macOS does not expose `/dev/kvm`, and even with software rendering a
+> first boot takes ~13 minutes under TCG (and `--rm` discards the AVD state, so
+> every run pays that cost). The image is still useful for the MCP server's
+> build/ADB/static-analysis tools.
+>
+> For a running emulator, use one of:
+> - a **physical device**: `adb_wifi { action: "connect", host: "<phone-ip>" }`
+> - a **host/WSL2 emulator**, bridged with
+>   `-e ADB_SERVER_SOCKET=tcp:host.docker.internal:5037` so the MCP server's
+>   `adb_devices` talks to the remote adb server.
 
 Multi-stage build: builder (Node) compiles TS; runtime (Temurin JDK + SDK + Node).
 
