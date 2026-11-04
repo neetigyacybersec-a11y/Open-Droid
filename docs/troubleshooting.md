@@ -125,3 +125,15 @@ Requirements and gotchas:
 | Symptom | Root cause | Fix |
 |---|---|---|
 | `git@github.com: Permission denied (publickey)` | No SSH key configured for GitHub | Use the HTTPS URL instead: `git clone https://github.com/neetigyacybersec-a11y/Open-Droid.git`. Or set up an SSH key: https://docs.github.com/en/authentication/connecting-to-github-with-ssh |
+
+## Windows-specific notes (Git Bash/MSYS)
+| Symptom | Root cause | Fix |
+|---|---|---|
+| `make: command not found` | `make` is not bundled with Windows | Run the underlying scripts directly: `bash scripts/setup.sh`, `bash scripts/doctor.sh`, `bash scripts/new-app.sh my-app` (Git Bash). |
+| `python3` seems installed (in PATH) but `python3 -c "import sys"` fails / prints a Store hint | Microsoft Store `python3` alias stub | Disable the Store alias (Settings → App execution aliases) or install real Python from python.org; `setup.sh`/`doctor.sh` probe executable-ness rather than only `command -v`. |
+| `gradle`/`sdkmanager` not found despite the toolchain being vendored | Windows binaries are `.bat` files, not `.exe` | Invoke `gradle.bat`, `sdkmanager.bat`, `avdmanager.bat` explicitly (doctor checks both names). |
+| The Windows Store stub counts as "installed" in scripts | Old scripts only used `command -v` | fixed: executable-ness probe. |
+| `npm` blocked in PowerShell | Execution policy blocks `npm.ps1` | Use `npm.cmd`, or run inside Git Bash. |
+
+## Docker: engine not running
+`docker build` fails with `...pipe/dockerDesktopLinuxEngine: The system cannot find the file specified` when Docker Desktop is not started. Launch Docker Desktop and confirm `docker info` reports both Client/Server before retrying. The first build is multi-stage and downloads several GB (JDK, Android SDK, Node) — expect a long first build; the "zero downloads" quick-start means zero host toolchain, not zero bytes.

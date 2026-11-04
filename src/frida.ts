@@ -28,7 +28,18 @@ function adbArgs(deviceId?: string): string[] {
   return deviceId ? ["-s", deviceId] : [];
 }
 
+/** Windows venvs use Scripts\*.exe; POSIX venvs use bin/<name> (with exec bits). */
+const IS_WIN = process.platform === "win32";
+function vendoredCliPath(root: string, name: string): string {
+  return IS_WIN
+    ? join(root, ".toolchain", "python-venv", "Scripts", `${name}.exe`)
+    : join(root, ".toolchain", "python-venv", "bin", name);
+}
+
 async function isExecutable(path: string): Promise<boolean> {
+  // On Windows, fs.access X_OK degenerates to "file exists" — but the vendored
+  // probe path already includes the .exe suffix, which IS the executable bit
+  // the Windows venv layout provides. On POSIX the exec bit is meaningful.
   try {
     await access(path, constants.X_OK);
     return true;
@@ -68,11 +79,11 @@ export function parseBuildType(prop: string): "rootable" | "nonrootable" {
 }
 
 /**
- * Resolve a vendored CLI: `.toolchain/python-venv/bin/<name>` when executable
+ * Resolve a vendored CLI: `.toolchain/python-venv/{bin|Scripts}` when executable
  * (offline-first, wins over a stale PATH install), else PATH via `which`.
  */
 async function resolveCli(root: string, name: string): Promise<string | null> {
-  const vendored = join(root, ".toolchain", "python-venv", "bin", name);
+  const vendored = vendoredCliPath(root, name);
   if (await isExecutable(vendored)) return vendored;
   return which(name);
 }
@@ -153,7 +164,7 @@ async function fridaPsCommand(root: string): Promise<string> {
   if (!cli) {
     throw new Error("frida CLI not found — run 'make setup' (vendors python-venv)");
   }
-  const sibling = join(dirname(cli), "frida-ps");
+  const sibling = join(dirname(cli), IS_WIN ? "frida-ps.exe" : "frida-ps");
   return (await isExecutable(sibling)) ? sibling : "frida-ps";
 }
 

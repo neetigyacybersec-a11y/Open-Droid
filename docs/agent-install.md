@@ -9,7 +9,7 @@ has an expected output.
 - Repository: `https://github.com/<owner>/android-mcp.git` (local path assumed below: `$REPO`)
 - MCP server name (registered): `android-mcp`
 - Transport: stdio (local) or Docker (`ghcr.io/.../open-droid`)
-- Tool count contract: exactly **20 tools** (see `test/smoke.test.mjs`)
+- Tool count contract: exactly **62 tools** (see `test/smoke.test.mjs`)
 
 ---
 
@@ -20,7 +20,7 @@ has an expected output.
 | Git | `git --version` | `sudo apt install -y git` |
 | Node ≥ 22 | `node --version` | via nvm or `make setup` |
 | Java 21 (JDK) | `java -version` | Auto-downloaded by `make setup` (Temurin, via Adoptium) if absent; or `sudo apt install -y temurin-21-jdk` |
-| Python 3 + venv | `python3 --version` | `sudo apt install -y python3 python3-venv` |
+| Python 3 + venv | `python3 --version` | `sudo apt install -y python3 python3-venv` (on Windows, install real Python from python.org — the Microsoft Store `python3` alias stub exists on PATH but runs nothing and is rejected) |
 | KVM (x86_64 only) | `ls -l /dev/kvm` | `sudo apt install -y qemu-kvm && sudo gpasswd -a $USER kvm` (then re-login) |
 | Docker (optional) | `docker --version` | `sudo apt install -y docker.io` |
 | OpenCode CLI (for registration) | `opencode --version` | https://opencode.ai |

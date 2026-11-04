@@ -1,40 +1,31 @@
 #!/usr/bin/env bash
 # Automatically register android-mcp with OpenCode:
-#  1. MCP server (global) so it works from any working directory
-#  2. Skills (global) so they are always discovered
+#  1. Skills (global) so they are always discovered — runs regardless of the
+#     OpenCode CLI state, so a broken/absent CLI never hides skill installs.
+#  2. MCP server (global) so it works from any working directory.
+#     Primary path: `opencode mcp add`. Fallback for CLI versions without the
+#     `--global`/`--` registration flags (e.g. 1.19.x): rewrite the global
+#     config file directly.
 # Idempotent: safe to re-run; refreshes skill copies each time.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SKILLS_SRC="$ROOT/skills"
 SKILLS_DST="$HOME/.config/opencode/skills"
+MCP_SCRIPT="$ROOT/scripts/run-mcp.sh"
 ok(){ echo "[register] OK    $*"; }
 warn(){ echo "[register] WARN  $*"; }
 
-# ---- 0. opencode presence ----
+GLOBALLY_REGISTERED(){
+  { [ -f "$HOME/.config/opencode/opencode.jsonc" ] && grep -q '"android-mcp"' "$HOME/.config/opencode/opencode.jsonc"; } \
+  || { [ -f "$HOME/.config/opencode/opencode.json" ] && grep -q '"android-mcp"' "$HOME/.config/opencode/opencode.json"; }
+}
+
+# ---- 0. opencode presence (advisory only) ----
 if ! command -v opencode >/dev/null 2>&1; then
   warn "opencode CLI not found. Install from https://opencode.ai then re-run: make register"
-  exit 0
 fi
 
-# ---- 1. MCP server (global) ----
-# Check the GLOBAL config files directly (NOT `opencode mcp list`, which also
-# shows project-level registrations — a fresh clone has the project-level
-# entry committed, which must not count as "registered globally").
-# opencode's global config may be opencode.json or opencode.jsonc.
-GLOBALLY_REGISTERED(){ [ -f "$1" ] && grep -q '"android-mcp"' "$1"; }
-if [ -f "$ROOT/scripts/run-mcp.sh" ] && [ -f "$ROOT/dist/index.js" ]; then
-  chmod +x "$ROOT/scripts/run-mcp.sh"
-  if GLOBALLY_REGISTERED "$HOME/.config/opencode/opencode.jsonc" || GLOBALLY_REGISTERED "$HOME/.config/opencode/opencode.json"; then
-    ok "MCP server android-mcp already registered (global)"
-  else
-    opencode mcp add android-mcp --global -- bash "$ROOT/scripts/run-mcp.sh" >/dev/null
-    ok "MCP server android-mcp registered (global)"
-  fi
-else
-  warn "MCP build not found; run 'npm run build' first"
-fi
-
-# ---- 2. Skills (global copies, refreshed every run) ----
+# ---- 1. Skills (global copies, refreshed every run; independent of the CLI) ----
 if [ -d "$SKILLS_SRC" ]; then
   count=0
   for d in "$SKILLS_SRC"/*/; do
@@ -85,8 +76,65 @@ else
   warn "skills/ not found at $SKILLS_SRC"
 fi
 
+# ---- 2. MCP server (global) ----
+# Check the GLOBAL config files directly (NOT `opencode mcp list`, which also
+# shows project-level registrations — a fresh clone has the project-level
+# entry committed historically, which must not count as "registered globally").
+if [ -f "$MCP_SCRIPT" ] && [ -f "$ROOT/dist/index.js" ]; then
+  chmod +x "$MCP_SCRIPT"
+  if ! GLOBALLY_REGISTERED; then
+    # Primary: the CLI (works on opencode >= 2.x with `--global` + `-- command`).
+    if command -v opencode >/dev/null 2>&1; then
+      opencode mcp add android-mcp --global -- bash "$MCP_SCRIPT" >/dev/null 2>&1 || true
+    fi
+  fi
+  # Fallback: CLI failed or absent (e.g. v1.19.x has no --global/-- command
+  # syntax). Write the global config directly, mirroring the exact JSON shape
+  # `opencode mcp add --global` produces on 2.x:
+  #   {"mcp":{"servers":{"<name>":{"type":"local","command":[...]}}}}
+  if ! GLOBALLY_REGISTERED; then
+    if command -v node >/dev/null 2>&1; then
+      ANDROID_MCP_FILE="$MCP_SCRIPT" \
+      GLOBAL_JSON="$HOME/.config/opencode/opencode.json" \
+      GLOBAL_JSONC="$HOME/.config/opencode/opencode.jsonc" \
+      ROOTDIR="$ROOT" \
+      node -e '
+        const fs = require("fs");
+        const cfgPath = fs.existsSync(process.env.GLOBAL_JSON) ? process.env.GLOBAL_JSON
+                      : (fs.existsSync(process.env.GLOBAL_JSONC) ? process.env.GLOBAL_JSONC
+                      : process.env.GLOBAL_JSON);
+        let cfg = {};
+        if (fs.existsSync(cfgPath)) {
+          try { cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8")); }
+          catch {
+            // Comments (JSONC) or malformed content: do not risk a lossy rewrite.
+            console.error("[register] WARN  cannot merge: global config is not plain JSON (" + cfgPath + ")");
+            process.exit(0);
+          }
+        }
+        cfg.mcp ??= {}; cfg.mcp.servers ??= {};
+        cfg.mcp.servers["android-mcp"] = {
+          type: "local",
+          command: ["bash", process.env.ANDROID_MCP_FILE],
+        };
+        fs.mkdirSync(require("path").dirname(cfgPath), { recursive: true });
+        fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + "\n");
+        console.log("[register] wrote " + cfgPath);
+      '
+    fi
+  fi
+  if GLOBALLY_REGISTERED; then
+    ok "MCP server android-mcp registered (global)"
+  else
+    warn "MCP server android-mcp NOT registered (global). Add manually to ~/.config/opencode/opencode.json:"
+    warn '   "mcp": { "servers": { "android-mcp": { "type": "local", "command": ["bash", "<repo>/scripts/run-mcp.sh"] } } }'
+  fi
+else
+  warn "MCP build not found; run 'npm run build' first"
+fi
+
 # ---- 3. Verify ----
-if GLOBALLY_REGISTERED "$HOME/.config/opencode/opencode.jsonc" || GLOBALLY_REGISTERED "$HOME/.config/opencode/opencode.json"; then
+if GLOBALLY_REGISTERED; then
   ok "verified: android-mcp present in global opencode config"
 else
   warn "verification failed: android-mcp not in global opencode config"

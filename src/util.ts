@@ -35,6 +35,12 @@ export async function run(
 }
 
 export function which(cmd: string): Promise<string | null> {
+  // `which` does not exist on Windows; `where.exe` is always present there.
+  if (process.platform === "win32") {
+    return run("where", [cmd]).then((r) =>
+      r.code === 0 ? (r.stdout.trim().split(/\r?\n/)[0] ?? null) : null,
+    );
+  }
   return run("which", [cmd]).then((r) => (r.code === 0 ? r.stdout.trim() : null));
 }
 

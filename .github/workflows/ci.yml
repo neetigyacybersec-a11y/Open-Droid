@@ -18,6 +18,20 @@ jobs:
       - run: npm test --if-present
       - run: bash scripts/check-readme.sh
 
+  # Windows equivalent: the MCP server (build + tests that are not POSIX-stub
+  # based) must stay green on Windows hosts, where most users hit broken paths.
+  mcp-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - run: bash scripts/check-readme.sh
+
   app-build:
     runs-on: ubuntu-latest
     steps:

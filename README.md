@@ -61,7 +61,9 @@ No scattered MCP servers. No repeated downloads. No "works on my machine."
 
 ## Quick start — Docker (zero downloads)
 
-No pre-built image is published yet, so build it locally first (one-time):
+No pre-built image is published yet, so build it locally first (one-time; the
+multi-stage build downloads several GB — start **Docker Desktop first**, the
+first build takes a while):
 
 ```bash
 docker build -t open-droid:latest .
@@ -89,6 +91,17 @@ Wire into OpenCode (`~/.config/opencode/opencode.jsonc`):
 ---
 
 ## Quick start — Clone + setup (automatic registration)
+
+> **Prerequisites** (what the README assumes on the host): `git`, `node >= 22`
+> (system node or setup auto-installs), and for dynamic analysis a **runnable**
+> `python3` — the Windows Store "python3" alias stub exists on PATH but runs
+> nothing, and installs/scripts correctly reject it. `make` itself is not
+> available on Windows: run the underlying scripts directly, e.g.
+> `bash scripts/setup.sh`, `bash scripts/doctor.sh` (Git Bash / MSYS).
+>
+> `scripts/setup.sh` supports Linux, macOS, and Windows (Git Bash/MSYS) hosts;
+> platform gaps (e.g. optional Android CLI binaries) degrade to warnings, and
+> the core JDK/SDK/npm bootstrap completes on all three.
 
 ```bash
 git clone https://github.com/neetigyacybersec-a11y/Open-Droid.git

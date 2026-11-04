@@ -6,9 +6,6 @@ TOOLCHAIN := $(ROOT).toolchain
 
 help:
 	@echo "android-mcp product targets:"
-
-help:
-	@echo "android-mcp product targets:"
 	@echo "  setup        One-time download of full toolchain into .toolchain (offline afterwards)"
 	@echo "  doctor       Verify toolchain + MCP build"
 	@echo "  build-mcp    Build the MCP server (TypeScript)"

@@ -2,11 +2,18 @@
 // The handlers are exercised end to end through a stub `adb` on PATH, so the assertion
 // covers the emitted tool text rather than only the helper.
 import { strict as assert } from "node:assert";
-import { test } from "node:test";
+import { test, skip } from "node:test";
 import { mkdtemp, writeFile, chmod, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { capOutput, handleAdbShell, handleRuntimeDump } from "../dist/tools.js";
+
+// The stubs below are POSIX shell scripts driven by `realpath`/`execFile` with a
+// `/bin/sh`-style stub on PATH; Windows cannot execute them (no shell shebangs,
+// libuv refuses to spawn `.bat` without `shell:`), so on win32 they are
+// reported as skipped and full coverage is provided by the Linux CI job.
+const stubbedTests =
+  process.platform === "win32" ? (name, fn) => skip(name, fn) : (name, fn) => test(name, fn);
 
 const MAX = 40_000;
 const MARKER_RE = /^\[truncated: (\d+) chars total\]$/m;
@@ -44,7 +51,7 @@ test("capOutput keeps the head and reports the original size", () => {
   assert.equal(Number(marker.match(MARKER_RE)[1]), full.length);
 });
 
-test("runtime_dump marks truncated stdout instead of dropping it silently", async () => {
+stubbedTests("runtime_dump marks truncated stdout instead of dropping it silently", async () => {
   await withStubAdb("i=0; while [ $i -lt 50000 ]; do printf A; i=$((i+1)); done", async () => {
     const res = await handleRuntimeDump({ kind: "activity" });
     const out = text(res);
@@ -60,7 +67,7 @@ test("runtime_dump marks truncated stdout instead of dropping it silently", asyn
   });
 });
 
-test("runtime_dump adds no marker for output under the cap", async () => {
+stubbedTests("runtime_dump adds no marker for output under the cap", async () => {
   await withStubAdb("printf 'some dumpsys text'", async () => {
     const out = text(await handleRuntimeDump({ kind: "service" }));
     assert.match(out, /--- stdout ---\nsome dumpsys text\n--- stderr ---/);
@@ -68,7 +75,7 @@ test("runtime_dump adds no marker for output under the cap", async () => {
   });
 });
 
-test("adb_shell uses the same cap and marker", async () => {
+stubbedTests("adb_shell uses the same cap and marker", async () => {
   await withStubAdb("i=0; while [ $i -lt 40001 ]; do printf B; i=$((i+1)); done", async () => {
     const out = text(await handleAdbShell({ command: "cat big" }));
     const stdout = out.split("--- stdout ---\n")[1].split("\n--- stderr ---\n")[0];

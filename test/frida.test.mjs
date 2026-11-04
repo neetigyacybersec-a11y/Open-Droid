@@ -34,25 +34,31 @@ assert.equal(parseBuildType("release-keys"), "nonrootable");
 assert.equal(parseBuildType(""), "nonrootable");
 
 // --- CLI resolution: vendored venv wins over PATH (offline-first) ---
+// Windows venvs use Scripts\<name>.exe; POSIX venvs use bin/<name>.
+const IS_WIN = process.platform === "win32";
+const BIN_DIR = IS_WIN ? "Scripts" : "bin";
+const EXE = IS_WIN ? ".exe" : "";
 const fake = mkdtempSync(join(tmpdir(), "venvtest-"));
-const binDir = join(fake, ".toolchain", "python-venv", "bin");
+const binDir = join(fake, ".toolchain", "python-venv", BIN_DIR);
 mkdirSync(binDir, { recursive: true });
-const f = join(binDir, "frida");
+const f = join(binDir, `frida${EXE}`);
 writeFileSync(f, "#!/bin/sh\n");
 chmodSync(f, 0o755);
 assert.equal(await resolveFridaCli(fake), f);
 
-const mitm = join(binDir, "mitmdump");
+const mitm = join(binDir, `mitmdump${EXE}`);
 writeFileSync(mitm, "#!/bin/sh\n");
 chmodSync(mitm, 0o755);
 assert.equal(await resolveMitmDump(fake), mitm);
 
 // A non-executable vendored binary must be ignored (falls back to PATH or null).
+// On Windows the "executable bit" is the .exe extension itself, so the
+// non-executable probe is a same-named file WITHOUT the .exe suffix there.
 const noexecRoot = mkdtempSync(join(tmpdir(), "venvtest-"));
-const noexecBin = join(noexecRoot, ".toolchain", "python-venv", "bin");
+const noexecBin = join(noexecRoot, ".toolchain", "python-venv", BIN_DIR);
 mkdirSync(noexecBin, { recursive: true });
-writeFileSync(join(noexecBin, "frida"), "#!/bin/sh\n", { mode: 0o644 });
-chmodSync(join(noexecBin, "frida"), 0o644);
+writeFileSync(join(noexecBin, IS_WIN ? "frida" : "frida"), "#!/bin/sh\n", { mode: 0o644 });
+chmodSync(join(noexecBin, IS_WIN ? "frida" : "frida"), 0o644);
 assert.equal(await resolveFridaCli(noexecRoot), await which("frida"));
 
 // Missing root behaves exactly like the PATH fallback.

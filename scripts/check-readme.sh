@@ -6,18 +6,11 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 SKILLS=$(ls -d skills/*/ 2>/dev/null | wc -l)
-# Tool count: parse the EXPECTED set size from test/smoke.test.mjs (single source of truth).
-TOOLS=$(grep -oE '"[a-z_]+"' test/smoke.test.mjs | sort -u | wc -l)
-# The smoke EXPECTED set uses one entry per line-ish; fall back to a direct count of the registered tools via build if needed.
-# Simpler: count the entries inside the EXPECTED Set literal.
-TOOLS=$(python3 - <<'PY'
-import re
-s=open('test/smoke.test.mjs').read()
-m=re.search(r'const EXPECTED = new Set\(\[(.*?)\]\);', s, re.S)
-items=re.findall(r'"([a-z_]+)"', m.group(1))
-print(len(set(items)))
-PY
-)
+# Tool count: single source of truth is the EXPECTED Set literal in test/smoke.test.mjs.
+# Counted with pure bash (awk range + grep/sort) — the earlier embedded python3
+# heredoc failed cryptically on hosts without a real python (Windows Store stub).
+TOOLS=$(awk '/const EXPECTED = new Set\(\[/,/^[ \t]*\]\);/' test/smoke.test.mjs \
+        | grep -oE '"[a-z_]+"' | sort -u | wc -l)
 
 fail=0
 if ! grep -q "## Skills ($SKILLS)" README.md; then
