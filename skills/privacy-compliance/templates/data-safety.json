@@ -1,0 +1,8 @@
+{
+  "_comment": "Copy to privacy/data-safety.json and replace every value with the app's real declarations. Use short permission names without the android.permission. prefix. Endpoints are hosts, not full URLs.",
+  "permissions": ["INTERNET"],
+  "sdks": ["com.google.firebase:firebase-analytics"],
+  "endpoints": ["api.example.com"],
+  "accountCreation": false,
+  "accountDeletion": false
+}

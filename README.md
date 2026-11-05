@@ -10,7 +10,7 @@
 Open-Droid is a self-contained toolkit that turns [OpenCode](https://opencode.ai) into a
 full Android product studio: a single combined **MCP server** wrapping the entire
 Android toolchain, a **vendored toolchain bootstrap** (fully offline after the first run),
-**29 curated skills** (Android/UI, senior UI/UX design, Superpowers SDE, reverse
+**30 curated skills** (Android/UI, senior UI/UX design, Superpowers SDE, reverse
 engineering, and an end-to-end `start-here` orchestrator), a **Material 3 Compose
 starter template**, and a **self-contained Docker image**.
 
@@ -24,8 +24,8 @@ No scattered MCP servers. No repeated downloads. No "works on my machine."
 - [Quick start — Docker (zero downloads)](#quick-start--docker-zero-downloads)
 - [Quick start — Clone + setup (automatic registration)](#quick-start--clone--setup-automatic-registration)
 - [What's included](#whats-included)
-- [Skills (29)](#skills-29)
-- [MCP tools (62)](#mcp-tools-62)
+- [Skills (30)](#skills-30)
+- [MCP tools (63)](#mcp-tools-63)
 - [Create your first app](#create-your-first-app)
 - [Live visual output](#live-visual-output)
 - [Architecture](#architecture)
@@ -117,7 +117,7 @@ What `make setup` does automatically:
 2. Warms the Gradle cache once so later builds work with `--offline`.
 3. **Registers the MCP server globally** (`opencode mcp add android-mcp --global`), so it
    works from any working directory.
-4. **Installs all 29 skills globally** into `~/.config/opencode/skills/`, so they are
+4. **Installs all 30 skills globally** into `~/.config/opencode/skills/`, so they are
    discovered everywhere.
 5. Creates the project-level `.opencode/` config + skills symlink for repo-local use.
 
@@ -134,7 +134,7 @@ Refresh registration any time with `make register`.
 | `scripts/` | `setup.sh`, `register.sh`, `doctor.sh`, `new-app.sh`, `run-mcp.sh`, `warm-cache.sh`, `repo-hygiene.sh` |
 | `templates/compose-starter/` | Material 3 Compose starter app (AGP 8.7.2, Java 17, launcher icons) |
 | `examples/hello-compose/` | Finished example app |
-| `skills/` | 29 OpenCode skills |
+| `skills/` | 30 OpenCode skills |
 | `docker/` | Dockerfile + entrypoint |
 | `docs/` | Quickstart, architecture, offline contract, publishing, lifecycle coverage, troubleshooting |
 | `manifest/` | Lifecycle stages, capability status, and CI gate allowlist (FR-R22) |
@@ -143,13 +143,13 @@ Refresh registration any time with `make register`.
 
 ---
 
-## Skills (29)
+## Skills (30)
 
 **Orchestrator (1):** `start-here` — idea → discovery → design → spec → TDD → review → ship
 
-**Android / UI (8):** `android-compose-ui-ux`, `design-tokens`, `figma-to-compose`,
+**Android / UI (9):** `android-compose-ui-ux`, `design-tokens`, `figma-to-compose`,
 `android-accessibility`, `android-screenshot-diff`, `android-emulator-smoke`,
-`android-gradle-troubleshoot`, `android-performance`
+`android-gradle-troubleshoot`, `android-performance`, `privacy-compliance`
 
 **Senior UI/UX design (5):** `wcag-audit`, `ux-research-planning`,
 `usability-testing`, `design-critique`, `content-design-microcopy`
@@ -167,9 +167,9 @@ See `THIRD-PARTY.md` for attribution.
 
 ---
 
-## MCP tools (62)
+## MCP tools (63)
 
-The server exposes 62 tools grouped by category. The full list with schemas is
+The server exposes 63 tools grouped by category. The full list with schemas is
 returned by `tools/list` (MCP) and mirrored in `docs/agent-install.md`.
 
 | Category | Count | Examples |
@@ -188,6 +188,7 @@ returned by `tools/list` (MCP) and mirrored in `docs/agent-install.md`.
 | Multi-device | 1 | `adb_parallel` |
 | APK serving (LAN) | 1 | `apk_serve` (python http.server in the APK output dir) |
 | Skills / SDK | 4 | `android_skills_list`, `android_skills_search`, `sdkmanager_install`, `compose_preview_render` |
+| Privacy / compliance | 1 | `privacy_scan` (permissions, SDKs, endpoints, storage, account flows, PII logs, declaration diff) |
 | Maestro | 1 | `maestro_run` |
 
 Run `tools/list` for the exact schema of every tool.
@@ -219,7 +220,7 @@ make screenshot        # -> screenshots/screen.png
 ```
 Open-Droid/
 ├── src/            # MCP server (TypeScript, stdio)
-├── skills/         # 29 OpenCode skills
+├── skills/         # 30 OpenCode skills
 ├── templates/      # Compose starter
 ├── examples/       # Finished sample app
 ├── manifest/       # Lifecycle stages, capabilities and gates
@@ -240,7 +241,7 @@ per-agent).
 ```bash
 npm install
 npm run build        # compile TypeScript
-npm test             # smoke test (62 tools)
+npm test             # smoke test (63 tools)
 npm run lint         # eslint
 npm run format       # prettier
 make doctor          # toolchain + registration checks

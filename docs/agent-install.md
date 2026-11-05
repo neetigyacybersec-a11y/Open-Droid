@@ -9,7 +9,7 @@ has an expected output.
 - Repository: `https://github.com/<owner>/android-mcp.git` (local path assumed below: `$REPO`)
 - MCP server name (registered): `android-mcp`
 - Transport: stdio (local) or Docker (`ghcr.io/.../open-droid`)
-- Tool count contract: exactly **62 tools** (see `test/smoke.test.mjs`)
+- Tool count contract: exactly **63 tools** (see `test/smoke.test.mjs`)
 
 ---
 
@@ -112,10 +112,10 @@ Expected (abridged):
 
 ```bash
 npm run build
-npm test            # smoke test (20 tools) + tools + frida-scripts + frida helper
+npm test            # smoke test (63 tools) + tools + frida-scripts + frida helper
 ```
 
-Expected: `smoke test passed: 20 tools` and `frida helper test passed`.
+Expected: `smoke test passed: 63 tools` and `frida helper test passed`.
 
 ---
 
@@ -219,7 +219,7 @@ git pull --ff-only origin main
 ```bash
 npm ci                      # or `npm install` if lockfile changed
 npm run build
-npm test                    # must pass: smoke 20 tools + ...
+npm test                    # must pass: smoke 63 tools + ...
 ```
 
 ### 3.3 Refresh toolchain (only if `versions.env` or `scripts/setup.sh` changed)
@@ -240,7 +240,7 @@ make register               # copies latest skills, prunes removed ones, verifie
 ```bash
 opencode mcp list           # android-mcp present
 make doctor                 # all OK
-npm test                    # 20 tools
+npm test                    # 63 tools
 ```
 
 ### 3.6 If you are on a feature branch / worktree
@@ -287,14 +287,14 @@ make doctor
 opencode mcp list | grep -q android-mcp && echo "MCP OK" || echo "MCP MISSING"
 
 # 6. Skills count
-ls ~/.config/opencode/skills | wc -l   # expect 29
+ls ~/.config/opencode/skills | wc -l   # expect 30
 
 # 7. Dynamic tools present
 node -e "const {spawn}=require('child_process');const p=spawn('node',['dist/index.js'],{stdio:['pipe','pipe','pipe']});let o='';p.stdout.on('data',d=>o+=d);const i=JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'t',version:'1'}}});const l=JSON.stringify({jsonrpc:'2.0',id:2,method:'tools/list',params:{}});p.stdin.write(i+'\n');p.stdin.write(l+'\n');setTimeout(()=>{p.kill();const t=JSON.parse(o.trim().split('\\n').find(x=>JSON.parse(x).id===2)).result.tools.map(x=>x.name);console.log('tools:',t.length);console.log('has net_capture:',t.includes('net_capture'));},2000);"
 ```
 
 Expected final lines: `BUILD OK`, `TESTS OK`, `SMOKE OK`, all doctor checks `OK`,
-`MCP OK`, skills count `29`, tools `20`, `has net_capture: true`.
+`MCP OK`, skills count `30`, tools `63`, `has net_capture: true`.
 
 ---
 
@@ -302,7 +302,7 @@ Expected final lines: `BUILD OK`, `TESTS OK`, `SMOKE OK`, all doctor checks `OK`
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `npm test` fails at smoke (tool count ≠ 20) | Tool registration drift | Check `src/index.ts` registers all 20; rebuild |
+| `npm test` fails at smoke (tool count ≠ 63) | Tool registration drift | Check `src/index.ts` registers all 63; rebuild |
 | `make doctor` reports `frida` missing | Venv not created | `sudo apt install -y python3 python3-venv && make setup` |
 | `make doctor` reports frida-server missing | Download failed | Check network; re-run `make setup` |
 | `opencode mcp list` lacks android-mcp | Not registered globally | `make register` or `opencode mcp add android-mcp --global -- bash $REPO/scripts/run-mcp.sh` |

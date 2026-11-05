@@ -72,6 +72,7 @@ setTimeout(() => {
     "native_libs",
     "net_capture",
     "perfetto_trace",
+    "privacy_scan",
     "runtime_dump",
     "sdkmanager_install",
     "startup_time",

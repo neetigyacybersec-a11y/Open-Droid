@@ -256,10 +256,18 @@
     "id": "privacy-compliance.policy",
     "stage": "privacy-compliance",
     "applicability": "required",
-    "implementation": "missing",
-    "verification": "untested",
-    "evidence": [],
-    "gate": null,
+    "implementation": "complete",
+    "verification": "passed",
+    "evidence": [
+      "skills/privacy-compliance/SKILL.md",
+      "skills/privacy-compliance/templates/privacy-policy.md",
+      "skills/privacy-compliance/templates/data-safety-inventory.md",
+      "skills/privacy-compliance/templates/data-safety.json",
+      "skills/privacy-compliance/templates/consent-and-account-deletion.md",
+      "src/privacy.ts",
+      "test/privacy.test.mjs"
+    ],
+    "gate": "privacy-tests",
     "condition": null,
     "rationale": null
   },

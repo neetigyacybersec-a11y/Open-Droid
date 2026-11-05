@@ -4,5 +4,11 @@
     "workflow": ".github/workflows/ci.yml",
     "job": "mcp",
     "command": "bash scripts/repo-hygiene.sh"
+  },
+  "privacy-tests": {
+    "description": "Privacy inventory scanner, declaration checks and report tests (FR-R23)",
+    "workflow": ".github/workflows/ci.yml",
+    "job": "mcp",
+    "command": "node --test test/privacy.test.mjs"
   }
 }

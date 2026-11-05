@@ -77,6 +77,7 @@ server.registerTool("emulator_snapshot", { description: "emulator_snapshot tool.
 server.registerTool("apk_info", { description: "apk_info tool.", inputSchema: ToolSchemas.apkInfo }, logged("apk_info", async (a: any) => H.handleApkInfo(a)));
 server.registerTool("apk_decompile", { description: "apk_decompile tool.", inputSchema: ToolSchemas.apkDecompile }, logged("apk_decompile", async (a: any) => H.handleApkDecompile(a)));
 server.registerTool("manifest_inspect", { description: "manifest_inspect tool.", inputSchema: ToolSchemas.manifestInspect }, logged("manifest_inspect", async (a: any) => H.handleManifestInspect(a)));
+server.registerTool("privacy_scan", { description: "Scan an Android project for privacy inventory signals (permissions, SDKs, endpoints, storage, account flows, PII logging) and compare them with privacy/data-safety.json declarations.", inputSchema: ToolSchemas.privacyScan }, logged("privacy_scan", async (a: any) => H.handlePrivacyScan(a)));
 server.registerTool("native_libs", { description: "native_libs tool.", inputSchema: ToolSchemas.nativeLibs }, logged("native_libs", async (a: any) => H.handleNativeLibs(a)));
 server.registerTool("dex_strings", { description: "dex_strings tool.", inputSchema: ToolSchemas.dexStrings }, logged("dex_strings", async (a: any) => H.handleDexStrings(a)));
 server.registerTool("instrumented_test", { description: "instrumented_test tool.", inputSchema: ToolSchemas.instrumentedTest }, logged("instrumented_test", async (a: any) => H.handleInstrumentedTest(a)));

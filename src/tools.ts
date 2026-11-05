@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { closeSync, constants, openSync } from "node:fs";
-import { access, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,6 +20,7 @@ import {
   resolveFridaCli,
   resolveMitmDump,
 } from "./frida.js";
+import { renderPrivacyReport, scanPrivacyProject } from "./privacy.js";
 
 export const ToolSchemas = {
   envCheck: z.object({}),
@@ -145,6 +146,12 @@ export const ToolSchemas = {
   apkInfo: z.object({ apkPath: z.string() }),
   apkDecompile: z.object({ apkPath: z.string(), outputDir: z.string().optional(), tool: z.enum(["jadx","apktool"]).optional().default("jadx") }),
   manifestInspect: z.object({ apkPath: z.string() }),
+  privacyScan: z.object({
+    projectPath: z.string().describe("Absolute path to the Android project root"),
+    declarationsPath: z.string().optional().describe("Path to privacy/data-safety.json; defaults to <project>/privacy/data-safety.json"),
+    reportPath: z.string().optional().describe("Write the Markdown inventory to this file"),
+    strict: z.boolean().optional().default(false).describe("Return an error when blockers are present"),
+  }),
   nativeLibs: z.object({ apkPath: z.string() }),
   dexStrings: z.object({ apkPath: z.string(), pattern: z.string().optional() }),
   instrumentedTest: z.object({ projectPath: z.string(), module: z.string().optional().default(":app"), testFilter: z.string().optional(), device: z.string().optional(), offline: z.boolean().optional().default(false), args: z.array(z.string()).optional() }),
@@ -1137,6 +1144,22 @@ export async function handleManifestInspect(a: z.infer<typeof ToolSchemas.manife
   const r = await run("aapt2", ["dump", "xmltree", a.apkPath, "AndroidManifest.xml"], { timeout: 120_000 });
   if (r.code !== 0) return { content: [{ type: "text" as const, text: `aapt2 failed: ${r.stderr}` }], isError: true };
   return { content: [{ type: "text" as const, text: r.stdout.slice(0, 20000) }], isError: false };
+}
+export async function handlePrivacyScan(a: z.infer<typeof ToolSchemas.privacyScan>) {
+  try {
+    const result = await scanPrivacyProject(a.projectPath, { declarationsPath: a.declarationsPath });
+    let text = renderPrivacyReport(result);
+    if (a.reportPath) {
+      await mkdir(dirname(a.reportPath), { recursive: true });
+      await writeFile(a.reportPath, text.endsWith("\n") ? text : `${text}\n`, "utf8");
+      text += `\nReport written to ${a.reportPath}`;
+    }
+    const blockers = result.findings.filter((finding) => finding.severity === "blocker").length;
+    return { content: [{ type: "text" as const, text }], isError: Boolean(a.strict && blockers > 0) };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { content: [{ type: "text" as const, text: `privacy_scan failed: ${message}` }], isError: true };
+  }
 }
 export async function handleNativeLibs(a: z.infer<typeof ToolSchemas.nativeLibs>) {
   const listing = await unzipList(a.apkPath);

@@ -2,7 +2,7 @@
 
 # Lifecycle coverage
 
-38 stages · 38 capability rows · 1 complete · 1 gated.
+38 stages · 38 capability rows · 2 complete · 2 gated.
 
 `complete` requires inspectable evidence and an allowlisted gate; `conditional` rows state when they apply.
 
@@ -33,7 +33,7 @@ Applicability reflects the reference product scope in `BACKLOG.md`; a product ma
 | Push | `push.fcm` | conditional | missing | untested | — | when notifications are a product requirement | — |
 | Maps / location | `maps-location.sdk` | conditional | missing | untested | — | when maps, location or geofencing are in scope | — |
 | Camera / media | `camera-media.capture` | conditional | missing | untested | — | when capture, photo picking or media access are in scope | — |
-| Privacy / compliance | `privacy-compliance.policy` | required | missing | untested | — | — | — |
+| Privacy / compliance | `privacy-compliance.policy` | required | complete | passed | `privacy-tests` | — | `skills/privacy-compliance/SKILL.md`<br>`skills/privacy-compliance/templates/privacy-policy.md`<br>`skills/privacy-compliance/templates/data-safety-inventory.md`<br>`skills/privacy-compliance/templates/data-safety.json`<br>`skills/privacy-compliance/templates/consent-and-account-deletion.md`<br>`src/privacy.ts`<br>`test/privacy.test.mjs` |
 | Store presence | `store-presence.listing` | required | missing | untested | — | — | — |
 | Updates / ratings | `updates-ratings.in-app` | optional | missing | untested | — | — | — |
 | Localization | `localization.rtl` | required | partial | untested | — | — | — |

@@ -16,6 +16,7 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm test --if-present
+      - run: node --test test/privacy.test.mjs
       - run: bash scripts/check-readme.sh
       - run: bash scripts/repo-hygiene.sh
       - run: node scripts/lifecycle-matrix.mjs --check
