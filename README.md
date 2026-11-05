@@ -131,12 +131,13 @@ Refresh registration any time with `make register`.
 |---|---|
 | `src/` | TypeScript MCP server (stdio) |
 | `dist/` | Compiled server (generated) |
-| `scripts/` | `setup.sh`, `register.sh`, `doctor.sh`, `new-app.sh`, `run-mcp.sh`, `warm-cache.sh` |
+| `scripts/` | `setup.sh`, `register.sh`, `doctor.sh`, `new-app.sh`, `run-mcp.sh`, `warm-cache.sh`, `repo-hygiene.sh` |
 | `templates/compose-starter/` | Material 3 Compose starter app (AGP 8.7.2, Java 17, launcher icons) |
 | `examples/hello-compose/` | Finished example app |
 | `skills/` | 29 OpenCode skills |
 | `docker/` | Dockerfile + entrypoint |
-| `docs/` | Quickstart, architecture, offline contract, publishing, troubleshooting |
+| `docs/` | Quickstart, architecture, offline contract, publishing, lifecycle coverage, troubleshooting |
+| `manifest/` | Lifecycle stages, capability status, and CI gate allowlist (FR-R22) |
 | `.github/workflows/` | CI + release pipelines |
 | `Makefile` | Common tasks |
 
@@ -221,7 +222,8 @@ Open-Droid/
 ├── skills/         # 29 OpenCode skills
 ├── templates/      # Compose starter
 ├── examples/       # Finished sample app
-├── scripts/        # setup, register, doctor, new-app, run-mcp, warm-cache
+├── manifest/       # Lifecycle stages, capabilities and gates
+├── scripts/        # setup, register, doctor, new-app, run-mcp, warm-cache, repo-hygiene
 ├── docker/         # Dockerfile + entrypoint
 ├── docs/           # Guides
 └── .github/        # CI/CD

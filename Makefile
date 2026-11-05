@@ -2,7 +2,7 @@ SHELL := /bin/bash
 ROOT := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 TOOLCHAIN := $(ROOT).toolchain
 
-.PHONY: help setup doctor build-mcp test-mcp run-mcp new-app build-app emulator screenshot warm-cache register clean distclean check-readme
+.PHONY: help setup doctor build-mcp test-mcp run-mcp new-app build-app emulator screenshot warm-cache register clean distclean check-readme check-hygiene check-lifecycle
 
 help:
 	@echo "android-mcp product targets:"
@@ -15,6 +15,8 @@ help:
 	@echo "  build-app    Build the app in APP_DIR (default ./my-app)"
 	@echo "  warm-cache   Populate the Gradle cache (enables offline builds)"
 	@echo "  register     Auto-register MCP + skills with OpenCode (global)"
+	@echo "  check-hygiene Verify source trees, root layout and ignore rules"
+	@echo "  check-lifecycle Validate the lifecycle manifest and coverage table"
 	@echo "  emulator     Boot the default AVD"
 	@echo "  screenshot   Capture a device screenshot to ./screenshots"
 	@echo "  clean        Remove build artifacts"
@@ -50,6 +52,12 @@ register:
 
 check-readme:
 	bash scripts/check-readme.sh
+
+check-hygiene:
+	bash scripts/repo-hygiene.sh
+
+check-lifecycle:
+	node scripts/lifecycle-matrix.mjs --check
 
 emulator:
 	bash -c 'source .toolchain/env.sh && emulator -avd $${AVD_NAME:-Pixel_9_API_35} -no-snapshot-load'

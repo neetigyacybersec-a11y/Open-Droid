@@ -6,3 +6,15 @@ screenshots/
 .env
 .DS_Store
 my-app/
+
+# Gradle / Android generated output
+build/
+.gradle/
+local.properties
+*.apk
+*.aab
+
+# OpenCode session artifacts (keep the shared config and skills link)
+.opencode/*
+!.opencode/opencode.jsonc
+!.opencode/skills

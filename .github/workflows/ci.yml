@@ -17,6 +17,8 @@ jobs:
       - run: npm run build
       - run: npm test --if-present
       - run: bash scripts/check-readme.sh
+      - run: bash scripts/repo-hygiene.sh
+      - run: node scripts/lifecycle-matrix.mjs --check
 
   # Windows equivalent: the MCP server (build + tests that are not POSIX-stub
   # based) must stay green on Windows hosts, where most users hit broken paths.

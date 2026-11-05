@@ -1,0 +1,8 @@
+{
+  "repo-hygiene": {
+    "description": "Source trees, root layout and ignore rules (FR-R20)",
+    "workflow": ".github/workflows/ci.yml",
+    "job": "mcp",
+    "command": "bash scripts/repo-hygiene.sh"
+  }
+}
