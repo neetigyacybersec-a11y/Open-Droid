@@ -170,7 +170,8 @@ See `THIRD-PARTY.md` for attribution.
 ## MCP tools (63)
 
 The server exposes 63 tools grouped by category. The full list with schemas is
-returned by `tools/list` (MCP) and mirrored in `docs/agent-install.md`.
+returned by `tools/list` (MCP); `docs/agent-install.md` covers installation,
+registration, and verification.
 
 | Category | Count | Examples |
 |---|---|---|
