@@ -15,19 +15,6 @@ cd "$ROOT/templates/compose-starter"
 echo "[warm-cache] Building starter template to populate Gradle cache (this may take a few minutes)..."
 gradle --no-daemon :app:assembleDebug
 # ---- Offline proof (ISSUE-14 / FR-D2): the warm build above proves nothing about
-# a fresh project resolving --offline. Build a fresh copy of the template with
-# networking disabled; fail loudly if the cache is missing artifacts (plugin markers).
-OFFLINE_TMP="$ROOT/.toolchain/offline-proof"
-rm -rf "$OFFLINE_TMP"
-cp -r "$ROOT/templates/compose-starter" "$OFFLINE_TMP"
-echo "[warm-cache] Proving the offline promise on a fresh template copy..."
-if gradle --no-daemon -p "$OFFLINE_TMP" :app:assembleDebug --offline; then
-  echo "[warm-cache] Offline proof passed: a fresh project resolves everything from cache."
-else
-  echo "[warm-cache] ERROR: offline build of a fresh project failed — cache is incomplete." >&2
-  echo "[warm-cache] Ensure gradle ran online above (SDK, JAVA_HOME set), then re-run warm-cache." >&2
-  rm -rf "$OFFLINE_TMP"
-  exit 1
-fi
-rm -rf "$OFFLINE_TMP"
+# a fresh project resolving --offline; run the shared proof build.
+bash "$ROOT/scripts/offline-proof.sh"
 echo "[warm-cache] Done. Offline builds should now resolve AGP and dependencies."

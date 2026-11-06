@@ -78,8 +78,18 @@ else
   warn "No AVDs found (run: make setup, or avdmanager create avd ...)"
 fi
 
-# offline build readiness
-if [ -d "$TOOLCHAIN/gradle-home/caches" ]; then echo "OK   gradle cache warmed (offline builds will resolve)"; else warn "Gradle cache not warmed yet; run scripts/warm-cache.sh once online"; fi
+# offline build readiness (FR-D2: proof, not a hunch)
+if [ ! -d "$TOOLCHAIN/gradle-home/caches" ]; then
+  warn "Gradle cache not warmed yet; run scripts/warm-cache.sh once online"
+elif ! present gradle; then
+  warn "gradle missing; cannot run the offline proof build"
+else
+  if bash "$ROOT/scripts/offline-proof.sh" >/dev/null 2>&1; then
+    echo "OK   offline-proof: fresh template resolves from cache (--offline)"
+  else
+    echo "MISS offline-proof: cached template does NOT resolve offline (run scripts/warm-cache.sh online)"; fail=1
+  fi
+fi
 
 # OpenCode registration
 if command -v opencode >/dev/null 2>&1; then
