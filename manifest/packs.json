@@ -1,0 +1,61 @@
+{
+  "//": "FR-R1 / ISSUE-17 dependency packs (read by scripts/pack-matrix.mjs). Pins chosen to match the template stack (AGP 8.7.2, Kotlin 2.0.21, compileSdk 35); verify all pins resolve on the first online warm run and adjust there, not here, only if an artifact does not exist.",
+  "pinSource": "template stack era, 2026-11-06",
+  "packs": {
+    "compose": {
+      "how": "warmed by scripts/warm-cache.sh via the template build",
+      "artifacts": [
+        "androidx.compose.ui:ui",
+        "androidx.compose.material3:material3",
+        "androidx.compose.ui:ui-tooling"
+      ]
+    },
+    "app": {
+      "artifacts": [
+        "androidx.navigation:navigation-compose:2.8.5",
+        "androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7",
+        "androidx.savedstate:savedstate:1.2.1",
+        "androidx.activity:activity-compose:1.9.3"
+      ]
+    },
+    "data": {
+      "artifacts": [
+        "androidx.room:room-runtime:2.6.1",
+        "androidx.room:room-compiler:2.6.1",
+        "androidx.room:room-ktx:2.6.1",
+        "androidx.datastore:datastore-preferences:1.1.1",
+        "androidx.work:work-runtime-ktx:2.10.0",
+        "androidx.paging:paging-runtime-ktx:3.3.5"
+      ]
+    },
+    "net": {
+      "artifacts": [
+        "com.squareup.retrofit2:retrofit:2.11.0",
+        "com.squareup.okhttp3:okhttp:4.12.0",
+        "com.squareup.okhttp3:logging-interceptor:4.12.0",
+        "com.squareup.okhttp3:mockwebserver:4.12.0",
+        "org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3",
+        "io.coil-kt:coil-compose:2.7.0"
+      ]
+    },
+    "di": {
+      "artifacts": [
+        "com.google.dagger:hilt-android:2.52",
+        "com.google.dagger:hilt-compiler:2.52",
+        "androidx.hilt:hilt-navigation-compose:1.2.0",
+        "androidx.hilt:hilt-work:1.2.0"
+      ]
+    },
+    "test": {
+      "artifacts": [
+        "junit:junit:4.13.2",
+        "androidx.test.ext:junit:1.2.1",
+        "androidx.test.espresso:espresso-core:3.6.1",
+        "androidx.compose.ui:ui-test-junit4",
+        "androidx.compose.ui:ui-test-manifest",
+        "org.robolectric:robolectric:4.14.1",
+        "app.cash.turbine:turbine:1.2.0"
+      ]
+    }
+  }
+}

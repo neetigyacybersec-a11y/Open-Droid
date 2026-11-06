@@ -91,6 +91,14 @@ else
   fi
 fi
 
+# dependency-pack coverage (FR-R1 / ISSUE-17): informational matrix of which
+# declared pack artifacts already sit in the vendored cache.
+if [ -d "$TOOLCHAIN/gradle-home/caches/modules-2/files-2.1" ]; then
+  node "$ROOT/scripts/pack-matrix.mjs" >/dev/null 2>&1 || warn "pack-matrix.mjs failed"
+else
+  warn "gradle cache not populated yet; pack matrix unavailable"
+fi
+
 # OpenCode registration
 if command -v opencode >/dev/null 2>&1; then
   # check the GLOBAL config files directly (project-level registrations must not count)
