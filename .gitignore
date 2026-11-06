@@ -11,6 +11,7 @@ my-app/
 build/
 .gradle/
 local.properties
+keystore.properties
 *.apk
 *.aab
 

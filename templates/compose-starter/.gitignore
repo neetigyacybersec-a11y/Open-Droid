@@ -1,0 +1,10 @@
+# Android/Gradle output
+build/
+.gradle/
+
+# Host-specific, per-machine secrets
+local.properties
+keystore.properties
+
+# IDE
+.idea/
