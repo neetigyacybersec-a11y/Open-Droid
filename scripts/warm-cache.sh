@@ -14,6 +14,9 @@ mkdir -p "$GRADLE_USER_HOME"
 cd "$ROOT/templates/compose-starter"
 echo "[warm-cache] Building starter template to populate Gradle cache (this may take a few minutes)..."
 gradle --no-daemon :app:assembleDebug
+# FR-B2: androidTest needs its own runtime classpath (espresso-jsr305 etc.); warm it
+# so the instrumented-test compile resolves offline too.
+gradle --no-daemon :app:assembleDebugAndroidTest
 # ---- Offline proof (ISSUE-14 / FR-D2): the warm build above proves nothing about
 # a fresh project resolving --offline; run the shared proof build.
 bash "$ROOT/scripts/offline-proof.sh"

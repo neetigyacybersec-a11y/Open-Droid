@@ -12,8 +12,16 @@ rm -rf "$PROOF"
 cp -r "$ROOT/templates/compose-starter" "$PROOF"
 echo "[offline-proof] Building a fresh template copy with --offline..."
 if gradle --no-daemon -p "$PROOF" :app:assembleDebug --offline; then
-  echo "[offline-proof] Passed: a fresh project resolves everything from cache."
-  rm -rf "$PROOF"
+  # FR-B2: the template ships JVM Compose tests; prove their target runs offline too.
+  if gradle --no-daemon -p "$PROOF" :app:testDebugUnitTest --offline; then
+    echo "[offline-proof] Passed: a fresh project resolves everything from cache (build + unit tests)."
+    rm -rf "$PROOF"
+  else
+    echo "[offline-proof] FAILED: testDebugUnitTest does not resolve offline." >&2
+    echo "[offline-proof] Run scripts/warm-cache.sh fully online, then re-run this check." >&2
+    rm -rf "$PROOF"
+    exit 1
+  fi
 else
   echo "[offline-proof] FAILED: the cache did not resolve a fresh offline build." >&2
   echo "[offline-proof] Run scripts/warm-cache.sh fully online, then re-run this check." >&2

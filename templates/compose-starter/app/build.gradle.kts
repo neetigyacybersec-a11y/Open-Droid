@@ -38,6 +38,10 @@ android {
         targetSdk = 35
         versionCode = gitCommitCount
         versionName = "1.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Robolectric needs these generated app resources + config to build; without it the
+        // manifest/package bridge (test_config.properties) is never generated (issue #4736 family).
+        testOptions.unitTests.isIncludeAndroidResources = true
     }
 
     signingConfigs {
@@ -91,6 +95,16 @@ gradle.taskGraph.whenReady {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
+    // FR-B2 / §11.10: JVM Compose tests run offline via Robolectric; instrumented
+    // Compose tests compile now and run on a device in CI (FR-B6).
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.test.ext:junit:1.2.1")
+    testImplementation(platform("androidx.compose:compose-bom:2024.11.00"))
+    testImplementation("androidx.compose.ui:ui-test-junit4:1.7.5")
+    androidTestImplementation(platform("androidx.compose:compose-bom:2024.11.00"))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4:1.7.5")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation(platform("androidx.compose:compose-bom:2024.11.00"))
