@@ -162,9 +162,11 @@ IDs are preserved from the two source docs so existing references keep working:
 | `di` | hilt-android + compiler | scalable architecture |
 | `test` | junit, compose-ui-test, espresso, robolectric, roborazzi, turbine | verified apps |
 
-Implementation options, most robust first: (1) a local Maven mirror `.toolchain/m2` populated by
-`setup.sh --packs`; (2) dependency verification + shared `GRADLE_USER_HOME` export; (3) per-pack
-version pins with a CI job that builds a template offline per pack.
+Implementation (shipped, 7972916): (3+) `manifest/packs.json` packs with pinned coordinates,
+`pack-warm.sh <pack...>` generates a synthetic AGP consumer online and re-proves the same
+resolution `--offline`, `pack-matrix.mjs --summary` inside `doctor` shows per-pack coverage.
+`make warm-cache PACKS="app data net di test"` wires into setup. All pins verified by real
+google()/mavenCentral() resolution: 0 missing artifacts.
 
 *Acceptance:* `make setup PACKS=app,data,net,di,test` populates the declared packs. Then, with
 network access disabled and a fresh isolated Gradle user home, a reference project importing
