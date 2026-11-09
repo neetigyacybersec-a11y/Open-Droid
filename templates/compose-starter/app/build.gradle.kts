@@ -4,6 +4,8 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    // FR-B2 slice 2: verify/record tasks + comparison mode for Roborazzi goldens.
+    id("io.github.takahirom.roborazzi") version "1.41.0"
 }
 
 // ---- FR-B3 signing + versioning scaffold ----
@@ -105,6 +107,12 @@ dependencies {
     androidTestImplementation(platform("androidx.compose:compose-bom:2024.11.00"))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4:1.7.5")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    // FR-B2 slice 2: screenshot + a11y layers (Roborazzi). Goldens commit under
+    // app/src/test/screenshots; verify mode compares, record mode re-captures.
+    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.41.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.41.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-junit-rule:1.41.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-accessibility-check:1.41.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation(platform("androidx.compose:compose-bom:2024.11.00"))

@@ -53,7 +53,9 @@ jobs:
         with:
           packages: "platforms;android-35 build-tools;35.0.0 platform-tools"
       - name: Build, unit-test, lint (${{ matrix.app-dir }})
-        run: cd ${{ matrix.app-dir }} && gradle :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon
+        # Roborazzi verify: apps without goldens/Roborazzi ignore the property;
+        # the template fails on pixel diff vs committed goldens (FR-B2 slice 2).
+        run: cd ${{ matrix.app-dir }} && gradle :app:assembleDebug :app:testDebugUnitTest -Proborazzi.test.verify=true :app:lintDebug --no-daemon
 
   # FR-B2 + FR-B6: the template's instrumented Compose test executes on one API
   # level; the vendored toolchain hosts lack KVM, so this runs only in CI.

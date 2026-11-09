@@ -38,7 +38,7 @@ done < <(git ls-files -z)
 #    The backlog's "<= 22 entries" count conflicts with its own target layout
 #    (which lists ~29 required entries), so the allowlist enforces the same
 #    intent without a brittle number.
-allowed_root="AGENTS.md BACKLOG.md CHANGELOG.md CONTRIBUTING.md LICENSE README.md SECURITY.md THIRD-PARTY.md Makefile Dockerfile package.json package-lock.json tsconfig.json eslint.config.mjs versions.env src test scripts docker frida-scripts skills templates examples docs manifest libs knowledge .github .githooks .opencode .gitignore .gitattributes .dockerignore .prettierrc"
+allowed_root="AGENTS.md BACKLOG.md CHANGELOG.md CONTRIBUTING.md LICENSE README.md SECURITY.md THIRD-PARTY.md Makefile Dockerfile package.json package-lock.json tsconfig.json eslint.config.mjs versions.env src test scripts docker frida-scripts skills templates examples docs manifest libs knowledge .github .githooks .opencode .gitignore .gitattributes .dockerignore .prettierrc .firecrawl"
 while IFS= read -r entry; do
   case "$entry" in
     .git|.toolchain|node_modules|dist|build|.gradle|.idea|local.properties|screenshots|my-app|.DS_Store) continue ;;

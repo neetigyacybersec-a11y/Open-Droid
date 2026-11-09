@@ -54,6 +54,10 @@
         "androidx.compose.ui:ui-test-junit4:1.7.5",
         "androidx.compose.ui:ui-test-manifest:1.7.5",
         "org.robolectric:robolectric:4.14.1",
+        "io.github.takahirom.roborazzi:roborazzi:1.41.0",
+        "io.github.takahirom.roborazzi:roborazzi-compose:1.41.0",
+        "io.github.takahirom.roborazzi:roborazzi-junit-rule:1.41.0",
+        "io.github.takahirom.roborazzi:roborazzi-accessibility-check:1.41.0",
         "app.cash.turbine:turbine:1.2.0"
       ]
     }

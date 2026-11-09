@@ -25,6 +25,7 @@ test('android-matrix runs assembleDebug + testDebugUnitTest + lintDebug', () => 
   for (const task of ['assembleDebug', 'testDebugUnitTest', 'lintDebug']) {
     assert.match(matrixJob, new RegExp(task), `matrix steps must run ${task}`);
   }
+  assert.ok(matrixJob.includes('-Proborazzi.test.verify=true'), 'template goldens must be verified in CI (FR-B2 slice 2)');
   assert.ok(!ci.includes('--offline'), 'CI resolves online — the offline guarantee is the vendored toolchain, not CI');
 });
 

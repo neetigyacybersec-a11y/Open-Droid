@@ -19,3 +19,4 @@ keystore.properties
 .opencode/*
 !.opencode/opencode.jsonc
 !.opencode/skills
+.firecrawl/
