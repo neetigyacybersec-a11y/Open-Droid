@@ -94,7 +94,7 @@ fi
 # dependency-pack coverage (FR-R1 / ISSUE-17): informational matrix of which
 # declared pack artifacts already sit in the vendored cache.
 if [ -d "$TOOLCHAIN/gradle-home/caches/modules-2/files-2.1" ]; then
-  node "$ROOT/scripts/pack-matrix.mjs" >/dev/null 2>&1 || warn "pack-matrix.mjs failed"
+  node "$ROOT/scripts/pack-matrix.mjs" --summary || warn "pack-matrix.mjs failed"
 else
   warn "gradle cache not populated yet; pack matrix unavailable"
 fi

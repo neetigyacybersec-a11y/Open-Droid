@@ -1,4 +1,5 @@
 import java.util.Properties
+import java.util.concurrent.TimeUnit
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -9,9 +10,13 @@ plugins {
 // versionCode comes from this project's git history, so it climbs monotonically
 // across releases; 1 when there is no history (fresh scaffold before first commit).
 val gitCommitCount: Int = runCatching {
-    providers.exec {
-        commandLine("git", "rev-list", "--count", "HEAD")
-    }.standardOutput.get().trim().toInt()
+    val probe = ProcessBuilder("git", "rev-list", "--count", "HEAD")
+        .directory(rootDir)
+        .redirectErrorStream(true)
+        .start()
+    val count = probe.inputStream.bufferedReader().use { it.readText().trim().toInt() }
+    probe.waitFor(10, TimeUnit.SECONDS)
+    count
 }.getOrDefault(1)
 
 // keystore.properties is gitignored and supplies storeFile, storePassword,

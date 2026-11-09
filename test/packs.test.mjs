@@ -61,8 +61,33 @@ test('pack-matrix reports resolved/missing per artifact from the cache', () => {
 
 test('doctor surfaces the pack matrix when the cache exists', () => {
   const doctor = readFileSync(path.join(REPO, 'scripts/doctor.sh'), 'utf8');
-  assert.ok(doctor.includes('scripts/pack-matrix.mjs'), 'doctor must call pack-matrix.mjs');
+  assert.ok(
+    /pack-matrix\.mjs"?\s+--summary/.test(doctor),
+    'doctor must print the pack matrix, not swallow it',
+  );
   const cacheCheck = doctor.indexOf('gradle-home/caches/modules-2/files-2.1');
   const matrixCall = doctor.indexOf('scripts/pack-matrix.mjs');
   assert.ok(cacheCheck >= 0 && cacheCheck < matrixCall, 'matrix must run only when the cache exists');
 });
+
+test('pack-warm.sh resolves the declared packs into the cache', () => {
+  const script = readFileSync(path.join(REPO, 'scripts/pack-warm.sh'), 'utf8');
+  assert.ok(script.includes('manifest/packs.json'), 'must read the pack manifest, not a private list');
+  assert.ok(script.includes('google()') && script.includes('mavenCentral()'), 'must resolve from google+mavenCentral');
+  assert.ok(script.includes('resolvePack'), 'must run a Gradle resolution task');
+  assert.ok(/pack-matrix\.mjs/.test(script), 'must report coverage with pack-matrix.mjs afterwards');
+  assert.ok(/resolvePack.*--offline|--offline.*resolvePack/s.test(script), 'must prove the pack resolves offline after warming (FR-R1 acceptance)');
+});
+
+test('pack-warm.sh rejects unknown pack ids', () => {
+  assert.throws(
+    () => execFileSync('bash', ['scripts/pack-warm.sh', 'bogus'], {
+      cwd: REPO,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }),
+    (e) => e.status !== 0 && /pack/i.test(String(e.stderr)),
+    'unknown pack must exit non-zero naming the invalid pack',
+  );
+});
+

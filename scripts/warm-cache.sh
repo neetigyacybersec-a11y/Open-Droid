@@ -17,4 +17,12 @@ gradle --no-daemon :app:assembleDebug
 # ---- Offline proof (ISSUE-14 / FR-D2): the warm build above proves nothing about
 # a fresh project resolving --offline; run the shared proof build.
 bash "$ROOT/scripts/offline-proof.sh"
+# PACKS (FR-R1): comma/space separated pack ids resolve pack artifacts online.
+# Empty = template-only warm (the compose pack is covered by the build above).
+PACKS="${PACKS//,/ }"
+if [ -n "$PACKS" ]; then
+  for p in $PACKS; do
+    bash "$ROOT/scripts/pack-warm.sh" "$p" || exit 1
+  done
+fi
 echo "[warm-cache] Done. Offline builds should now resolve AGP and dependencies."

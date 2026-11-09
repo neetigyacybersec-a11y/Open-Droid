@@ -22,6 +22,17 @@ const packs = Object.entries(manifest.packs).map(([id, { artifacts }]) => {
   return { id, resolved: rows.filter((r) => r.status === 'resolved').length, artifacts: rows };
 });
 
+if (process.argv.includes('--summary')) {
+  for (const p of packs) {
+    const missingArtifacts = p.artifacts.filter((r) => r.status === 'missing');
+    const line = p.resolved === p.artifacts.length
+      ? `OK   pack ${p.id}: ${p.resolved}/${p.artifacts.length} artifacts cached`
+      : `MISS pack ${p.id}: ${p.resolved}/${p.artifacts.length} artifacts cached (${missingArtifacts.map((m) => m.coordinate.split(':')[1]).join(', ')})`;
+    console.log(line);
+  }
+  process.exit(0);
+}
+
 console.log(JSON.stringify({
   cacheRoot: filesRoot,
   missing: packs.reduce((n, p) => n + p.artifacts.filter((r) => r.status === 'missing').length, 0),
