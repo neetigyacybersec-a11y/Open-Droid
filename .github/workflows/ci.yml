@@ -35,7 +35,29 @@ jobs:
       - run: npm test
       - run: bash scripts/check-readme.sh
 
-  app-build:
+  # FR-B6 / ISSUE-22: CI builds and tests every app the repo ships, not just one.
+  android-matrix:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app-dir:
+          - hello-compose
+          - templates/compose-starter
+          - examples/vuln-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "21" }
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-35 build-tools;35.0.0 platform-tools"
+      - name: Build, unit-test, lint (${{ matrix.app-dir }})
+        run: cd ${{ matrix.app-dir }} && gradle :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon
+
+  # FR-B2 + FR-B6: the template's instrumented Compose test executes on one API
+  # level; the vendored toolchain hosts lack KVM, so this runs only in CI.
+  android-instrumented:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -44,7 +66,12 @@ jobs:
       - uses: android-actions/setup-android@v3
         with:
           packages: "platforms;android-35 build-tools;35.0.0 platform-tools"
-      - run: cd examples/vuln-app && gradle :app:assembleDebug --no-daemon
+      - name: Instrumented Compose test on API 35 emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          script: gradle -p templates/compose-starter :app:connectedDebugAndroidTest --no-daemon
 
   docker:
     runs-on: ubuntu-latest
