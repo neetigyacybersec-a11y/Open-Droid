@@ -93,6 +93,7 @@ Severity is about user impact, not effort. Each issue has reproduction evidence.
 | ISSUE-38 | **The repo is cluttered, and scaffolding copies the clutter.** `new-app.sh` runs `cp -r templates/compose-starter`, which includes `app/build/` — 527 files / 60.7 MB of stale intermediates and an APK built for a *different* package name. Root holds 47 entries: 5 screenshots (1.7 MB), 3 logs, 2 one-off reports, and a 61.4 MB leftover `my-app` whose 554 files contain only **9 source files**. | `templates/compose-starter/app/build` = 60.7 MB / 527 files; `my-app` = 61.4 MB / 554 files; root = 47 entries. `.gitignore` covers `node_modules/ dist/ .toolchain/ screenshots/ *.log .env my-app/` but **not** `build/`, `.gradle/`, `local.properties`, `*.apk`, or `.opencode/<session>/`. Git is still clean (128 tracked files, 0 under `build/`), so one `git add -A` would commit 60.7 MB of build output. | ✅ **Shipped** (FR-R20): scaffold copies source only, ignore rules completed, `repo-hygiene.sh` gate active | Closed — the layout contract lives in FR-R20/§11.9. |
 | ISSUE-39 | **Coverage is anecdotal: nothing detects a missing stage.** §11.10 (no Compose UI tests) and §11.11 (no logo or shared motion system) were found because someone asked, not because a checklist made the gaps visible. The feature requests now name privacy/compliance, store presence, push, billing, in-app updates, device coverage and form factors, but there is still no structured manifest or CI rule proving their applicability, implementation and verification state. Tools are counted (65) and Node tests are counted (24), but no artifact asserts that every lifecycle stage has an evidence-backed verdict. | `instrumented_test` has no committed UI tests to run. One AVD (API 35) is the entire device matrix. The existing prose findings are not machine-checked against a canonical manifest. | ✅ **Shipped** (FR-R22): `manifest/stages.json` + `manifest/capabilities.json` + gates, 38 stages, `lifecycle --check` verifies, CI wired | Missing capabilities still tracked as new FRs; keep the manifest current as stages close. |
 | ISSUE-40 | **The skill corpus is uneven, partly fictional, and has no invocation policy.** 29 skills · 26,174 words, but **79% is generic agent process** (14 skills, 20,678 words) while all 4 Android build/QA skills total **232 words** (0.9%). 10 skills are under 100 words and restate their description. `start-here` routes Phase 2 to 4 skills that do not exist. `executing-plans` and `subagent-driven-development` are 0.398 Jaccard-similar at ~3.2k words each. Nothing can declare "always run"; no `instructions` block exists; `.opencode/skills/skills` is an empty nested dir that `AGENTS.md` calls a symlink; `.opencode/CuEZ7dFT/` holds 29 duplicate copies. | Measured 2026-11-05: 26,174 words across 29 skills; under-100-word skills: gradle-troubleshoot 54, performance 59, screenshot-diff 60, emulator-smoke 63; missing skills: `domain-modeling`, `codebase-design`, `to-spec`, `to-tickets`; `.opencode/opencode.jsonc` has `skills` + `mcp` only. | 🟠 Open | FR-E5 + §15: 8 merges (29 → 21), fix the fictional references, move 5 invariants into `AGENTS.md`, enforce with `skill_lint`. |
+| ISSUE-41 | **Development is driven from ephemeral conversations; there is no project plane.** When a build request arrives, the engineering decomposition, the sprint plan ("how many sprints, what is the end goal of each") and the ticket flow live in the chat transcript and scattered docs. Nothing is inspectable later; a human cannot see what is being built, which sprint owns which work, or what an agent session proved. Tickets exist only inside the backlog file, and agents cannot be dispatched against them from any board. | Measured 2026-11-09: zero tooling for plan/sprint/ticket management in `scripts/` or `src/`; no sprint entity anywhere; no agent-session evidence store per project; work history reconstructable only from git log and session summaries. | 🟠 Open | **FR-G1**: gitboard — localhost webapp, one instance per project: plan + sprint breakdown (agent-produced, human-editable), all project docs in a viewable/editable pane, and a ticket board where human- or agent-added tickets are picked up automatically by agent-spawned sessions with live progress and per-ticket evidence. |
 
 ### 2.3 Capability gaps with no first-class tool
 
@@ -251,7 +252,53 @@ the maintainer's pre-existing Gradle cache.
 | FR-E4 | **Ecosystem skill intake** — evaluate and port a curated set of external skills (SK-01…SK-06, §13) as license-checked, re-derived skills rather than vendored folders | P2 | 🟡 Open | Screening and licence findings are in **§13**. One genuinely missing behaviour today: a **surgical/simplicity** discipline (think-first, minimum code, touch only what the request needs). The rest are accelerants for FR-R19/R21/R18. |
 | FR-E5 | **`skill_lint` + always-on invariants** — CI lint over `skills/` (frontmatter schema, dangling references, trigger-quality checks, optional short-skill warnings, and machine-enforced invariants) plus an `instructions` block carrying the rules that must never be skipped | P1 | 🟠 Open | Also ISSUE-40, §15. A skill is model-invoked and can be skipped, so universal requirements must be enforced by config, deterministic checks or CI. Keep word count and trigger similarity as review signals, not brittle quality gates; do not impose an arbitrary skill-count ceiling. Merge plan: §15.1 (29 → 21 proposed). |
 
----
+### 3.7 Project plane: run development like a product (new family, 2026-11-09)
+
+`G` is a new ID family (there is no legacy source doc for it): the capability families
+so far cover *building and verifying one app*; none of them *manage* the work itself.
+Today development runs through ephemeral conversations plus `BACKLOG.md` and hope; there is
+no persistent, inspectable system that holds the engineering plan, the sprint breakdown,
+the ticket board and the evidence of each agent session (ISSUE-41). FR-G1 is that system.
+
+| ID | Request | Priority | Status | Notes |
+|---|---|---|---|---|
+| FR-G1 | **`gitboard`** — a localhost webapp, one instance per project, that holds the engineering plan and sprint breakdown, surfaces every project document (viewable *and* editable), and runs a professional software-development ticket board where tickets are added by human or agent and picked up automatically by agent-spawned sessions with live progress shown | P1 | 🟠 Open | Also ISSUE-41. Wires into FR-R19 (`build_transparency` inside tickets), FR-R16/FR-R21 (lessons captured from a session feed the store), and the lifecycle manifest (a closed ticket updates the stage table). See the operating model and acceptance below. |
+
+**FR-G1 · Operating model, as agreed 2026-11-09**
+
+1. **Planning phase.** When a build request arrives, the agent first produces the engineering
+   decomposition: what is built, the most efficient architecture/effort split, then the sprint
+   plan — how many sprints and the end goal of each. Both live as project files (source of
+   truth stays on disk and in git; the webapp renders and edits them in place).
+2. **Sprint view.** The board shows the sprint plan with one end goal per sprint, which tickets
+   belong to which sprint, and progress rolls up from ticket state (no manual percent fields).
+3. **Docs pane.** Every project document (docs/, ADRs, plan files) is viewable and editable
+   through the webapp; edits are plain file edits visible to git review.
+4. **Ticket board.** Professional board — backlog / ready / in-progress / review / done; tickets
+   can be created by the human or by the agent (the agent files follow-up tickets for work it
+   discovers); every ticket carries status, owner (human/agent), sprint tag and links to
+   evidence (commits, test output, screenshots).
+5. **Agent pickup, chosen shape (option 2 — full product).** The webapp itself spawns an agent
+   session per ticket, runs it against the project, and shows live session progress and the
+   result. Chosen over a thin file-queue consumed by the agent's own harness session (option 1,
+   recorded here as the rejected thin slice) because the request is a professional development
+   board, not a work-prescription format.
+
+*Acceptance:*
+- `make gitboard` (or `npm run gitboard`) serves the board on localhost for exactly one project;
+  no auth for local use, and the project root is passed explicitly.
+- Plan + sprint files exist per project after an agent planning run, are rendered by the board,
+  and their webapp edits round-trip to disk (a test asserts the edit is on disk).
+- A human and an agent can each add a ticket, and a newly added ticket appears in `ready`.
+- The board spawns an agent session for a claimed ticket, displays live progress, and on session
+  completion attaches the evidence pack (commit range, test command + result) to the ticket;
+  a session whose verification fails moves the ticket back to `review`.
+- Sprint completion is computed from ticket state, not entered manually.
+- Relationship with existing requests is respected: no second knowledge store (FR-R21 stays
+  canonical); `build_transparency` (FR-R19) is the reporting format inside an agent session; the
+  gitboard does not fork the lifecycle manifest (FR-R22), it consumes it.
+- Slice 1 defines the file schema + board UI with a stub agent runner; slice 2 adds the real
+  agent-session spawn + live view; slice 3 adds agent-initiated tickets and sprint rollups.
 
 ## 4. Capability gaps, layer by layer
 
@@ -1256,6 +1303,7 @@ Nothing here is implemented — this is the order that unblocks the most with th
 | 6 | **FR-R24 push**, **FR-R25 billing + in-app updates**, **FR-R27 device matrix** | FR-R1 | 2–3 weeks |
 | 7 | FR-R17 code library, FR-R21 knowledge flywheel, §12 | FR-B2 proof | ongoing |
 | 8 | FR-R28 form factors (Wear/TV/Auto/XR) | product decision | 1–2 weeks each |
+| 9 | **FR-G1 gitboard** — the project plane (plan + sprints + tickets + agent sessions, localhost) | FR-R19's phase reporting; agent SDK access | 2–3 weeks |
 
 Steps 1–3 are local documentation/repository work and do not require a signing key; dependency
 pack population itself requires the reachable package network during setup. A signed release still
