@@ -100,14 +100,18 @@ jobs:
             # ~5 s (run 43025545346).
             curl -Ls -o /tmp/maestro.zip "https://github.com/mobile-dev-inc/maestro/releases/download/cli-2.12.1/maestro.zip"
             unzip -q -o /tmp/maestro.zip -d "$HOME/.maestro-cli-pin"
-            mkdir -p "$HOME/.maestro/bin"
-            cp -a "$HOME"/.maestro-cli-pin/maestro/bin/. "$HOME/.maestro/bin/"
+            mkdir -p "$HOME/.maestro"
+            # The launcher resolves jars relative to ../lib, so copy the whole
+            # tree — bin only → ClassNotFoundException maestro.cli.AppKt,
+            # instant exit (run 43027448490).
+            cp -a "$HOME"/.maestro-cli-pin/maestro/. "$HOME/.maestro/"
             # Locally (software mode) the maestro driver was killed by the
             # system's 30 s startup ANR before its fixed default timeout; the
             # env only buys slack on a slow runner, KVM keeps it irrelevant.
             # NOTE: the runner executes this script line by line, so PATH must
             # be set inline on the maestro line (run 43024737147: "maestro: not found").
             gradle -p templates/compose-starter :app:installDebug --no-daemon
+            PATH="$HOME/.maestro/bin:$PATH" maestro --version
             # Single line required: the runner executes this script line by line,
             # so no multi-line blocks (run 43026639163 parse failure).
             MAESTRO_DRIVER_STARTUP_TIMEOUT=180 PATH="$HOME/.maestro/bin:$PATH" maestro test templates/compose-starter/maestro/smoke.yaml || { echo '=== maestro failed: device events + crash buffer ==='; adb logcat -d -b events 2>/dev/null | grep -E 'maestro|am_anr|am_kill' | tail -20; adb logcat -d -b crash 2>/dev/null | tail -30; exit 1; }
