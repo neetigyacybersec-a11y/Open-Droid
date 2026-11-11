@@ -108,12 +108,9 @@ jobs:
             # NOTE: the runner executes this script line by line, so PATH must
             # be set inline on the maestro line (run 43024737147: "maestro: not found").
             gradle -p templates/compose-starter :app:installDebug --no-daemon
-            MAESTRO_DRIVER_STARTUP_TIMEOUT=180 PATH="$HOME/.maestro/bin:$PATH" maestro test templates/compose-starter/maestro/smoke.yaml || {
-              echo "=== maestro failed: device events (ANR/kill) + crash buffer ==="
-              adb logcat -d -b events 2>/dev/null | grep -E 'maestro' | tail -20
-              adb logcat -d -b crash 2>/dev/null | tail -30
-              exit 1
-            }
+            # Single line required: the runner executes this script line by line,
+            # so no multi-line blocks (run 43026639163 parse failure).
+            MAESTRO_DRIVER_STARTUP_TIMEOUT=180 PATH="$HOME/.maestro/bin:$PATH" maestro test templates/compose-starter/maestro/smoke.yaml || { echo '=== maestro failed: device events + crash buffer ==='; adb logcat -d -b events 2>/dev/null | grep -E 'maestro|am_anr|am_kill' | tail -20; adb logcat -d -b crash 2>/dev/null | tail -30; exit 1; }
 
   docker:
     runs-on: ubuntu-latest
