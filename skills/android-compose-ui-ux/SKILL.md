@@ -1,6 +1,6 @@
 ---
 name: android-compose-ui-ux
-description: Build high-end Jetpack Compose UI with Material 3, motion, accessibility, adaptive layouts, design tokens, and foundations
+description: Build high-end Jetpack Compose UI with Material 3, motion design, accessibility, adaptive layouts, design tokens, and foundations. Use whenever the user mentions animations, transitions, screen or navigation transitions, micro-interactions, motion design, spring or tween animations, Compose animation APIs (animate*AsState, AnimatedVisibility, AnimatedContent, SharedTransitionLayout / shared element), MotionLayout, ViewPropertyAnimator, AnimatedVectorDrawable, bottom sheet or FAB motion, press feedback, ripple, loading states, skeletons, splash or onboarding, pull-to-refresh, predictive back, haptics tied to motion, or says the app "feels sluggish", "laggy", "not smooth", "cheap", "basic", or "needs polish". Covers Material 3 timing and easing tokens, interruption-safe springs, 60–120 fps motion performance, and reduced-motion accessibility. Use this skill even for small touches like a button press animation or a counter change.
 license: MIT
 compatibility: opencode
 metadata:
@@ -28,6 +28,141 @@ metadata:
 - Keep durations 100-500ms; respect reduced motion.
 - Ensure motion is functional (orient, confirm, connect).
 - Anti-patterns: decorative-only motion; arbitrary easing; blocking input; ignoring accessibility.
+- Deep layer: the full motion operating system lives in [Motion design system (deep layer)](#motion-design-system-deep-layer) below.
+
+## Motion design system (deep layer)
+
+This is the senior-motion-designer operating system, integrated from the vendored
+`motion-designer` skill (FR-S1 / BACKLOG §3.8). The light rules above and the Motion laws in the
+Design bar below set the bar; this section is the execution system. The `references/motion/`
+directory is the deep knowledge — read references on demand, do not guess timings, curves, or
+API signatures from memory.
+
+### The taste model — six principles
+
+Every animation must satisfy at least one; if it satisfies none, delete it.
+
+1. **Purpose** — motion answers exactly one of five questions: Where did this come from? (enter),
+   Where did it go? (exit), What changed? (state), How is this connected? (continuity),
+   Did the system hear me? (feedback). Name the question before writing code; an animation that
+   answers none of them is decoration, and decoration reads as cheap.
+2. **Restraint** — one hero animation per screen transition; everything else is supporting cast
+   (faster, shorter, fading). Small distances: 8–24 dp translations, 0.96–1.02 scale. Few
+   properties: opacity + transform. Competing animations get staggered, never equal-weight.
+3. **Physics** — decelerate into place, accelerate out (exits 25–40% quicker). Springs for
+   anything interruptible; no bounce for structure and navigation (one playful bounce per
+   screen, max). Linear easing is for loops only.
+4. **Continuity** — state changes are transformations, not swaps. An element on both sides of a
+   transition carries through (shared element / container transform).
+5. **Hierarchy** — entering content is slower and emphasized; exiting content is faster and
+   usually a quick fade. The user's finger outranks everything: gestures track 1:1; springs
+   take over on release.
+6. **Calm** — total choreography under ~600 ms; nothing flashes > 3×/s; nothing bounces twice;
+   after 500 ms the UI is still unless a gesture is active.
+
+### Non-negotiables (hard rules)
+
+1. **Tokens only.** All durations, easings, springs come from a single `MotionTokens` object
+   (template: `references/motion/MotionTokens.kt`). Never hardcode `300` or
+   `FastOutSlowInEasing()` inline. No tokens file → create one from the template first.
+2. **Structural motion ≤ 400 ms.** Navigation/containers/sheets 240–400 ms; only a full
+   container-transform hero may reach 500 ms; longer must be gesture-driven.
+3. **One hero.** Per screen change, exactly one emphasized element; supporting elements fade or
+   slide ≤ 24 dp.
+4. **Animate cheap properties only.** `translationX/Y/Z`, `scaleX/Y`, `alpha`, `rotation`
+   (Views); state read inside `graphicsLayer { }` (Compose). Never animate layout size/position
+   per frame by hand — `animateContentSize()` or a wrapper's `graphicsLayer`.
+5. **Reduced motion.** Respect `ANIMATOR_DURATION_SCALE == 0` and "Remove animations". Views
+   respect it automatically; **Compose does not** — wire the helper from `MotionTokens.kt`.
+6. **Interruption-safe.** Anything interruptible mid-flight must be retargetable:
+   `animate*AsState`, `Animatable.animateTo` (not snap-then-restart), springs for gestures.
+7. **Exits are faster than entrances.** Enter 280 ms → exit ~200 ms; exits mostly fade.
+8. **No blocking.** Input stays enabled during animations; ≤ 2 sequential animations per event.
+9. **RTL-aware.** start/end semantics; `slideInHorizontally { it }` always comes from the left —
+   negate offsets or use direction-aware helpers when `LayoutDirection` is RTL.
+10. **No new motion dependencies without asking.** Lottie/Rive only when the user provides the
+    files or asks. Everything here ships zero-dependency.
+
+### Workflow
+
+1. **Understand** — read the screen code; list the states. Premium motion is state-driven
+   ("state A → state B"), never fire-and-forget (one-shot feedback like a like-pop excepted).
+2. **Plan in one sentence** — e.g. "Card list: staggered fade+rise entrance (18 ms/item, once),
+   card→detail as shared-element container transform, everything else instant." More than 3
+   distinct motions requested → propose cutting to the 3 most valuable.
+3. **Tokens** — find or create `MotionTokens`; choose values from `references/motion/timing-and-easing.md`. Don't invent numbers.
+4. **Implement** — open the matching reference (below) and base work on its recipes; name
+   things after purpose (`animateInToDetail`), not effect (`animation1`).
+5. **Polish** — run `references/motion/review-checklist.md` end to end; hunt: too-long
+   durations, double-bounce, simultaneous equal animations, missing retargets, leftover magic
+   numbers, animations firing on rotation/first composition.
+6. **Verify** — build, run the flows touched, then enable Developer options → Remove animations
+   and re-run: every screen reaches its final state instantly. Perf: no per-frame recomposition
+   of large subtrees; if jank is reported, measure with JankStats before tuning.
+
+### Platform routing
+
+| Situation | Route | Read |
+| --- | --- | --- |
+| New screen or Compose present | Jetpack Compose (default) | `references/motion/compose-motion.md` |
+| View/XML, simple feedback & transitions | ViewPropertyAnimator + dynamicanimation | `references/motion/view-system-motion.md` |
+| View/XML, scroll-linked choreography | MotionLayout (only if already in deps) | `references/motion/view-system-motion.md` §6 |
+| Fragment/Activity morphs in View apps | MaterialContainerTransform | `references/motion/view-system-motion.md` §8 |
+| Complex icon morphs | AnimatedVectorDrawable | `references/motion/view-system-motion.md` §7 |
+| Lottie/Rive files provided | Integrate, timing still follows tokens | `references/motion/performance-and-accessibility.md` §5 |
+| Mixed app | Same tokens across both systems | both files |
+
+### Micro-interaction decision table
+
+| User intent | Pattern | Spec |
+| --- | --- | --- |
+| Button/row/icon press | Scale 0.97 + ripple | catalog §1 |
+| Toggle, checkbox, switch, chip select | Thumb spring + track color fade | catalog §2 |
+| Like / save / bookmark / follow | Spring pop (one bounce) + haptic | catalog §3 |
+| Expand/collapse, accordion, "more" | `animateContentSize` or `updateTransition` + chevron 180° | catalog §4 |
+| List first load | Staggered fade + rise, 12–16 dp, once | catalog §5 |
+| List insert / remove / swipe dismiss | Follow finger → spring out + collapse | catalog §6 |
+| Bottom sheet, side sheet, dialog | Anchored spring + scrim fade | catalog §7 |
+| FAB ↔ toolbar/screen morph | Container transform | catalog §8 |
+| Screen → screen | Shared axis X / container transform | catalog §9 |
+| Loading content | Skeleton pulse or spinner | catalog §10 |
+| Counter, badge, tab text | Vertical slide swap | catalog §11 |
+| Empty → content, error → retry | Crossfade + rise | catalog §12 |
+| Cold start → home | Logo scale-in 180 ms, no progress theater | catalog §13 |
+| Pull-to-refresh, scroll-linked header | Gesture 1:1 + spring settle | catalog §14 |
+
+Full specs: `references/motion/micro-interactions-catalog.md`.
+
+### Quick recipes — the 80% cases
+
+Press feedback (every touchable, scale 0.97 + spring via `MutableInteractionSource` +
+`graphicsLayer`), enter/exit (`AnimatedVisibility`: fade + gentle decelerate-grow in, quicker
+fade + accelerate-shrink out), value changes (`AnimatedContent` vertical slide swap),
+size growth (`animateContentSize`), like-pop (snap 0.8 → spring to 1 + haptic, the one bounce
+allowed), nav transitions (shared-axis `NavHost` enter/exit/pop pairs). Copy-ready code for all
+six lives in `references/motion/compose-motion.md` and the hub SKILL.md history; do not
+re-derive them.
+
+### Common failure modes (what makes motion feel cheap)
+
+The slow-mo (600–800 ms everything) · the bouncy castle (bounce everywhere) · the stampede
+(equal-weight simultaneous animations) · the teleport swap (spinner then instant content —
+use crossfade + rise) · the linear robot (linear easing on enter/exit) · the retrigger
+(entrances replaying on rotation/theme change — gate by first reveal) · the input lock ·
+the jank (animating layout/size per frame) · the ignored setting (motion running with system
+animations off) · magic numbers (`tween(373)` scattered — tokens, always).
+
+### Reference map
+
+| File | Read when |
+| --- | --- |
+| `references/motion/timing-and-easing.md` | Choosing any duration, easing, or spring; before adding a tokens entry. |
+| `references/motion/compose-motion.md` | Any Compose motion work: every API, 10 full recipes, shared elements, navigation, gestures, testing. |
+| `references/motion/view-system-motion.md` | Any View/XML work: animators, springs, MotionLayout, AVD, container transforms. |
+| `references/motion/micro-interactions-catalog.md` | Deciding what to animate; exact specs per interaction family. |
+| `references/motion/performance-and-accessibility.md` | Perf pass before finishing; reduced-motion wiring. |
+| `references/motion/review-checklist.md` | Final pass on every motion task. Non-negotiable. |
+| `references/motion/MotionTokens.kt` | Drop-in tokens template (durations, M3 easings, springs, reduced-motion provider). |
 
 ### Foundations
 - Establish type scale, color roles, spacing grid (8dp), shape tokens, elevation, iconography.

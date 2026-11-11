@@ -300,6 +300,41 @@ the ticket board and the evidence of each agent session (ISSUE-41). FR-G1 is tha
 - Slice 1 defines the file schema + board UI with a stub agent runner; slice 2 adds the real
   agent-session spawn + live view; slice 3 adds agent-initiated tickets and sprint rollups.
 
+### 3.8 Skill plane: deep motion-design integration (2026-11-11)
+
+**Request:** integrate the vendored `motion-designer` skill (zip in repo root, extracted to
+`/tmp` for the work) into the existing skill set so that (a) the total top-level skill count in
+`skills/` does not change (README/`check-readme.sh` pin it), and (b) the motion knowledge is
+implicitly invoked whenever motion work appears.
+
+**Approach chosen (A — hub):** `android-compose-ui-ux` is the motion hub. It already owns
+"motion" in its description and carries a light Motion-laws section; the deep layer slots under
+it without inventing a new top-level skill.
+
+- `skills/android-compose-ui-ux/references/motion/` receives the six reference documents
+  (timing-and-easing, compose-motion, view-system-motion, micro-interactions-catalog,
+  performance-and-accessibility, review-checklist), the `assets/MotionTokens.kt` drop-in tokens
+  template, and `evals/evals.json`.
+- The hub SKILL.md grows a **Motion design system (deep layer)** section: the six-principle
+  taste model, the ten non-negotiables (tokens-only, ≤400 ms structural, one hero, cheap
+  properties only, reduced motion, interruption-safe, faster exits, no blocking, RTL-aware, no
+  new deps), the micro-interaction decision table, and the reference map pointing at
+  `references/motion/`.
+- The hub `description:` frontmatter gains the motion trigger vocabulary (animations,
+  transitions, springs, MotionLayout, bottom-sheet motion, press feedback, "feels sluggish",
+  skeletons, predictive back, …) — that is the implicit-invocation mechanism: OpenCode matches
+  skill descriptions to the task.
+- Routing lines are added to the five adjacent skills — `design-tokens` (MotionTokens
+  discipline), `android-performance` (motion perf / jank rules), `android-accessibility`
+  (reduced-motion wiring), `design-critique` (motion review checklist), `wcag-audit`
+  (vestibular/motion WCAG concerns) — each pointing at the hub's motion references.
+- The zip is untracked and not in the hygiene root allowlist: deleted after extraction.
+- Pinned by `test/skills-motion.test.mjs` (references exist, trigger words in the hub
+  description, routing lines present, top-level skill count unchanged).
+
+**Non-goals:** no template/MotionTokens product integration (that is option C, parked); no
+changes to `check-readme.sh` counts; no renames of existing skills.
+
 ## 4. Capability gaps, layer by layer
 
 Nine layers; a product is only as shippable as its weakest layer.

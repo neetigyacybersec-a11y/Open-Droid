@@ -15,6 +15,9 @@ metadata:
 - Map Figma variables (color/number/string/boolean) with modes (light/dark) to Compose.
 - Theme variants, dark mode, dynamic color, component variants.
 - Document token naming and ownership.
+- Motion tokens follow the same discipline: durations, M3 easings and spring presets live in a
+  single `MotionTokens` object, never hardcoded inline. Template and rules:
+  android-compose-ui-ux -> `references/motion/MotionTokens.kt` + `references/motion/timing-and-easing.md`.
 
 ## When to use me
 - Setting up a new design system or theming a Compose app.

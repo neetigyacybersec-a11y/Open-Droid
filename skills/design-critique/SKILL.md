@@ -12,6 +12,9 @@ metadata:
 - Verify consistency with design system and tokens.
 - Audit accessibility (contrast, touch targets, semantics).
 - Give actionable, specific feedback.
+- Motion is part of the critique: run the motion review checklist
+  (android-compose-ui-ux -> `references/motion/review-checklist.md`) — durations, one hero,
+  interruption safety, reduced motion, RTL, dark mode — before calling motion done.
 
 ## When to use me
 Use during PR/design review.

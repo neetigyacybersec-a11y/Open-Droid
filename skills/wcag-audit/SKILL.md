@@ -13,6 +13,10 @@ metadata:
 - Check Understandable: readable, predictable, input assistance.
 - Check Robust: semantic markup, assistive-tech compatibility.
 - Target AA baseline; AAA for critical flows.
+- Motion and vestibular safety (WCAG 2.3.3 Animation from Interactions, 2.2.2 Pause/Stop/Hide):
+  respect reduced motion, nothing flashes more than 3x/s, no looping motion except progress
+  indicators. Wiring: android-compose-ui-ux ->
+  `references/motion/performance-and-accessibility.md`.
 
 ## When to use me
 Use during accessibility review before release.

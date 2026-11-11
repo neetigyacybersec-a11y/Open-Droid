@@ -12,6 +12,10 @@ metadata:
 - Ensure touch targets >= 48dp; use minimumInteractiveComponentSize().
 - Support TalkBack, switch access, large text, RTL.
 - Respect reduced motion and font scaling up to 200%.
+- Reduced-motion wiring is a build requirement, not a review finding: Views honor
+  `ANIMATOR_DURATION_SCALE == 0` automatically, Compose does not — wire the helper from
+  android-compose-ui-ux -> `references/motion/MotionTokens.kt` and the rules in
+  `references/motion/performance-and-accessibility.md`.
 
 ## What I audit
 - Check semantic roles, contentDescription, headings.

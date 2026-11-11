@@ -1,0 +1,29 @@
+{
+  "skill_name": "motion-designer",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "My Compose app's buttons feel dead when tapped. Add proper press feedback to the primary buttons on the checkout screen (they're regular Button composables in CheckoutScreen.kt). Don't change any business logic.",
+      "expected_output": "Adds press-scale modifier (0.97, spring crisp retarget, graphicsLayer draw-phase read, retains ripple) wired through interactionSource, no hardcoded durations — uses MotionTokens; if no tokens file exists, creates MotionTokens.kt from assets template; does not remove ripple or change onClick logic.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "The list screen in my news app opens a detail page and it just pops in instantly. Everything is Jetpack Compose with navigation-compose. Make navigation feel premium — the list items are cards with a hero image. Also the first time the list appears it should not feel like everything dumps on screen at once.",
+      "expected_output": "Plan with one hero: shared-element image morph card-to-detail (SharedTransitionLayout + sharedElement with stable id keys, Hero 500ms Emphasized) or slide+fade fallback with correct durations; pop transitions mirrored; list first-load stagger 18ms capped at 350ms gated so it doesn't replay on back navigation; exits faster than enters; RTL-aware offsets; MotionTokens used throughout.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Add a like button (heart icon) to my feed rows. When tapped it should feel really satisfying, and it should handle people spam-tapping it. Compose, of course.",
+      "expected_output": "Anticipation dip + playful single-bounce spring via Animatable in LaunchedEffect keyed on liked state (cancel semantics handle spam), accent color crossfade, haptic on landing (LocalHapticFeedback / CONFIRM), no bounce on any other element, icon scale via graphicsLayer lambda, contentDescription stays correct.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "QA flagged that when users turn on 'Remove animations' in developer options, our onboarding flow breaks — the next button stops working until the animation would have finished. It's all Compose. Fix it and make sure this can't happen again anywhere.",
+      "expected_output": "Diagnoses that Compose animations ignore ANIMATOR_DURATION_SCALE, wires LocalReducedMotion/MotionSettingsProvider (reads Settings.Global.ANIMATOR_DURATION_SCALE), replaces blocking onAnimationEnd-style logic with state-driven content so final states render instantly, applies motionSpec helper; also notes Views respect the scale automatically; adds reduced-motion checks to the review flow.",
+      "files": []
+    }
+  ]
+}
