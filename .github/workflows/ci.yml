@@ -95,13 +95,13 @@ jobs:
           script: |
             gradle -p templates/compose-starter :app:connectedDebugAndroidTest --no-daemon
             curl -Ls "https://get.maestro.mobile.dev" | bash
-            export PATH="$HOME/.maestro/bin:$PATH"
             # Locally (software mode) the maestro driver was killed by the
             # system's 30 s startup ANR before its fixed default timeout; the
             # env only buys slack on a slow runner, KVM keeps it irrelevant.
-            export MAESTRO_DRIVER_STARTUP_TIMEOUT=180
+            # NOTE: the runner executes this script line by line, so PATH must
+            # be set inline on the maestro line (run 43024737147: "maestro: not found").
             gradle -p templates/compose-starter :app:installDebug --no-daemon
-            maestro test templates/compose-starter/maestro/smoke.yaml
+            MAESTRO_DRIVER_STARTUP_TIMEOUT=180 PATH="$HOME/.maestro/bin:$PATH" maestro test templates/compose-starter/maestro/smoke.yaml
 
   docker:
     runs-on: ubuntu-latest
