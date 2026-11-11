@@ -73,11 +73,16 @@ jobs:
       # during its first post-install launch (odex generation, >30 s startup
       # window) and the kill surfaced as "Instrumentation run failed due to
       # Process crashed". With KVM the launch completes in seconds.
-      - name: Grant the runner user KVM access (udev rule, no restart)
+      - name: Grant the runner user KVM access (udev rule + chmod fallback, no restart)
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
+          sudo udevadm trigger --name-match=kvm || true
+          sleep 1
+          # Deterministic fallback: the previous run's udevadm trigger did not
+          # re-apply the rule and test -w failed before the emulator even booted.
+          sudo chmod a+rw /dev/kvm
+          ls -l /dev/kvm
           test -w /dev/kvm
       - name: Instrumented Compose test on API 35 emulator
         uses: reactivecircus/android-emulator-runner@v2

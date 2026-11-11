@@ -1,7 +1,9 @@
 node_modules/
 dist/
 .toolchain/
-screenshots/
+# Root-level emulator screenshots only — test goldens under app/src/test/screenshots
+# must stay tracked (they are the Roborazzi verify baselines).
+/screenshots/
 *.log
 .env
 .DS_Store
