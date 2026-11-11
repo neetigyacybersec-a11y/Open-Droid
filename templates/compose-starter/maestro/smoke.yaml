@@ -6,4 +6,4 @@ appId: com.example.starter
 name: starter smoke
 ---
 - launchApp
-- assertVisible: "Hello, Android!"
+- assertVisible: "Hello Android!"
