@@ -89,7 +89,19 @@ jobs:
         with:
           api-level: 35
           arch: x86_64
-          script: gradle -p templates/compose-starter :app:connectedDebugAndroidTest --no-daemon
+          # FR-B2 slice 3: the same emulator session also runs the committed
+          # Maestro smoke flow (M2 exit criterion). AGP uninstalls the app
+          # after connected tests, so reinstall before the flow.
+          script: |
+            gradle -p templates/compose-starter :app:connectedDebugAndroidTest --no-daemon
+            curl -Ls "https://get.maestro.mobile.dev" | bash
+            export PATH="$HOME/.maestro/bin:$PATH"
+            # Locally (software mode) the maestro driver was killed by the
+            # system's 30 s startup ANR before its fixed default timeout; the
+            # env only buys slack on a slow runner, KVM keeps it irrelevant.
+            export MAESTRO_DRIVER_STARTUP_TIMEOUT=180
+            gradle -p templates/compose-starter :app:installDebug --no-daemon
+            maestro test templates/compose-starter/maestro/smoke.yaml
 
   docker:
     runs-on: ubuntu-latest

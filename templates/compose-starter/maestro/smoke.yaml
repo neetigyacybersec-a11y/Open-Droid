@@ -1,0 +1,9 @@
+# FR-B2 slice 3: committed smoke flow. Runs in CI's android-instrumented
+# emulator session after the connected test (AGP uninstalls the app, so the
+# job reinstalls via :app:installDebug first). Locally:
+#   maestro test templates/compose-starter/maestro/smoke.yaml
+appId: com.example.starter
+name: starter smoke
+---
+- launchApp
+- assertVisible: "Hello, Android!"

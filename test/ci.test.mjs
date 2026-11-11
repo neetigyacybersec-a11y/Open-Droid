@@ -50,3 +50,22 @@ test('android-instrumented job runs connected tests on API 35', () => {
   assert.ok(inst.includes('android-35') || inst.includes('sysimg'), 'must target API 35');
   assert.ok(inst.includes('runs-on: ubuntu-latest'), 'emulator job must be ubuntu (KVM)');
 });
+
+// FR-B2 slice 3 / M2 exit criterion: "at least one committed Maestro flow run
+// in CI". The template ships a smoke flow; the instrumented emulator session
+// runs it after the connected test.
+test('template ships a committed Maestro smoke flow (FR-B2 slice 3)', () => {
+  const flowPath = path.join(REPO, 'templates/compose-starter/maestro/smoke.yaml');
+  assert.ok(existsSync(flowPath), 'maestro/smoke.yaml must ship in the template');
+  const flow = readFileSync(flowPath, 'utf8');
+  assert.match(flow, /appId:\s*com\.example\.starter/, 'the flow must target the template app id');
+  assert.match(flow, /launchApp/, 'the flow must launch the app');
+  assert.match(flow, /assertVisible/, 'the flow must assert real UI content');
+});
+
+test('CI runs the Maestro smoke flow in the emulator session (FR-B2 slice 3)', () => {
+  const inst = ci.slice(ci.indexOf('android-instrumented:'), ci.indexOf('docker:'));
+  assert.ok(inst.includes('maestro test'), 'the emulator job must run maestro test');
+  assert.ok(inst.includes('maestro/smoke.yaml'), 'the job must run the committed flow');
+  assert.ok(inst.includes(':app:installDebug'), 'the app must be reinstalled before the flow (AGP uninstalls after connected tests)');
+});
