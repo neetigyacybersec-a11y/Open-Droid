@@ -75,5 +75,7 @@ test("unknown gate IDs fail", () => {
 
 test("generated coverage table is current", async () => {
   const current = await readFile(new URL("../docs/lifecycle-coverage.md", import.meta.url), "utf8");
-  assert.equal(current, renderCoverage(stages, capabilities));
+  // Git autocrlf checks this file out with CRLF on Windows runners; the
+  // renderer emits LF. Compare normalized so the check is platform-neutral.
+  assert.equal(current.replace(/\r\n/g, "\n"), renderCoverage(stages, capabilities));
 });

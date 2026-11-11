@@ -83,3 +83,30 @@ test('template ships an ATF accessibility-check test', () => {
   assert.match(src, /RoborazziATFAccessibilityChecker/, 'the a11y test must use the Roborazzi ATF checker');
   assert.match(src, /AccessibilityCheckPreset\.LATEST/, 'the a11y test must run the latest ATF preset');
 });
+
+// FR-B5: the template theme respects the system — dark follows the system
+// setting, and reduced motion is wired via the MotionTokens helper so a user
+// who disables system animations gets instant states in Compose too.
+test('template theme follows the system dark setting', () => {
+  const theme = readFileSync(
+    path.join(REPO, 'templates/compose-starter/app/src/main/java/com/example/starter/ui/theme/Theme.kt'),
+    'utf8',
+  );
+  assert.match(theme, /darkTheme:\s*Boolean\s*=\s*isSystemInDarkTheme\(\)/,
+    'StarterTheme must default to isSystemInDarkTheme(), not hardcoded false');
+  assert.doesNotMatch(theme, /darkTheme:\s*Boolean\s*=\s*false/,
+    'the hardcoded light default must be gone');
+});
+
+test('template ships motion tokens with reduced-motion wiring (FR-B5)', () => {
+  const tokensPath = path.join(REPO, 'templates/compose-starter/app/src/main/java/com/example/starter/ui/motion/MotionTokens.kt');
+  assert.ok(existsSync(tokensPath), 'MotionTokens.kt must ship in the template');
+  const tokens = readFileSync(tokensPath, 'utf8');
+  assert.match(tokens, /LocalReducedMotion/, 'tokens must expose LocalReducedMotion');
+  assert.match(tokens, /ANIMATOR_DURATION_SCALE/, 'tokens must read the system animator duration scale');
+  const theme = readFileSync(
+    path.join(REPO, 'templates/compose-starter/app/src/main/java/com/example/starter/ui/theme/Theme.kt'),
+    'utf8',
+  );
+  assert.match(theme, /MotionSettingsProvider/, 'the theme must install the reduced-motion provider');
+});

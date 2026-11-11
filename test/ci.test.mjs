@@ -5,7 +5,7 @@
 // (Screenshot/a11y + Maestro CI jobs are the FR-B2 layer-3 slice, later.)
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 
 const REPO = path.resolve(import.meta.dirname, '..');
@@ -19,6 +19,20 @@ test('android-matrix job covers every shipped app', () => {
   for (const app of ['hello-compose', 'compose-starter', 'vuln-app']) {
     assert.ok(matrixJob.includes(app), `matrix must include ${app}`);
   }
+  // Regression pin (CI run 42685876691): the hello-compose entry lacked the
+  // examples/ prefix and `cd hello-compose` failed on the runner. Every
+  // app-dir entry must be a real directory containing a gradle app module.
+  const entries = [...matrixJob.matchAll(/^\s{10}(- .+)$/gm)].map((m) => m[1].slice(2));
+  const appDirs = entries.filter((entry) => !entry.startsWith("'") && !entry.includes(':'));
+  assert.ok(appDirs.length >= 3, `matrix must list app dirs, found: ${appDirs.join(', ')}`);
+  for (const dir of appDirs) {
+    assert.ok(existsSync(path.join(REPO, dir, 'app/build.gradle.kts')), `matrix entry ${dir} must be an app directory with app/build.gradle.kts`);
+  }
+});
+
+test('android-instrumented job grants KVM before booting the emulator', () => {
+  assert.ok(ci.includes('99-kvm4all.rules'), 'the KVM udev rule must be installed (run 42685876691: software-mode emulator caused a startup ANR reported as "Process crashed")');
+  assert.ok(ci.includes('test -w /dev/kvm'), 'the job must fail closed if KVM is still not writable');
 });
 
 test('android-matrix runs assembleDebug + testDebugUnitTest + lintDebug', () => {

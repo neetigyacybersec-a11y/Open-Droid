@@ -42,7 +42,7 @@ jobs:
       fail-fast: false
       matrix:
         app-dir:
-          - hello-compose
+          - examples/hello-compose
           - templates/compose-starter
           - examples/vuln-app
     steps:
@@ -68,6 +68,17 @@ jobs:
       - uses: android-actions/setup-android@v3
         with:
           packages: "platforms;android-35 build-tools;35.0.0 platform-tools"
+      # Run 42685876691 root cause: the runner user lacks /dev/kvm group access,
+      # so the emulator ran in software mode; the app under test then ANR'd
+      # during its first post-install launch (odex generation, >30 s startup
+      # window) and the kill surfaced as "Instrumentation run failed due to
+      # Process crashed". With KVM the launch completes in seconds.
+      - name: Grant the runner user KVM access (udev rule, no restart)
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -w /dev/kvm
       - name: Instrumented Compose test on API 35 emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
