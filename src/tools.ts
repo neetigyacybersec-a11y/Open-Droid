@@ -12,6 +12,12 @@ import {
   cleanup,
   validateGradleTask,
   validatePackageName,
+  shquote,
+  validateRemotePath,
+  notOptionLike,
+  validateIntentAction,
+  validateComponent,
+  serveStatePath,
 } from "./util.js";
 import {
   PIDFILE,
@@ -144,7 +150,7 @@ export const ToolSchemas = {
   avdWipe: z.object({ avdName: z.string() }),
   emulatorSnapshot: z.object({ deviceId: z.string().optional(), action: z.enum(["save","load","list"]), name: z.string().optional() }),
   apkInfo: z.object({ apkPath: z.string() }),
-  apkDecompile: z.object({ apkPath: z.string(), outputDir: z.string().optional(), tool: z.enum(["jadx","apktool"]).optional().default("jadx") }),
+  apkDecompile: z.object({ apkPath: z.string(), outputDir: z.string().optional(), overwrite: z.boolean().optional().default(false), tool: z.enum(["jadx","apktool"]).optional().default("jadx") }),
   manifestInspect: z.object({ apkPath: z.string() }),
   privacyScan: z.object({
     projectPath: z.string().describe("Absolute path to the Android project root"),
@@ -161,7 +167,7 @@ export const ToolSchemas = {
   memoryProfile: z.object({ deviceId: z.string().optional(), packageName: z.string() }),
   startupTime: z.object({ deviceId: z.string().optional(), packageName: z.string(), iterations: z.number().optional().default(5) }),
   adbParallel: z.object({ command: z.string(), deviceIds: z.array(z.string()).optional() }),
-  apkServe: z.object({ action: z.enum(["start","stop"]), port: z.number().optional().default(8000), dir: z.string().optional() }),
+  apkServe: z.object({ action: z.enum(["start","stop"]), port: z.number().optional().default(8000), dir: z.string().optional(), expose: z.boolean().optional().default(false) }),
 };
 
 export type ToolName = keyof typeof ToolSchemas;
@@ -974,7 +980,12 @@ export async function handleAdbPull(a: z.infer<typeof ToolSchemas.adbPull>) {
   return { content: [{ type: "text" as const, text: `saved to ${local}\n${r.stdout + r.stderr}` }], isError: r.code !== 0 };
 }
 export async function handleAdbRm(a: z.infer<typeof ToolSchemas.adbRm>) {
-  const r = await run("adb", [...adb(a.deviceId), "shell", "rm", "-rf", a.remotePath], { timeout: 60_000 });
+  // Issue 67: the device shell re-parses everything after "shell", so the
+  // path must be metachar-free, in a test-relevant scope, and remote-quoted.
+  if (!validateRemotePath(a.remotePath)) {
+    return { content: [{ type: "text" as const, text: "Invalid remote path: must be absolute, under /sdcard, /storage/emulated, /data/local/tmp, /cache or /data/data, free of shell metacharacters and '..'." }], isError: true };
+  }
+  const r = await run("adb", [...adb(a.deviceId), "shell", "rm", "-rf", shquote(a.remotePath)], { timeout: 60_000 });
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
 }
 export async function handleAdbUninstall(a: z.infer<typeof ToolSchemas.adbUninstall>) {
@@ -1011,25 +1022,45 @@ export async function handleAdbInput(a: z.infer<typeof ToolSchemas.adbInput>) {
   switch (a.action) {
     case "tap": args = [...base, "shell", "input", "tap", String(a.x ?? 0), String(a.y ?? 0)]; break;
     case "swipe": args = [...base, "shell", "input", "swipe", String(a.x ?? 0), String(a.y ?? 0), String(a.x2 ?? 0), String(a.y2 ?? 0)]; break;
-    case "text": args = [...base, "shell", "input", "text", (a.text ?? "").replace(/ /g, "%s")]; break;
-    case "keyevent": args = [...base, "shell", "input", "keyevent", a.keycode ?? "KEYCODE_ENTER"]; break;
+    // Issue 67: text is user-controlled; %s keeps `input text` spaces working
+    // and shquote keeps it one remote argument.
+    case "text": args = [...base, "shell", "input", "text", shquote((a.text ?? "").replace(/ /g, "%s"))]; break;
+    case "keyevent": {
+      const kc = a.keycode ?? "KEYCODE_ENTER";
+      if (!/^[A-Za-z0-9_]+$/.test(kc)) return { content: [{ type: "text" as const, text: "Invalid keycode." }], isError: true };
+      args = [...base, "shell", "input", "keyevent", kc];
+      break;
+    }
   }
   const r = await run("adb", args, { timeout: 30_000 });
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
 }
 export async function handleAdbDeepLink(a: z.infer<typeof ToolSchemas.adbDeepLink>) {
-  const args = [...adb(a.deviceId), "shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", a.uri];
-  if (a.packageName) args.push(a.packageName);
+  // Issue 67: the URI is remote-shell-quoted so '&' and friends survive the
+  // device shell as one argument; an optional package uses the dedicated -p
+  // flag instead of a positional.
+  if (a.packageName && !validatePackageName(a.packageName)) {
+    return { content: [{ type: "text" as const, text: "Invalid package name." }], isError: true };
+  }
+  const args = [...adb(a.deviceId), "shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", shquote(a.uri)];
+  if (a.packageName) args.push("-p", shquote(a.packageName));
   const r = await run("adb", args, { timeout: 30_000 });
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
 }
 export async function handleAdbBroadcast(a: z.infer<typeof ToolSchemas.adbBroadcast>) {
-  const args = [...adb(a.deviceId), "shell", "am", "broadcast", "-a", a.action, ...(a.extras ?? [])];
+  if (!validateIntentAction(a.action)) {
+    return { content: [{ type: "text" as const, text: "Invalid action: must be a dotted intent action with no shell metacharacters." }], isError: true };
+  }
+  // Extras are remote-shell-quoted too; each must stay one remote argument.
+  const args = [...adb(a.deviceId), "shell", "am", "broadcast", "-a", a.action, ...(a.extras ?? []).map(shquote)];
   const r = await run("adb", args, { timeout: 30_000 });
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
 }
 export async function handleAdbServiceStart(a: z.infer<typeof ToolSchemas.adbServiceStart>) {
-  const r = await run("adb", [...adb(a.deviceId), "shell", "am", "startservice", "-n", a.component], { timeout: 30_000 });
+  if (!validateComponent(a.component)) {
+    return { content: [{ type: "text" as const, text: "Invalid component: must be package/class with no shell metacharacters." }], isError: true };
+  }
+  const r = await run("adb", [...adb(a.deviceId), "shell", "am", "startservice", "-n", shquote(a.component)], { timeout: 30_000 });
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
 }
 export async function handleAdbWifi(a: z.infer<typeof ToolSchemas.adbWifi>) {
@@ -1086,7 +1117,12 @@ export async function handleUiDump(a: z.infer<typeof ToolSchemas.uiDump>) {
 }
 export async function handleComposeRecomposition(a: z.infer<typeof ToolSchemas.composeRecomposition>) {
   const base = adb(a.deviceId);
-  const r = await run("adb", [...base, "shell", "dumpsys", "activity", a.packageName ? a.packageName : ""].filter(Boolean), { timeout: 60_000 });
+  // Issue 67: the optional package filter gets the same validation as every
+  // other package-typed input.
+  if (a.packageName && !validatePackageName(a.packageName)) {
+    return { content: [{ type: "text" as const, text: "Invalid package name." }], isError: true };
+  }
+  const r = await run("adb", [...base, "shell", "dumpsys", "activity", a.packageName ? shquote(a.packageName) : ""].filter(Boolean), { timeout: 60_000 });
   return { content: [{ type: "text" as const, text: `exit=${r.code}\n${(r.stdout + "\n" + r.stderr).slice(0, 8000)}` }], isError: r.code !== 0 };
 }
 export async function handleLayoutBounds(a: z.infer<typeof ToolSchemas.layoutBounds>) {
@@ -1096,15 +1132,20 @@ export async function handleLayoutBounds(a: z.infer<typeof ToolSchemas.layoutBou
   return { content: [{ type: "text" as const, text: `debug.layout=${val}\n${r.stdout + r.stderr}` }], isError: r.code !== 0 };
 }
 // Emulator management
+// Issue 68: avd names are caller-controlled values passed next to option
+// flags; a leading '-' could be parsed as a flag instead of the name.
 export async function handleAvdCreate(a: z.infer<typeof ToolSchemas.avdCreate>) {
+  if (!notOptionLike(a.avdName)) return { content: [{ type: "text" as const, text: "Invalid avd name: must not start with '-'." }], isError: true };
   const r = await run("avdmanager", ["create", "avd", "-n", a.avdName, "-k", a.systemImage, "-d", a.device], { timeout: 120_000 });
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
 }
 export async function handleAvdDelete(a: z.infer<typeof ToolSchemas.avdDelete>) {
+  if (!notOptionLike(a.avdName)) return { content: [{ type: "text" as const, text: "Invalid avd name: must not start with '-'." }], isError: true };
   const r = await run("avdmanager", ["delete", "avd", "-n", a.avdName], { timeout: 60_000 });
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
 }
 export async function handleAvdWipe(a: z.infer<typeof ToolSchemas.avdWipe>) {
+  if (!notOptionLike(a.avdName)) return { content: [{ type: "text" as const, text: "Invalid avd name: must not start with '-'." }], isError: true };
   const r = await run("emulator", ["-avd", a.avdName, "-wipe-data", "-no-window"], { timeout: 120_000 });
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
 }
@@ -1125,6 +1166,7 @@ async function unzipList(apkPath: string): Promise<string> {
   return r.stdout + r.stderr;
 }
 export async function handleApkInfo(a: z.infer<typeof ToolSchemas.apkInfo>) {
+  if (!notOptionLike(a.apkPath)) return { content: [{ type: "text" as const, text: "Invalid apk path: must not start with '-'." }], isError: true };
   const r = await run("aapt2", ["dump", "badging", a.apkPath], { timeout: 120_000 });
   if (r.code !== 0) {
     // fallback to unzip listing
@@ -1134,9 +1176,25 @@ export async function handleApkInfo(a: z.infer<typeof ToolSchemas.apkInfo>) {
   return { content: [{ type: "text" as const, text: r.stdout.slice(0, 12000) }], isError: false };
 }
 export async function handleApkDecompile(a: z.infer<typeof ToolSchemas.apkDecompile>) {
-  const out = a.outputDir ?? `/tmp/decompiled-${Date.now()}`;
+  // Issue 69: refuse to point the decompiler at an existing directory unless
+  // the caller explicitly opts into replacement; default destinations are
+  // unique (mkdtemp), not bare-timestamp names.
+  if (!notOptionLike(a.apkPath)) return { content: [{ type: "text" as const, text: "Invalid apk path: must not start with '-'." }], isError: true };
+  const { existsSync } = await import("node:fs");
+  let out = a.outputDir;
+  if (out) {
+    if (!notOptionLike(out)) return { content: [{ type: "text" as const, text: "Invalid output dir: must not start with '-'." }], isError: true };
+    if (existsSync(out) && !a.overwrite) {
+      return { content: [{ type: "text" as const, text: `Refusing to overwrite existing directory ${out}. Pass overwrite:true to replace it.` }], isError: true };
+    }
+  } else {
+    out = await tmpDir("android-mcp-decompiled-");
+  }
   const tool = a.tool === "apktool" ? "apktool" : "jadx";
-  const args = tool === "apktool" ? ["d", a.apkPath, "-o", out, "-f"] : ["-d", a.apkPath, "-o", out];
+  // apktool -f (force overwrite) only with the explicit opt-in.
+  const args = tool === "apktool"
+    ? ["d", a.apkPath, "-o", out, ...(a.overwrite ? ["-f"] : [])]
+    : ["-d", a.apkPath, "-o", out];
   const r = await run(tool, args, { timeout: 600_000 });
   return { content: [{ type: "text" as const, text: `tool=${tool} out=${out}\nexit=${r.code}\n${(r.stdout + "\n" + r.stderr).slice(-8000)}` }], isError: r.code !== 0 };
 }
@@ -1222,32 +1280,65 @@ export async function handleAdbParallel(a: z.infer<typeof ToolSchemas.adbParalle
   }));
   return { content: [{ type: "text" as const, text: results.join("\n\n") }] };
 }
-// APK serving (local network, python http.server in the APK output dir)
-const SERVE_STATE_FILE = "/tmp/android-mcp-serve.json";
+// APK serving (localhost by default, python http.server in the APK output dir)
+// Issues 65/66: discovery is pure Node fs traversal (no shell), the server
+// binds to loopback unless the caller explicitly opts into LAN exposure, the
+// default served dir is a fresh private mkdtemp, and repeated starts kill the
+// previous listener instead of orphaning it. State path (serveStatePath() from
+// util.js) is env-overridable for tests via ANDROID_MCP_SERVE_STATE.
+async function findFirstApk(root: string, maxFiles = 500, maxDepth = 4): Promise<string> {
+  const fs = await import("node:fs");
+  const stack: Array<[string, number]> = [[root, 0]];
+  let scanned = 0;
+  while (stack.length && scanned < maxFiles) {
+    const [dir, depth] = stack.pop()!;
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+    for (const e of entries) {
+      if (scanned >= maxFiles) break;
+      scanned++;
+      const full = `${dir}/${e.name}`;
+      if (e.isFile() && e.name.endsWith(".apk")) return full;
+      if (e.isDirectory() && depth < maxDepth) stack.push([full, depth + 1]);
+    }
+  }
+  return "";
+}
 export async function handleApkServe(a: z.infer<typeof ToolSchemas.apkServe>) {
   if (a.action === "stop") {
     try {
-      const fsMod = await import("node:fs"); const st = JSON.parse(fsMod.readFileSync(SERVE_STATE_FILE, "utf8"));
+      const fsMod = await import("node:fs"); const st = JSON.parse(fsMod.readFileSync(serveStatePath(), "utf8"));
       if (st.pid && (await (async () => { try { process.kill(st.pid, 0); return true; } catch { return false; } })())) {
         process.kill(st.pid, "SIGTERM");
       }
     } catch { /* no state */ }
-    try { const fsMod = await import("node:fs"); fsMod.unlinkSync(SERVE_STATE_FILE); } catch { /* ignore */ }
+    try { const fsMod = await import("node:fs"); fsMod.unlinkSync(serveStatePath()); } catch { /* ignore */ }
     return { content: [{ type: "text" as const, text: "apk serve stopped" }] };
   }
   const port = a.port ?? 8000;
-  const dir = a.dir ?? "/tmp";
+  // Issue 66: default to a fresh private temp dir, never /tmp wholesale.
+  const dir = a.dir ?? (await tmpDir("android-mcp-serve-"));
+  const { existsSync } = await import("node:fs");
+  if (!existsSync(dir)) {
+    return { content: [{ type: "text" as const, text: `Directory does not exist: ${dir}` }], isError: true };
+  }
+  // Issue 66: loopback-only unless the caller explicitly opts into LAN exposure.
+  const bind = a.expose ? "0.0.0.0" : "127.0.0.1";
+  // Issue 66: kill any previous listener before starting a new one — a second
+  // start must never orphan the first server.
+  try {
+    const fsMod = await import("node:fs"); const st = JSON.parse(fsMod.readFileSync(serveStatePath(), "utf8"));
+    if (st.pid) { try { process.kill(st.pid, "SIGTERM"); } catch { /* already gone */ } }
+  } catch { /* no state */ }
   const { spawn } = await import("node:child_process");
-  const child = spawn("python3", ["-m", "http.server", String(port), "--directory", dir, "--bind", "0.0.0.0"], { detached: true, stdio: "ignore" });
+  const child = spawn("python3", ["-m", "http.server", String(port), "--directory", dir, "--bind", bind], { detached: true, stdio: "ignore" });
   child.unref();
   const fs = await import("node:fs");
-  fs.writeFileSync(SERVE_STATE_FILE, JSON.stringify({ pid: child.pid, port, dir }));
-  // try to find an apk to report
-  let apk = "";
-  try {
-    const { execSync } = await import("node:child_process");
-    apk = execSync(`find "${dir}" -name "*.apk" 2>/dev/null | head -1`, { encoding: "utf8" }).trim();
-  } catch { /* ignore */ }
-  const ip = "0.0.0.0";
-  return { content: [{ type: "text" as const, text: `serving ${dir} on http://${ip}:${port}/\n${apk ? "apk: " + apk : "no .apk found in dir"}\nstop with apk_serve action=stop` }] };
+  try { fs.chmodSync(serveStatePath(), 0o600); } catch { /* fresh */ }
+  fs.writeFileSync(serveStatePath(), JSON.stringify({ pid: child.pid, port, dir, bind }));
+  try { fs.chmodSync(serveStatePath(), 0o600); } catch { /* best effort */ }
+  // Issue 65: no execSync/find — pure fs traversal for a reportable apk path.
+  const apk = await findFirstApk(dir);
+  const ip = bind;
+  return { content: [{ type: "text" as const, text: `serving ${dir} on http://${ip}:${port}/${a.expose ? " (all interfaces — explicit expose opt-in)" : " (localhost only)"}\n${apk ? "apk: " + apk : "no .apk found in dir"}\nstop with apk_serve action=stop` }] };
 }

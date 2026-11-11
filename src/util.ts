@@ -4,6 +4,12 @@ import { readFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+// SERVE_STATE_FILE path helper (lazy: env may be set after import, e.g. tests).
+// Env-overridable for tests via ANDROID_MCP_SERVE_STATE.
+export function serveStatePath(): string {
+  return process.env.ANDROID_MCP_SERVE_STATE ?? `${tmpdir()}/android-mcp-serve.json`;
+}
+
 export const execFileAsync = promisify(execFile);
 
 export interface RunResult {
@@ -58,9 +64,49 @@ export async function cleanup(dir: string): Promise<void> {
 }
 
 export function validateGradleTask(t: string): boolean {
-  return /^[:a-zA-Z0-9_.-]+$/.test(t);
+  // Issue 68: the previous pattern accepted a leading '-' ("-Ievil.gradle"
+  // parses as a Gradle option). Identifiers must start with a letter, digit,
+  // '_', ':' or '.', never a dash; dashes stay legal *inside* the value.
+  return /^[a-zA-Z0-9_:.][a-zA-Z0-9_:.\-]*$/.test(t);
 }
 
 export function validatePackageName(p: string): boolean {
   return /^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$/.test(p);
+}
+
+// Issue 67: adb joins everything after "shell" with spaces and the DEVICE's
+// shell re-parses that string, so local execFile argument arrays do NOT
+// preserve remote argument boundaries. Quote for the remote shell: wrap in
+// single quotes, escaping embedded single quotes POSIX-style ('\'').
+export function shquote(v: string): string {
+  return `'${v.replace(/'/g, `'\\''`)}'`;
+}
+
+// Issue 67: destructive remote paths must be absolute, in a test-relevant
+// scope, and free of shell metacharacters and traversal.
+export function validateRemotePath(p: string): boolean {
+  return (
+    typeof p === "string" &&
+    p.startsWith("/") &&
+    !p.includes("..") &&
+    !/["'`\n\r;|&$<>(){}[\]#*?!~]/.test(p) &&
+    /^(\/sdcard|\/storage\/emulated|\/data\/local\/tmp|\/cache|\/data\/data)\//.test(p)
+  );
+}
+
+// Issue 68: values that would be parsed as CLI options are rejected when the
+// call semantics require a name/path, not a flag.
+export function notOptionLike(v: string): boolean {
+  return typeof v === "string" && v !== "" && !v.startsWith("-");
+}
+
+// Issue 67: intent actions ("am broadcast -a", "am start -a") and component
+// names ("am startservice -n pkg/cls") have constrained grammars.
+export function validateIntentAction(a: string): boolean {
+  return /^[a-zA-Z0-9_.$]+$/.test(a) && a.split(".").every((s) => s.length > 0);
+}
+
+export function validateComponent(c: string): boolean {
+  // Full component form: package/class, both segments non-empty.
+  return /^[a-zA-Z][a-zA-Z0-9_.$]*\/[a-zA-Z][a-zA-Z0-9_.$]*$/.test(c);
 }
