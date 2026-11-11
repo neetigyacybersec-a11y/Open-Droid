@@ -94,14 +94,26 @@ jobs:
           # after connected tests, so reinstall before the flow.
           script: |
             gradle -p templates/compose-starter :app:connectedDebugAndroidTest --no-daemon
-            curl -Ls "https://get.maestro.mobile.dev" | bash
+            # Pinned to the version vendored locally (.toolchain/maestro, 2.12.1):
+            # the flow YAML behavior must be identical in CI and locally. The
+            # latest installer pulled a version whose driver startup failed in
+            # ~5 s (run 43025545346).
+            curl -Ls -o /tmp/maestro.zip "https://github.com/mobile-dev-inc/maestro/releases/download/cli-2.12.1/maestro.zip"
+            unzip -q -o /tmp/maestro.zip -d "$HOME/.maestro-cli-pin"
+            mkdir -p "$HOME/.maestro/bin"
+            cp -a "$HOME"/.maestro-cli-pin/maestro/bin/. "$HOME/.maestro/bin/"
             # Locally (software mode) the maestro driver was killed by the
             # system's 30 s startup ANR before its fixed default timeout; the
             # env only buys slack on a slow runner, KVM keeps it irrelevant.
             # NOTE: the runner executes this script line by line, so PATH must
             # be set inline on the maestro line (run 43024737147: "maestro: not found").
             gradle -p templates/compose-starter :app:installDebug --no-daemon
-            MAESTRO_DRIVER_STARTUP_TIMEOUT=180 PATH="$HOME/.maestro/bin:$PATH" maestro test templates/compose-starter/maestro/smoke.yaml
+            MAESTRO_DRIVER_STARTUP_TIMEOUT=180 PATH="$HOME/.maestro/bin:$PATH" maestro test templates/compose-starter/maestro/smoke.yaml || {
+              echo "=== maestro failed: device events (ANR/kill) + crash buffer ==="
+              adb logcat -d -b events 2>/dev/null | grep -E 'maestro' | tail -20
+              adb logcat -d -b crash 2>/dev/null | tail -30
+              exit 1
+            }
 
   docker:
     runs-on: ubuntu-latest
