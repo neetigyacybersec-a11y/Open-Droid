@@ -13,7 +13,13 @@ const filesRoot = path.join(gradleHome, 'caches', 'modules-2', 'files-2.1');
 const manifest = JSON.parse(readFileSync(path.join(REPO, 'manifest/packs.json'), 'utf8'));
 
 const status = (coordinate) => {
-  const [group, artifact] = coordinate.split(':');
+  const [group, artifact, version] = coordinate.split(':');
+  // ISSUE-63: when the coordinate pins a version, only that version's
+  // directory counts (modules-2/files-2.1/<group>/<artifact>/<version>/...).
+  // Version-less (BOM-managed) coordinates keep the group/artifact check.
+  if (version) {
+    return existsSync(path.join(filesRoot, group, artifact, version)) ? 'resolved' : 'missing';
+  }
   return existsSync(path.join(filesRoot, group, artifact)) ? 'resolved' : 'missing';
 };
 

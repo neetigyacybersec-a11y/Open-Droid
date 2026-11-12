@@ -13,8 +13,8 @@ if ! command -v gradle >/dev/null 2>&1; then
 fi
 PACK_IDS=("$@")
 if [ "${#PACK_IDS[@]}" -eq 0 ]; then
-  echo "[pack-warm] ERROR: no packs given. Available: $(node -e "console.log(Object.keys(JSON.parse(require('fs').readFileSync('$ROOT/manifest/packs.json','utf8')).packs).join(' '))")" >&2
-  exit 1
+  # ISSUE-64: no args = every pack declared in the manifest (documented contract).
+  mapfile -t PACK_IDS < <(node -e "console.log(Object.keys(JSON.parse(require('fs').readFileSync('$ROOT/manifest/packs.json','utf8')).packs).join('\n'))")
 fi
 for id in "${PACK_IDS[@]}"; do
   node -e "const p=JSON.parse(require('fs').readFileSync('$ROOT/manifest/packs.json','utf8')).packs; process.exit(p['$id'] ? 0 : 1)" \
