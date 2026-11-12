@@ -17,7 +17,7 @@ RUN npm prune --omit=dev
 FROM eclipse-temurin:21-jdk AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        wget unzip curl ca-certificates python3 \
+        wget unzip curl ca-certificates python3 xz-utils \
         libglu1-mesa libpulse0 libx11-6 libxcb1 libxcomposite1 libxcursor1 \
         libxdamage1 libxext6 libxfixes3 libxi6 libxrandr2 libxrender1 libxss1 \
         libxtst6 libnss3 libasound2t64 \

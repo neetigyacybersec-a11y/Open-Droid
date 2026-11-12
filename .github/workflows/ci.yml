@@ -118,7 +118,11 @@ jobs:
             PATH="$HOME/.maestro/bin:$PATH" maestro --version
             # Single line required: the runner executes this script line by line,
             # so no multi-line blocks (run 43026639163 parse failure).
-            MAESTRO_DRIVER_STARTUP_TIMEOUT=180 PATH="$HOME/.maestro/bin:$PATH" maestro test templates/compose-starter/maestro/smoke.yaml || { echo '=== maestro failed: device events + crash buffer ==='; adb logcat -d -b events 2>/dev/null | grep -E 'maestro|am_anr|am_kill' | tail -20; adb logcat -d -b crash 2>/dev/null | tail -30; exit 1; }
+            # One retry: run 43160387369 showed a transient driver death —
+            # SELinux avc denial on /proc/sys/net/core/somaxconn read by the
+            # driver's gRPC (netty) thread on API 35; the identical pinned
+            # version passed run 43029203820, so the denial is flaky.
+            MAESTRO_DRIVER_STARTUP_TIMEOUT=180 PATH="$HOME/.maestro/bin:$PATH" maestro test templates/compose-starter/maestro/smoke.yaml || MAESTRO_DRIVER_STARTUP_TIMEOUT=180 PATH="$HOME/.maestro/bin:$PATH" maestro test templates/compose-starter/maestro/smoke.yaml || { echo '=== maestro failed (after retry): device events + crash buffer ==='; adb logcat -d -b events 2>/dev/null | grep -E 'maestro|am_anr|am_kill' | tail -20; adb logcat -d -b crash 2>/dev/null | tail -30; exit 1; }
 
   docker:
     runs-on: ubuntu-latest
