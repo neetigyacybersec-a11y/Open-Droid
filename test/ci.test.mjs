@@ -69,3 +69,38 @@ test('CI runs the Maestro smoke flow in the emulator session (FR-B2 slice 3)', (
   assert.ok(inst.includes('maestro/smoke.yaml'), 'the job must run the committed flow');
   assert.ok(inst.includes(':app:installDebug'), 'the app must be reinstalled before the flow (AGP uninstalls after connected tests)');
 });
+
+// ---------------------------------------------------------------------------
+// Issue 72 [security]: workflow hardening — least-privilege permissions,
+// SHA-pinned actions, gated publishing with provenance.
+// ---------------------------------------------------------------------------
+
+const rel = readFileSync(path.join(REPO, '.github/workflows/release.yml'), 'utf8');
+
+test('workflows declare least-privilege permissions (issue 72)', () => {
+  const topBlock = ci.slice(0, ci.indexOf('mcp:'));
+  assert.match(topBlock, /permissions:\s*\n\s*contents: read/, 'ci.yml must set a workflow-level least-privilege permissions block');
+  assert.match(rel, /permissions:/, 'release.yml must declare explicit permissions');
+  assert.match(rel.slice(rel.indexOf('npm:')), /contents: read/, 'the npm publish job must not get broad default permissions');
+  assert.match(rel.slice(rel.indexOf('npm:')), /id-token: write/, 'npm provenance requires id-token: write on the publish job');
+});
+
+test('third-party actions are pinned to full commit SHAs (issue 72)', () => {
+  for (const wf of [ci, rel]) {
+    for (const m of wf.matchAll(/uses:\s*(\S+)/g)) {
+      const ref = m[1];
+      assert.match(ref, /@[0-9a-f]{40}( # v\d.*)?$/, `action must be SHA-pinned, got: ${ref}`);
+    }
+  }
+});
+
+test('publishing is gated on a validate job and uses npm provenance (issue 72)', () => {
+  const npmJob = rel.slice(rel.indexOf('npm:'));
+  assert.match(rel, /validate:/, 'release.yml must have an explicit validate job (build + tests)');
+  assert.match(npmJob, /needs:\s*\[?['"]?validate/, 'npm publish must depend on the validate job');
+  assert.match(rel.slice(rel.indexOf('docker:')), /needs:\s*\[?['"]?validate/, 'docker publish must depend on the validate job');
+  assert.match(npmJob, /--provenance/, 'npm publish must enable provenance');
+  assert.match(rel.slice(rel.indexOf('validate:')), /npm test/, 'the validate job must run the test suite');
+  assert.match(rel.slice(rel.indexOf('docker:')), /environment:/, 'docker publish must run in a named environment (approval gate target)');
+  assert.match(npmJob, /environment:/, 'npm publish must run in a named environment (approval gate target)');
+});
