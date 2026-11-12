@@ -118,11 +118,15 @@ jobs:
             PATH="$HOME/.maestro/bin:$PATH" maestro --version
             # Single line required: the runner executes this script line by line,
             # so no multi-line blocks (run 43026639163 parse failure).
-            # One retry: run 43160387369 showed a transient driver death —
-            # SELinux avc denial on /proc/sys/net/core/somaxconn read by the
-            # driver's gRPC (netty) thread on API 35; the identical pinned
-            # version passed run 43029203820, so the denial is flaky.
-            MAESTRO_DRIVER_STARTUP_TIMEOUT=180 PATH="$HOME/.maestro/bin:$PATH" maestro test templates/compose-starter/maestro/smoke.yaml || MAESTRO_DRIVER_STARTUP_TIMEOUT=180 PATH="$HOME/.maestro/bin:$PATH" maestro test templates/compose-starter/maestro/smoke.yaml || { echo '=== maestro failed (after retry): device events + crash buffer ==='; adb logcat -d -b events 2>/dev/null | grep -E 'maestro|am_anr|am_kill' | tail -20; adb logcat -d -b crash 2>/dev/null | tail -30; exit 1; }
+            # Upstream flake (maestro issue 3684 / MAE-628): the CLI picks the
+            # driver port via host ServerSocket(0) (Linux ephemeral 32768-60999)
+            # but the driver binds it ON THE DEVICE, where it can collide with
+            # the device's own ephemeral range -> BindException in grpcServer ->
+            # AndroidDriverTimeoutException ~6-14 s later (runs 43160387369,
+            # 43161053168). --driver-host-port 7001 pins a port below the
+            # device's ephemeral range (the <=2.5.0 behavior). Flag verified
+            # present in cli 2.12.1 TestCommand.class.
+            MAESTRO_DRIVER_STARTUP_TIMEOUT=180 PATH="$HOME/.maestro/bin:$PATH" maestro test --driver-host-port 7001 templates/compose-starter/maestro/smoke.yaml || MAESTRO_DRIVER_STARTUP_TIMEOUT=180 PATH="$HOME/.maestro/bin:$PATH" maestro test --driver-host-port 7001 templates/compose-starter/maestro/smoke.yaml || { echo '=== maestro failed (after retry): device events + crash buffer + TestRunner errors ==='; adb logcat -d -b events 2>/dev/null | grep -E 'maestro|am_anr|am_kill' | tail -20; adb logcat -d -b crash 2>/dev/null | tail -30; adb logcat -d 2>/dev/null | grep -E 'TestRunner|Failed to bind|grpcServer|maestro' | tail -20; exit 1; }
 
   docker:
     runs-on: ubuntu-latest
