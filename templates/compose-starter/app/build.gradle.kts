@@ -78,17 +78,19 @@ android {
 }
 
 // Fail closed: a release task without a signing config would silently produce an
-// unsigned APK. Stop at task-graph time with a message naming what is missing.
+// unsigned artifact (APK or AAB). Stop at task-graph time with a message naming
+// what is missing.
 gradle.taskGraph.whenReady {
     if (!hasReleaseKeystore) {
         val releaseTasks = allTasks.filter {
             it.name.startsWith("assembleRelease") ||
                 it.name.startsWith("signingRelease") ||
-                it.name.startsWith("uploadRelease")
+                it.name.startsWith("uploadRelease") ||
+                it.name.startsWith("bundleRelease")
         }
         if (releaseTasks.isNotEmpty()) {
             throw GradleException(
-                "keystore.properties is missing in the project root — release tasks would produce an unsigned APK. " +
+                "keystore.properties is missing in the project root — release tasks would produce an unsigned release artifact (APK/AAB). " +
                     "Add keystore.properties (storeFile, storePassword, keyAlias, keyPassword) or run assembleDebug."
             )
         }

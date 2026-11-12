@@ -98,6 +98,22 @@ test('template theme follows the system dark setting', () => {
     'the hardcoded light default must be gone');
 });
 
+// Issue #61: the fail-closed release guard must also catch bundleRelease —
+// Android publishing commonly ships AABs — and its message must be accurate
+// for both artifact types, not claim the output is only an APK.
+test('release guard covers bundleRelease tasks and is APK/AAB-accurate', () => {
+  assert.match(
+    appGradle,
+    /it\.name\.startsWith\("bundleRelease"\)/,
+    'the task-graph guard must fail closed on bundle*Release (AAB) tasks too',
+  );
+  assert.match(
+    appGradle,
+    /unsigned release artifact \(APK\/AAB\)/,
+    'the guard message must not claim the unsigned artifact is only an APK',
+  );
+});
+
 test('template ships motion tokens with reduced-motion wiring (FR-B5)', () => {
   const tokensPath = path.join(REPO, 'templates/compose-starter/app/src/main/java/com/example/starter/ui/motion/MotionTokens.kt');
   assert.ok(existsSync(tokensPath), 'MotionTokens.kt must ship in the template');
