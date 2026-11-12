@@ -13,6 +13,15 @@ const ci = readFileSync(path.join(REPO, '.github/workflows/ci.yml'), 'utf8');
 
 const matrixJob = ci.slice(ci.indexOf('android-matrix'));
 
+// Issue 71: source quality gates — typecheck, lint and formatting must fail
+// the CI build, not rely on developers running them locally.
+test('mcp job runs typecheck, lint and format gates (issue 71)', () => {
+  const mcp = ci.slice(ci.indexOf('mcp:'), ci.indexOf('mcp-windows:'));
+  for (const gate of ['npm run typecheck', 'npm run lint', 'npm run format:check']) {
+    assert.ok(mcp.includes(gate), `mcp job must run ${gate}`);
+  }
+});
+
 test('android-matrix job covers every shipped app', () => {
   assert.ok(/android-matrix:/.test(ci), 'android-matrix job must exist');
   assert.ok(ci.indexOf('android-matrix') > ci.indexOf('app-build'), 'matrix must come after the old app-build job (or replace it)');

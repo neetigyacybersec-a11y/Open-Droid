@@ -19,13 +19,7 @@ import {
   validateComponent,
   serveStatePath,
 } from "./util.js";
-import {
-  PIDFILE,
-  ensureServer,
-  pidRunning,
-  resolveFridaCli,
-  resolveMitmDump,
-} from "./frida.js";
+import { PIDFILE, ensureServer, pidRunning, resolveFridaCli, resolveMitmDump } from "./frida.js";
 import { renderPrivacyReport, scanPrivacyProject } from "./privacy.js";
 
 export const ToolSchemas = {
@@ -34,7 +28,11 @@ export const ToolSchemas = {
     projectPath: z.string().describe("Absolute path to the Gradle project root"),
     task: z.string().describe("Gradle task, e.g. :app:assembleDebug"),
     args: z.array(z.string()).optional().describe("Extra gradle args"),
-    offline: z.boolean().optional().default(false).describe("Run with --offline (vendored toolchain)"),
+    offline: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe("Run with --offline (vendored toolchain)"),
   }),
   adbDevices: z.object({}),
   adbScreenshot: z.object({
@@ -76,7 +74,10 @@ export const ToolSchemas = {
   }),
   adbLogcat: z.object({
     deviceId: z.string().optional(),
-    tag: z.string().optional().describe("Filter: adb logcat tag selector, e.g. MyActivity:E or *:W"),
+    tag: z
+      .string()
+      .optional()
+      .describe("Filter: adb logcat tag selector, e.g. MyActivity:E or *:W"),
     pattern: z.string().optional().describe("Regex applied to captured log text"),
     durationSec: z
       .number()
@@ -84,7 +85,11 @@ export const ToolSchemas = {
       .optional()
       .default(10)
       .describe("Seconds to wait before dumping (logcat -c then -d)"),
-    clear: z.boolean().optional().default(true).describe("Clear the device log buffer before waiting"),
+    clear: z
+      .boolean()
+      .optional()
+      .default(true)
+      .describe("Clear the device log buffer before waiting"),
   }),
   runtimeDump: z.object({
     deviceId: z.string().optional(),
@@ -97,12 +102,18 @@ export const ToolSchemas = {
     deviceId: z.string().optional(),
     script: z.string().optional().describe("Inline Frida JS; takes precedence over scriptPath"),
     scriptPath: z.string().optional(),
-    spawn: z.boolean().optional().default(true).describe("true: spawn+resume via -f; false: attach to running process by name"),
+    spawn: z
+      .boolean()
+      .optional()
+      .default(true)
+      .describe("true: spawn+resume via -f; false: attach to running process by name"),
     durationSec: z.number().max(86400).optional().default(30),
   }),
   fridaTraceMethods: z.object({
     packageName: z.string(),
-    className: z.string().describe("Exact class or regex-resolvable FQN, e.g. com.example.app.Crypto"),
+    className: z
+      .string()
+      .describe("Exact class or regex-resolvable FQN, e.g. com.example.app.Crypto"),
     methodRegex: z.string().optional().default(".*"),
     deviceId: z.string().optional(),
     durationSec: z.number().max(86400).optional().default(30),
@@ -120,54 +131,168 @@ export const ToolSchemas = {
   }),
 
   // ---- Build & test ----
-  gradleTest: z.object({ projectPath: z.string(), args: z.array(z.string()).optional(), offline: z.boolean().optional().default(false) }),
-  gradleLint: z.object({ projectPath: z.string(), args: z.array(z.string()).optional(), offline: z.boolean().optional().default(false) }),
-  gradleDependencies: z.object({ projectPath: z.string(), configuration: z.string().optional().default("debugRuntimeClasspath") }),
-  buildVariant: z.object({ projectPath: z.string(), variant: z.string(), args: z.array(z.string()).optional(), offline: z.boolean().optional().default(false) }),
-  baselineProfileGenerate: z.object({ projectPath: z.string(), module: z.string().optional().default(":app"), args: z.array(z.string()).optional() }),
-  adbPush: z.object({ deviceId: z.string().optional(), localPath: z.string(), remotePath: z.string() }),
-  adbPull: z.object({ deviceId: z.string().optional(), remotePath: z.string(), localPath: z.string().optional() }),
+  gradleTest: z.object({
+    projectPath: z.string(),
+    args: z.array(z.string()).optional(),
+    offline: z.boolean().optional().default(false),
+  }),
+  gradleLint: z.object({
+    projectPath: z.string(),
+    args: z.array(z.string()).optional(),
+    offline: z.boolean().optional().default(false),
+  }),
+  gradleDependencies: z.object({
+    projectPath: z.string(),
+    configuration: z.string().optional().default("debugRuntimeClasspath"),
+  }),
+  buildVariant: z.object({
+    projectPath: z.string(),
+    variant: z.string(),
+    args: z.array(z.string()).optional(),
+    offline: z.boolean().optional().default(false),
+  }),
+  baselineProfileGenerate: z.object({
+    projectPath: z.string(),
+    module: z.string().optional().default(":app"),
+    args: z.array(z.string()).optional(),
+  }),
+  adbPush: z.object({
+    deviceId: z.string().optional(),
+    localPath: z.string(),
+    remotePath: z.string(),
+  }),
+  adbPull: z.object({
+    deviceId: z.string().optional(),
+    remotePath: z.string(),
+    localPath: z.string().optional(),
+  }),
   adbRm: z.object({ deviceId: z.string().optional(), remotePath: z.string() }),
   adbUninstall: z.object({ deviceId: z.string().optional(), packageName: z.string() }),
   adbClearData: z.object({ deviceId: z.string().optional(), packageName: z.string() }),
   adbForceStop: z.object({ deviceId: z.string().optional(), packageName: z.string() }),
   adbReboot: z.object({ deviceId: z.string().optional() }),
-  adbScreenrecord: z.object({ deviceId: z.string().optional(), durationSec: z.number().optional().default(10), outputPath: z.string().optional() }),
-  adbInput: z.object({ deviceId: z.string().optional(), action: z.enum(["tap","swipe","text","keyevent"]), x: z.number().optional(), y: z.number().optional(), x2: z.number().optional(), y2: z.number().optional(), text: z.string().optional(), keycode: z.string().optional() }),
-  adbDeepLink: z.object({ deviceId: z.string().optional(), uri: z.string(), packageName: z.string().optional() }),
-  adbBroadcast: z.object({ deviceId: z.string().optional(), action: z.string(), extras: z.array(z.string()).optional() }),
+  adbScreenrecord: z.object({
+    deviceId: z.string().optional(),
+    durationSec: z.number().optional().default(10),
+    outputPath: z.string().optional(),
+  }),
+  adbInput: z.object({
+    deviceId: z.string().optional(),
+    action: z.enum(["tap", "swipe", "text", "keyevent"]),
+    x: z.number().optional(),
+    y: z.number().optional(),
+    x2: z.number().optional(),
+    y2: z.number().optional(),
+    text: z.string().optional(),
+    keycode: z.string().optional(),
+  }),
+  adbDeepLink: z.object({
+    deviceId: z.string().optional(),
+    uri: z.string(),
+    packageName: z.string().optional(),
+  }),
+  adbBroadcast: z.object({
+    deviceId: z.string().optional(),
+    action: z.string(),
+    extras: z.array(z.string()).optional(),
+  }),
   adbServiceStart: z.object({ deviceId: z.string().optional(), component: z.string() }),
-  adbWifi: z.object({ deviceId: z.string().optional(), action: z.enum(["tcpip","connect","disconnect"]), port: z.number().optional().default(5555), host: z.string().optional() }),
+  adbWifi: z.object({
+    deviceId: z.string().optional(),
+    action: z.enum(["tcpip", "connect", "disconnect"]),
+    port: z.number().optional().default(5555),
+    host: z.string().optional(),
+  }),
   adbBattery: z.object({ deviceId: z.string().optional() }),
-  logcatFiltered: z.object({ deviceId: z.string().optional(), tag: z.string().optional(), packageName: z.string().optional(), pattern: z.string().optional(), durationSec: z.number().optional().default(10), clear: z.boolean().optional().default(true) }),
+  logcatFiltered: z.object({
+    deviceId: z.string().optional(),
+    tag: z.string().optional(),
+    packageName: z.string().optional(),
+    pattern: z.string().optional(),
+    durationSec: z.number().optional().default(10),
+    clear: z.boolean().optional().default(true),
+  }),
   anrCheck: z.object({ deviceId: z.string().optional() }),
-  crashSummary: z.object({ deviceId: z.string().optional(), durationSec: z.number().optional().default(10) }),
+  crashSummary: z.object({
+    deviceId: z.string().optional(),
+    durationSec: z.number().optional().default(10),
+  }),
   uiDump: z.object({ deviceId: z.string().optional(), outputPath: z.string().optional() }),
-  composeRecomposition: z.object({ deviceId: z.string().optional(), packageName: z.string().optional() }),
+  composeRecomposition: z.object({
+    deviceId: z.string().optional(),
+    packageName: z.string().optional(),
+  }),
   layoutBounds: z.object({ deviceId: z.string().optional(), enabled: z.boolean().default(true) }),
-  avdCreate: z.object({ avdName: z.string(), systemImage: z.string(), device: z.string().optional().default("pixel_6") }),
+  avdCreate: z.object({
+    avdName: z.string(),
+    systemImage: z.string(),
+    device: z.string().optional().default("pixel_6"),
+  }),
   avdDelete: z.object({ avdName: z.string() }),
   avdWipe: z.object({ avdName: z.string() }),
-  emulatorSnapshot: z.object({ deviceId: z.string().optional(), action: z.enum(["save","load","list"]), name: z.string().optional() }),
+  emulatorSnapshot: z.object({
+    deviceId: z.string().optional(),
+    action: z.enum(["save", "load", "list"]),
+    name: z.string().optional(),
+  }),
   apkInfo: z.object({ apkPath: z.string() }),
-  apkDecompile: z.object({ apkPath: z.string(), outputDir: z.string().optional(), overwrite: z.boolean().optional().default(false), tool: z.enum(["jadx","apktool"]).optional().default("jadx") }),
+  apkDecompile: z.object({
+    apkPath: z.string(),
+    outputDir: z.string().optional(),
+    overwrite: z.boolean().optional().default(false),
+    tool: z.enum(["jadx", "apktool"]).optional().default("jadx"),
+  }),
   manifestInspect: z.object({ apkPath: z.string() }),
   privacyScan: z.object({
     projectPath: z.string().describe("Absolute path to the Android project root"),
-    declarationsPath: z.string().optional().describe("Path to privacy/data-safety.json; defaults to <project>/privacy/data-safety.json"),
+    declarationsPath: z
+      .string()
+      .optional()
+      .describe("Path to privacy/data-safety.json; defaults to <project>/privacy/data-safety.json"),
     reportPath: z.string().optional().describe("Write the Markdown inventory to this file"),
-    strict: z.boolean().optional().default(false).describe("Return an error when blockers are present"),
+    strict: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe("Return an error when blockers are present"),
   }),
   nativeLibs: z.object({ apkPath: z.string() }),
   dexStrings: z.object({ apkPath: z.string(), pattern: z.string().optional() }),
-  instrumentedTest: z.object({ projectPath: z.string(), module: z.string().optional().default(":app"), testFilter: z.string().optional(), device: z.string().optional(), offline: z.boolean().optional().default(false), args: z.array(z.string()).optional() }),
-  testCoverage: z.object({ projectPath: z.string(), module: z.string().optional().default(":app") }),
-  macrobenchmark: z.object({ projectPath: z.string(), module: z.string().optional().default(":macrobenchmark"), args: z.array(z.string()).optional() }),
-  perfettoTrace: z.object({ deviceId: z.string().optional(), durationSec: z.number().optional().default(10), outputPath: z.string().optional() }),
+  instrumentedTest: z.object({
+    projectPath: z.string(),
+    module: z.string().optional().default(":app"),
+    testFilter: z.string().optional(),
+    device: z.string().optional(),
+    offline: z.boolean().optional().default(false),
+    args: z.array(z.string()).optional(),
+  }),
+  testCoverage: z.object({
+    projectPath: z.string(),
+    module: z.string().optional().default(":app"),
+  }),
+  macrobenchmark: z.object({
+    projectPath: z.string(),
+    module: z.string().optional().default(":macrobenchmark"),
+    args: z.array(z.string()).optional(),
+  }),
+  perfettoTrace: z.object({
+    deviceId: z.string().optional(),
+    durationSec: z.number().optional().default(10),
+    outputPath: z.string().optional(),
+  }),
   memoryProfile: z.object({ deviceId: z.string().optional(), packageName: z.string() }),
-  startupTime: z.object({ deviceId: z.string().optional(), packageName: z.string(), iterations: z.number().optional().default(5) }),
+  startupTime: z.object({
+    deviceId: z.string().optional(),
+    packageName: z.string(),
+    iterations: z.number().optional().default(5),
+  }),
   adbParallel: z.object({ command: z.string(), deviceIds: z.array(z.string()).optional() }),
-  apkServe: z.object({ action: z.enum(["start","stop"]), port: z.number().optional().default(8000), dir: z.string().optional(), expose: z.boolean().optional().default(false) }),
+  apkServe: z.object({
+    action: z.enum(["start", "stop"]),
+    port: z.number().optional().default(8000),
+    dir: z.string().optional(),
+    expose: z.boolean().optional().default(false),
+  }),
 };
 
 export type ToolName = keyof typeof ToolSchemas;
@@ -206,7 +331,10 @@ export async function handleEnvCheck() {
 
 export async function handleGradle(args: z.infer<typeof ToolSchemas.gradle>) {
   if (!validateGradleTask(args.task)) {
-    return { content: [{ type: "text" as const, text: "Invalid gradle task name." }], isError: true };
+    return {
+      content: [{ type: "text" as const, text: "Invalid gradle task name." }],
+      isError: true,
+    };
   }
   const gradleArgs = [args.task, ...(args.offline ? ["--offline"] : []), ...(args.args ?? [])];
   const r = await run("gradle", gradleArgs, { cwd: args.projectPath, timeout: 600_000 });
@@ -216,7 +344,10 @@ export async function handleGradle(args: z.infer<typeof ToolSchemas.gradle>) {
 
 export async function handleAdbDevices() {
   const r = await run("adb", ["devices", "-l"]);
-  return { content: [{ type: "text" as const, text: r.stdout || r.stderr }], isError: r.code !== 0 };
+  return {
+    content: [{ type: "text" as const, text: r.stdout || r.stderr }],
+    isError: r.code !== 0,
+  };
 }
 
 export async function handleAdbScreenshot(args: z.infer<typeof ToolSchemas.adbScreenshot>) {
@@ -227,12 +358,18 @@ export async function handleAdbScreenshot(args: z.infer<typeof ToolSchemas.adbSc
   let r = await run("adb", [...base, "shell", "screencap", "-p", remote]);
   if (r.code !== 0) {
     await cleanup(dir);
-    return { content: [{ type: "text" as const, text: `screencap failed: ${r.stderr}` }], isError: true };
+    return {
+      content: [{ type: "text" as const, text: `screencap failed: ${r.stderr}` }],
+      isError: true,
+    };
   }
   r = await run("adb", [...base, "pull", remote, local]);
   if (r.code !== 0) {
     await cleanup(dir);
-    return { content: [{ type: "text" as const, text: `pull failed: ${r.stderr}` }], isError: true };
+    return {
+      content: [{ type: "text" as const, text: `pull failed: ${r.stderr}` }],
+      isError: true,
+    };
   }
   const b64 = await readBase64(local);
   await cleanup(dir);
@@ -256,7 +393,16 @@ export async function handleAdbLaunch(args: z.infer<typeof ToolSchemas.adbLaunch
   }
   const base = await adbBase(args.deviceId);
   const target = args.activity ? `${args.packageName}/${args.activity}` : args.packageName;
-  const r = await run("adb", [...base, "shell", "monkey", "-p", args.packageName, "-c", "android.intent.category.LAUNCHER", "1"]);
+  const r = await run("adb", [
+    ...base,
+    "shell",
+    "monkey",
+    "-p",
+    args.packageName,
+    "-c",
+    "android.intent.category.LAUNCHER",
+    "1",
+  ]);
   // fallback: am start
   let out = r.stdout + r.stderr;
   if (r.code !== 0) {
@@ -269,7 +415,10 @@ export async function handleAdbLaunch(args: z.infer<typeof ToolSchemas.adbLaunch
 
 export async function handleEmulatorList() {
   const r = await run("emulator", ["-list-avds"]);
-  return { content: [{ type: "text" as const, text: r.stdout || r.stderr }], isError: r.code !== 0 };
+  return {
+    content: [{ type: "text" as const, text: r.stdout || r.stderr }],
+    isError: r.code !== 0,
+  };
 }
 
 export async function handleEmulatorBoot(args: z.infer<typeof ToolSchemas.emulatorBoot>) {
@@ -279,32 +428,50 @@ export async function handleEmulatorBoot(args: z.infer<typeof ToolSchemas.emulat
   const child = sp(
     "emulator",
     ["-avd", args.avdName, ...(args.headless ? ["-no-window", "-no-audio"] : []), "-gpu", gpu],
-    { detached: true, stdio: "ignore" }
+    { detached: true, stdio: "ignore" },
   );
   child.unref();
   return {
-    content: [{ type: "text" as const, text: `Booted AVD ${args.avdName} (pid ${child.pid}). Use adb wait-for-device.` }],
+    content: [
+      {
+        type: "text" as const,
+        text: `Booted AVD ${args.avdName} (pid ${child.pid}). Use adb wait-for-device.`,
+      },
+    ],
   };
 }
 
 export async function handleMaestroRun(args: z.infer<typeof ToolSchemas.maestroRun>) {
   const base = args.deviceId ? ["--device", args.deviceId] : [];
   const r = await run("maestro", ["test", ...base, args.flowPath], { timeout: 600_000 });
-  return { content: [{ type: "text" as const, text: (r.stdout + "\n" + r.stderr).slice(-12000) }], isError: r.code !== 0 };
+  return {
+    content: [{ type: "text" as const, text: (r.stdout + "\n" + r.stderr).slice(-12000) }],
+    isError: r.code !== 0,
+  };
 }
 
-export async function handleComposePreviewRender(args: z.infer<typeof ToolSchemas.composePreviewRender>) {
+export async function handleComposePreviewRender(
+  args: z.infer<typeof ToolSchemas.composePreviewRender>,
+) {
   const cli = await which("compose-preview");
   if (!cli) {
     return {
-      content: [{ type: "text" as const, text: "compose-preview CLI not found. Install compose-ai-tools first (see report)." }],
+      content: [
+        {
+          type: "text" as const,
+          text: "compose-preview CLI not found. Install compose-ai-tools first (see report).",
+        },
+      ],
       isError: true,
     };
   }
   const argsArr = ["render", "--project", args.projectPath];
   if (args.previewFqn) argsArr.push("--preview", args.previewFqn);
   const r = await run(cli, argsArr, { cwd: args.projectPath, timeout: 600_000 });
-  return { content: [{ type: "text" as const, text: (r.stdout + "\n" + r.stderr).slice(-12000) }], isError: r.code !== 0 };
+  return {
+    content: [{ type: "text" as const, text: (r.stdout + "\n" + r.stderr).slice(-12000) }],
+    isError: r.code !== 0,
+  };
 }
 
 export async function handleSkillsList() {
@@ -315,7 +482,12 @@ export async function handleSkillsList() {
   }
   // fallback: try npx android-skills-mcp? just report
   return {
-    content: [{ type: "text" as const, text: "Android CLI not found. Install via https://developer.android.com/tools/agents/android-cli/download, or use android-skills-mcp MCP server directly." }],
+    content: [
+      {
+        type: "text" as const,
+        text: "Android CLI not found. Install via https://developer.android.com/tools/agents/android-cli/download, or use android-skills-mcp MCP server directly.",
+      },
+    ],
   };
 }
 
@@ -326,14 +498,27 @@ export async function handleSkillsSearch(args: z.infer<typeof ToolSchemas.skills
     if (r.code === 0) return { content: [{ type: "text" as const, text: r.stdout }] };
   }
   return {
-    content: [{ type: "text" as const, text: `Android CLI not found; cannot search skills for "${args.query}".` }],
+    content: [
+      {
+        type: "text" as const,
+        text: `Android CLI not found; cannot search skills for "${args.query}".`,
+      },
+    ],
   };
 }
 
 export async function handleSdkmanagerInstall(args: z.infer<typeof ToolSchemas.sdkmanagerInstall>) {
   const cli = await which("sdkmanager");
   if (!cli) {
-    return { content: [{ type: "text" as const, text: "sdkmanager not found. Set ANDROID_HOME and install command-line tools." }], isError: true };
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: "sdkmanager not found. Set ANDROID_HOME and install command-line tools.",
+        },
+      ],
+      isError: true,
+    };
   }
   const r = await run(cli, args.packages, { timeout: 600_000 });
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
@@ -351,7 +536,9 @@ const OUTPUT_MAX_CHARS = 40_000;
  * tail is silently gone.
  */
 export function capOutput(text: string, max = OUTPUT_MAX_CHARS): string {
-  return text.length > max ? `${text.slice(0, max)}\n[truncated: ${text.length} chars total]` : text;
+  return text.length > max
+    ? `${text.slice(0, max)}\n[truncated: ${text.length} chars total]`
+    : text;
 }
 
 export async function handleAdbShell(args: z.infer<typeof ToolSchemas.adbShell>) {
@@ -376,11 +563,17 @@ export async function handleAdbLogcat(args: z.infer<typeof ToolSchemas.adbLogcat
   const waitMs = Math.max(0, (args.durationSec ?? 10) * 1000);
   if (waitMs > 0) await sleep(waitMs);
 
-  const r = await run("adb", [...base, "logcat", "-d", "-v", "time", ...(args.tag ? [args.tag] : [])], {
-    timeout: 120_000,
-  });
+  const r = await run(
+    "adb",
+    [...base, "logcat", "-d", "-v", "time", ...(args.tag ? [args.tag] : [])],
+    {
+      timeout: 120_000,
+    },
+  );
   if (r.code !== 0) {
-    const err = [`logcat -d failed (exit=${r.code})`, r.stderr.trim(), ...notes].filter(Boolean).join("\n");
+    const err = [`logcat -d failed (exit=${r.code})`, r.stderr.trim(), ...notes]
+      .filter(Boolean)
+      .join("\n");
     return { content: [{ type: "text" as const, text: err }], isError: true };
   }
 
@@ -392,7 +585,9 @@ export async function handleAdbLogcat(args: z.infer<typeof ToolSchemas.adbLogcat
       re = new RegExp(args.pattern, "m");
     } catch (e: any) {
       return {
-        content: [{ type: "text" as const, text: `Invalid pattern regex: ${e?.message ?? String(e)}` }],
+        content: [
+          { type: "text" as const, text: `Invalid pattern regex: ${e?.message ?? String(e)}` },
+        ],
         isError: true,
       };
     }
@@ -635,14 +830,12 @@ async function waitForFile(path: string, timeoutMs: number): Promise<boolean> {
 async function setDeviceProxy(
   deviceId: string | undefined,
   value: string,
-  timeout: number
+  timeout: number,
 ): Promise<{ code: number; detail: string }> {
   const base = await adbBase(deviceId);
-  const r = await run(
-    "adb",
-    [...base, "shell", "settings", "put", "global", "http_proxy", value],
-    { timeout }
-  );
+  const r = await run("adb", [...base, "shell", "settings", "put", "global", "http_proxy", value], {
+    timeout,
+  });
   return { code: r.code, detail: (r.stderr || r.stdout).trim() };
 }
 
@@ -661,7 +854,7 @@ async function clearDeviceProxy(deviceId: string | undefined): Promise<string | 
  */
 async function installMitmCa(
   deviceId: string | undefined,
-  warnings: string[]
+  warnings: string[],
 ): Promise<string | null> {
   if (!(await fileExists(MITM_CA_PATH))) {
     warnings.push(`mitmproxy CA not found at ${MITM_CA_PATH}`);
@@ -672,12 +865,12 @@ async function installMitmCa(
   const hashed = await run(
     "openssl",
     ["x509", "-inform", "PEM", "-subject_hash_old", "-in", MITM_CA_PATH, "-noout"],
-    { timeout: 30_000 }
+    { timeout: 30_000 },
   );
   const hash = hashed.stdout.split("\n")[0]?.trim();
   if (hashed.code !== 0 || !hash) {
     warnings.push(
-      `could not hash mitmproxy CA with openssl: ${(hashed.stderr || hashed.stdout).trim() || "no output"}`
+      `could not hash mitmproxy CA with openssl: ${(hashed.stderr || hashed.stdout).trim() || "no output"}`,
     );
     return null;
   }
@@ -689,7 +882,7 @@ async function installMitmCa(
   const remounted = await run("adb", [...base, "remount"], { timeout: 60_000 });
   if (remounted.code !== 0) {
     warnings.push(
-      `adb remount failed, CA not installed: ${(remounted.stderr || remounted.stdout).trim() || "no output"}`
+      `adb remount failed, CA not installed: ${(remounted.stderr || remounted.stdout).trim() || "no output"}`,
     );
     return null;
   }
@@ -699,7 +892,7 @@ async function installMitmCa(
   });
   if (pushed.code !== 0) {
     warnings.push(
-      `CA push to ${remote} failed: ${(pushed.stderr || pushed.stdout).trim() || "no output"}`
+      `CA push to ${remote} failed: ${(pushed.stderr || pushed.stdout).trim() || "no output"}`,
     );
     return null;
   }
@@ -709,7 +902,7 @@ async function installMitmCa(
   });
   if (chmod.code !== 0) {
     warnings.push(
-      `chmod 644 ${remote} failed: ${(chmod.stderr || chmod.stdout).trim() || "no output"}`
+      `chmod 644 ${remote} failed: ${(chmod.stderr || chmod.stdout).trim() || "no output"}`,
     );
     return null;
   }
@@ -727,7 +920,7 @@ const stopInFlight = new Set<number>();
  */
 async function stopCapture(
   state: CaptureState,
-  deviceId: string | undefined
+  deviceId: string | undefined,
 ): Promise<{ written: boolean; warnings: string[]; har: string }> {
   if (stopInFlight.has(state.pid)) {
     return {
@@ -786,7 +979,10 @@ export async function handleNetCapture(args: z.infer<typeof ToolSchemas.netCaptu
       await clearDeviceProxy(args.deviceId);
       return {
         content: [
-          { type: "text" as const, text: `no active capture (stale pidfile removed); HAR: ${state.har}` },
+          {
+            type: "text" as const,
+            text: `no active capture (stale pidfile removed); HAR: ${state.har}`,
+          },
         ],
       };
     }
@@ -803,9 +999,7 @@ export async function handleNetCapture(args: z.infer<typeof ToolSchemas.netCaptu
   const existing = await readCaptureState();
   if (existing && pidRunning(existing.pid)) {
     const runningPort = existing.port ?? args.port;
-    throw new Error(
-      `net_capture busy: capture running (pidfile ${PIDFILE}, port ${runningPort})`
-    );
+    throw new Error(`net_capture busy: capture running (pidfile ${PIDFILE}, port ${runningPort})`);
   }
   // A pidfile whose process is gone is debris from a crashed/killed run.
   if (existing) await rm(PIDFILE, { force: true });
@@ -882,7 +1076,7 @@ export async function handleNetCapture(args: z.infer<typeof ToolSchemas.netCaptu
       // No log; the generic message below is enough.
     }
     throw new Error(
-      `mitmdump exited immediately (port ${port} already in use?): ${tail || "no output"}`
+      `mitmdump exited immediately (port ${port} already in use?): ${tail || "no output"}`,
     );
   }
 
@@ -893,16 +1087,12 @@ export async function handleNetCapture(args: z.infer<typeof ToolSchemas.netCaptu
     else caInstalled = await installMitmCa(args.deviceId, warnings);
   }
 
-  const proxied = await setDeviceProxy(
-    args.deviceId,
-    `${EMULATOR_HOST_ALIAS}:${port}`,
-    30_000
-  );
+  const proxied = await setDeviceProxy(args.deviceId, `${EMULATOR_HOST_ALIAS}:${port}`, 30_000);
   if (proxied.code !== 0) {
     await stopCapture({ pid, har }, args.deviceId);
     throw new Error(
       `failed to set device HTTP proxy: ${proxied.detail || "no output"} — ` +
-        `check 'adb devices' and that the device is rooted`
+        `check 'adb devices' and that the device is rooted`,
     );
   }
 
@@ -923,8 +1113,12 @@ export async function handleNetCapture(args: z.infer<typeof ToolSchemas.netCaptu
     ...(caInstalled
       ? [`CA installed at ${caInstalled}`]
       : rooted
-        ? ["CA not installed; on API 34+ the system CA store lives in the Conscrypt APEX, so system-trust install may fail — see docs/troubleshooting.md (APEX overlay/Magisk)"]
-        : ["device not rooted; system CA not installed (a rootable google_apis image is required)"]),
+        ? [
+            "CA not installed; on API 34+ the system CA store lives in the Conscrypt APEX, so system-trust install may fail — see docs/troubleshooting.md (APEX overlay/Magisk)",
+          ]
+        : [
+            "device not rooted; system CA not installed (a rootable google_apis image is required)",
+          ]),
     `auto-stop in ${durationSec}s — the HAR is flushed when mitmdump exits`,
     ...warnings.map((w) => `warning: ${w}`),
   ];
@@ -943,64 +1137,138 @@ export async function handleNetCapture(args: z.infer<typeof ToolSchemas.netCaptu
 // Extra tools (build/test/device/logs/ui/emulator/static/profiling/multi/serve)
 // ---------------------------------------------------------------------------
 
-function adb(dev?: string): string[] { return dev ? ["-s", dev] : []; }
+function adb(dev?: string): string[] {
+  return dev ? ["-s", dev] : [];
+}
 
 export async function handleGradleTest(a: z.infer<typeof ToolSchemas.gradleTest>) {
   const args = [":app:test", ...(a.offline ? ["--offline"] : []), ...(a.args ?? [])];
   const r = await run("gradle", args, { cwd: a.projectPath, timeout: 600_000 });
-  return { content: [{ type: "text" as const, text: `exit=${r.code}\n${(r.stdout + "\n" + r.stderr).slice(-12000)}` }], isError: r.code !== 0 };
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `exit=${r.code}\n${(r.stdout + "\n" + r.stderr).slice(-12000)}`,
+      },
+    ],
+    isError: r.code !== 0,
+  };
 }
 export async function handleGradleLint(a: z.infer<typeof ToolSchemas.gradleLint>) {
   const args = [":app:lint", ...(a.offline ? ["--offline"] : []), ...(a.args ?? [])];
   const r = await run("gradle", args, { cwd: a.projectPath, timeout: 600_000 });
-  return { content: [{ type: "text" as const, text: `exit=${r.code}\n${(r.stdout + "\n" + r.stderr).slice(-12000)}` }], isError: r.code !== 0 };
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `exit=${r.code}\n${(r.stdout + "\n" + r.stderr).slice(-12000)}`,
+      },
+    ],
+    isError: r.code !== 0,
+  };
 }
 export async function handleGradleDependencies(a: z.infer<typeof ToolSchemas.gradleDependencies>) {
-  const r2 = await run("gradle", ["dependencies", "--configuration", a.configuration || "debugRuntimeClasspath"], { cwd: a.projectPath, timeout: 300_000 });
-  return { content: [{ type: "text" as const, text: `exit=${r2.code}\n${(r2.stdout + "\n" + r2.stderr).slice(-12000)}` }], isError: r2.code !== 0 };
+  const r2 = await run(
+    "gradle",
+    ["dependencies", "--configuration", a.configuration || "debugRuntimeClasspath"],
+    { cwd: a.projectPath, timeout: 300_000 },
+  );
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `exit=${r2.code}\n${(r2.stdout + "\n" + r2.stderr).slice(-12000)}`,
+      },
+    ],
+    isError: r2.code !== 0,
+  };
 }
 export async function handleBuildVariant(a: z.infer<typeof ToolSchemas.buildVariant>) {
   const args = [a.variant, ...(a.offline ? ["--offline"] : []), ...(a.args ?? [])];
   const r = await run("gradle", args, { cwd: a.projectPath, timeout: 600_000 });
-  return { content: [{ type: "text" as const, text: `exit=${r.code}\n${(r.stdout + "\n" + r.stderr).slice(-12000)}` }], isError: r.code !== 0 };
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `exit=${r.code}\n${(r.stdout + "\n" + r.stderr).slice(-12000)}`,
+      },
+    ],
+    isError: r.code !== 0,
+  };
 }
-export async function handleBaselineProfileGenerate(a: z.infer<typeof ToolSchemas.baselineProfileGenerate>) {
+export async function handleBaselineProfileGenerate(
+  a: z.infer<typeof ToolSchemas.baselineProfileGenerate>,
+) {
   const args = [`${a.module}:connectedAndroidTest`, ...(a.args ?? [])];
   const r = await run("gradle", args, { cwd: a.projectPath, timeout: 900_000 });
-  return { content: [{ type: "text" as const, text: `exit=${r.code}\n${(r.stdout + "\n" + r.stderr).slice(-12000)}` }], isError: r.code !== 0 };
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `exit=${r.code}\n${(r.stdout + "\n" + r.stderr).slice(-12000)}`,
+      },
+    ],
+    isError: r.code !== 0,
+  };
 }
 // Device interaction
 export async function handleAdbPush(a: z.infer<typeof ToolSchemas.adbPush>) {
-  const r = await run("adb", [...adb(a.deviceId), "push", a.localPath, a.remotePath], { timeout: 300_000 });
+  const r = await run("adb", [...adb(a.deviceId), "push", a.localPath, a.remotePath], {
+    timeout: 300_000,
+  });
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
 }
 export async function handleAdbPull(a: z.infer<typeof ToolSchemas.adbPull>) {
   const local = a.localPath ?? a.remotePath.split("/").pop() ?? "pulled";
-  const r = await run("adb", [...adb(a.deviceId), "pull", a.remotePath, local], { timeout: 300_000 });
-  return { content: [{ type: "text" as const, text: `saved to ${local}\n${r.stdout + r.stderr}` }], isError: r.code !== 0 };
+  const r = await run("adb", [...adb(a.deviceId), "pull", a.remotePath, local], {
+    timeout: 300_000,
+  });
+  return {
+    content: [{ type: "text" as const, text: `saved to ${local}\n${r.stdout + r.stderr}` }],
+    isError: r.code !== 0,
+  };
 }
 export async function handleAdbRm(a: z.infer<typeof ToolSchemas.adbRm>) {
   // Issue 67: the device shell re-parses everything after "shell", so the
   // path must be metachar-free, in a test-relevant scope, and remote-quoted.
   if (!validateRemotePath(a.remotePath)) {
-    return { content: [{ type: "text" as const, text: "Invalid remote path: must be absolute, under /sdcard, /storage/emulated, /data/local/tmp, /cache or /data/data, free of shell metacharacters and '..'." }], isError: true };
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: "Invalid remote path: must be absolute, under /sdcard, /storage/emulated, /data/local/tmp, /cache or /data/data, free of shell metacharacters and '..'.",
+        },
+      ],
+      isError: true,
+    };
   }
-  const r = await run("adb", [...adb(a.deviceId), "shell", "rm", "-rf", shquote(a.remotePath)], { timeout: 60_000 });
+  const r = await run("adb", [...adb(a.deviceId), "shell", "rm", "-rf", shquote(a.remotePath)], {
+    timeout: 60_000,
+  });
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
 }
 export async function handleAdbUninstall(a: z.infer<typeof ToolSchemas.adbUninstall>) {
-  if (!validatePackageName(a.packageName)) return { content: [{ type: "text" as const, text: "Invalid package name." }], isError: true };
-  const r = await run("adb", [...adb(a.deviceId), "uninstall", a.packageName], { timeout: 120_000 });
+  if (!validatePackageName(a.packageName))
+    return { content: [{ type: "text" as const, text: "Invalid package name." }], isError: true };
+  const r = await run("adb", [...adb(a.deviceId), "uninstall", a.packageName], {
+    timeout: 120_000,
+  });
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
 }
 export async function handleAdbClearData(a: z.infer<typeof ToolSchemas.adbClearData>) {
-  if (!validatePackageName(a.packageName)) return { content: [{ type: "text" as const, text: "Invalid package name." }], isError: true };
-  const r = await run("adb", [...adb(a.deviceId), "shell", "pm", "clear", a.packageName], { timeout: 60_000 });
+  if (!validatePackageName(a.packageName))
+    return { content: [{ type: "text" as const, text: "Invalid package name." }], isError: true };
+  const r = await run("adb", [...adb(a.deviceId), "shell", "pm", "clear", a.packageName], {
+    timeout: 60_000,
+  });
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
 }
 export async function handleAdbForceStop(a: z.infer<typeof ToolSchemas.adbForceStop>) {
-  if (!validatePackageName(a.packageName)) return { content: [{ type: "text" as const, text: "Invalid package name." }], isError: true };
-  const r = await run("adb", [...adb(a.deviceId), "shell", "am", "force-stop", a.packageName], { timeout: 60_000 });
+  if (!validatePackageName(a.packageName))
+    return { content: [{ type: "text" as const, text: "Invalid package name." }], isError: true };
+  const r = await run("adb", [...adb(a.deviceId), "shell", "am", "force-stop", a.packageName], {
+    timeout: 60_000,
+  });
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
 }
 export async function handleAdbReboot(a: z.infer<typeof ToolSchemas.adbReboot>) {
@@ -1011,23 +1279,50 @@ export async function handleAdbScreenrecord(a: z.infer<typeof ToolSchemas.adbScr
   const dur = Math.max(1, a.durationSec ?? 10);
   const remote = "/sdcard/screenrecord.mp4";
   const local = a.outputPath ?? `screenrecord-${Date.now()}.mp4`;
-  const r = await run("adb", [...adb(a.deviceId), "shell", "screenrecord", "--time-limit", String(dur), remote], { timeout: (dur + 5) * 1000 });
-  if (r.code !== 0) return { content: [{ type: "text" as const, text: `screenrecord failed: ${r.stderr}` }], isError: true };
+  const r = await run(
+    "adb",
+    [...adb(a.deviceId), "shell", "screenrecord", "--time-limit", String(dur), remote],
+    { timeout: (dur + 5) * 1000 },
+  );
+  if (r.code !== 0)
+    return {
+      content: [{ type: "text" as const, text: `screenrecord failed: ${r.stderr}` }],
+      isError: true,
+    };
   const r2 = await run("adb", [...adb(a.deviceId), "pull", remote, local], { timeout: 120_000 });
-  return { content: [{ type: "text" as const, text: `saved ${local}\n${r2.stdout + r2.stderr}` }], isError: r2.code !== 0 };
+  return {
+    content: [{ type: "text" as const, text: `saved ${local}\n${r2.stdout + r2.stderr}` }],
+    isError: r2.code !== 0,
+  };
 }
 export async function handleAdbInput(a: z.infer<typeof ToolSchemas.adbInput>) {
   const base = adb(a.deviceId);
   let args: string[] = [];
   switch (a.action) {
-    case "tap": args = [...base, "shell", "input", "tap", String(a.x ?? 0), String(a.y ?? 0)]; break;
-    case "swipe": args = [...base, "shell", "input", "swipe", String(a.x ?? 0), String(a.y ?? 0), String(a.x2 ?? 0), String(a.y2 ?? 0)]; break;
+    case "tap":
+      args = [...base, "shell", "input", "tap", String(a.x ?? 0), String(a.y ?? 0)];
+      break;
+    case "swipe":
+      args = [
+        ...base,
+        "shell",
+        "input",
+        "swipe",
+        String(a.x ?? 0),
+        String(a.y ?? 0),
+        String(a.x2 ?? 0),
+        String(a.y2 ?? 0),
+      ];
+      break;
     // Issue 67: text is user-controlled; %s keeps `input text` spaces working
     // and shquote keeps it one remote argument.
-    case "text": args = [...base, "shell", "input", "text", shquote((a.text ?? "").replace(/ /g, "%s"))]; break;
+    case "text":
+      args = [...base, "shell", "input", "text", shquote((a.text ?? "").replace(/ /g, "%s"))];
+      break;
     case "keyevent": {
       const kc = a.keycode ?? "KEYCODE_ENTER";
-      if (!/^[A-Za-z0-9_]+$/.test(kc)) return { content: [{ type: "text" as const, text: "Invalid keycode." }], isError: true };
+      if (!/^[A-Za-z0-9_]+$/.test(kc))
+        return { content: [{ type: "text" as const, text: "Invalid keycode." }], isError: true };
       args = [...base, "shell", "input", "keyevent", kc];
       break;
     }
@@ -1042,38 +1337,78 @@ export async function handleAdbDeepLink(a: z.infer<typeof ToolSchemas.adbDeepLin
   if (a.packageName && !validatePackageName(a.packageName)) {
     return { content: [{ type: "text" as const, text: "Invalid package name." }], isError: true };
   }
-  const args = [...adb(a.deviceId), "shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", shquote(a.uri)];
+  const args = [
+    ...adb(a.deviceId),
+    "shell",
+    "am",
+    "start",
+    "-a",
+    "android.intent.action.VIEW",
+    "-d",
+    shquote(a.uri),
+  ];
   if (a.packageName) args.push("-p", shquote(a.packageName));
   const r = await run("adb", args, { timeout: 30_000 });
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
 }
 export async function handleAdbBroadcast(a: z.infer<typeof ToolSchemas.adbBroadcast>) {
   if (!validateIntentAction(a.action)) {
-    return { content: [{ type: "text" as const, text: "Invalid action: must be a dotted intent action with no shell metacharacters." }], isError: true };
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: "Invalid action: must be a dotted intent action with no shell metacharacters.",
+        },
+      ],
+      isError: true,
+    };
   }
   // Extras are remote-shell-quoted too; each must stay one remote argument.
-  const args = [...adb(a.deviceId), "shell", "am", "broadcast", "-a", a.action, ...(a.extras ?? []).map(shquote)];
+  const args = [
+    ...adb(a.deviceId),
+    "shell",
+    "am",
+    "broadcast",
+    "-a",
+    a.action,
+    ...(a.extras ?? []).map(shquote),
+  ];
   const r = await run("adb", args, { timeout: 30_000 });
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
 }
 export async function handleAdbServiceStart(a: z.infer<typeof ToolSchemas.adbServiceStart>) {
   if (!validateComponent(a.component)) {
-    return { content: [{ type: "text" as const, text: "Invalid component: must be package/class with no shell metacharacters." }], isError: true };
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: "Invalid component: must be package/class with no shell metacharacters.",
+        },
+      ],
+      isError: true,
+    };
   }
-  const r = await run("adb", [...adb(a.deviceId), "shell", "am", "startservice", "-n", shquote(a.component)], { timeout: 30_000 });
+  const r = await run(
+    "adb",
+    [...adb(a.deviceId), "shell", "am", "startservice", "-n", shquote(a.component)],
+    { timeout: 30_000 },
+  );
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
 }
 export async function handleAdbWifi(a: z.infer<typeof ToolSchemas.adbWifi>) {
   const base = adb(a.deviceId);
   let args: string[] = [];
   if (a.action === "tcpip") args = [...base, "tcpip", String(a.port ?? 5555)];
-  else if (a.action === "connect") args = [...base, "connect", `${a.host ?? "127.0.0.1"}:${a.port ?? 5555}`];
+  else if (a.action === "connect")
+    args = [...base, "connect", `${a.host ?? "127.0.0.1"}:${a.port ?? 5555}`];
   else args = [...base, "disconnect", `${a.host ?? "127.0.0.1"}:${a.port ?? 5555}`];
   const r = await run("adb", args, { timeout: 30_000 });
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
 }
 export async function handleAdbBattery(a: z.infer<typeof ToolSchemas.adbBattery>) {
-  const r = await run("adb", [...adb(a.deviceId), "shell", "dumpsys", "battery"], { timeout: 30_000 });
+  const r = await run("adb", [...adb(a.deviceId), "shell", "dumpsys", "battery"], {
+    timeout: 30_000,
+  });
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
 }
 // Logs & diagnostics
@@ -1085,25 +1420,50 @@ export async function handleLogcatFiltered(a: z.infer<typeof ToolSchemas.logcatF
   if (a.tag) args.push(a.tag);
   const r = await run("adb", args, { timeout: 120_000 });
   let lines = (r.stdout || "").split("\n");
-  if (a.pattern) { try { const re = new RegExp(a.pattern, "m"); lines = lines.filter((l) => re.test(l)); } catch { return { content: [{ type: "text" as const, text: `Invalid pattern regex` }], isError: true }; } }
+  if (a.pattern) {
+    try {
+      const re = new RegExp(a.pattern, "m");
+      lines = lines.filter((l) => re.test(l));
+    } catch {
+      return { content: [{ type: "text" as const, text: `Invalid pattern regex` }], isError: true };
+    }
+  }
   if (a.packageName) lines = lines.filter((l) => l.includes(a.packageName!));
   const total = (r.stdout || "").split("\n").filter((l) => l.trim()).length;
-  const text = [`total=${total} matched=${lines.length} shown=${Math.min(lines.length, 500)}`, ...lines.slice(0, 500)].join("\n");
+  const text = [
+    `total=${total} matched=${lines.length} shown=${Math.min(lines.length, 500)}`,
+    ...lines.slice(0, 500),
+  ].join("\n");
   return { content: [{ type: "text" as const, text }], isError: r.code !== 0 };
 }
 export async function handleAnrCheck(a: z.infer<typeof ToolSchemas.anrCheck>) {
-  const r = await run("adb", [...adb(a.deviceId), "shell", "cat", "/data/anr/traces.txt"], { timeout: 30_000 });
+  const r = await run("adb", [...adb(a.deviceId), "shell", "cat", "/data/anr/traces.txt"], {
+    timeout: 30_000,
+  });
   const text = r.stdout || r.stderr;
   const anr = /ANR in|Application Not Responding/i.test(text);
-  return { content: [{ type: "text" as const, text: `anr_detected=${anr}\n${text.slice(0, 8000)}` }], isError: r.code !== 0 };
+  return {
+    content: [{ type: "text" as const, text: `anr_detected=${anr}\n${text.slice(0, 8000)}` }],
+    isError: r.code !== 0,
+  };
 }
 export async function handleCrashSummary(a: z.infer<typeof ToolSchemas.crashSummary>) {
   const base = adb(a.deviceId);
   await run("adb", [...base, "logcat", "-c"], { timeout: 30_000 });
   await new Promise((res) => setTimeout(res, Math.max(0, (a.durationSec ?? 10) * 1000)));
   const r = await run("adb", [...base, "logcat", "-d"], { timeout: 120_000 });
-  const crashes = (r.stdout || "").split("\n").filter((l) => /FATAL EXCEPTION|AndroidRuntime/i.test(l));
-  return { content: [{ type: "text" as const, text: `crashes=${crashes.length}\n${crashes.slice(0, 50).join("\n")}` }], isError: false };
+  const crashes = (r.stdout || "")
+    .split("\n")
+    .filter((l) => /FATAL EXCEPTION|AndroidRuntime/i.test(l));
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `crashes=${crashes.length}\n${crashes.slice(0, 50).join("\n")}`,
+      },
+    ],
+    isError: false,
+  };
 }
 // UI inspection
 export async function handleUiDump(a: z.infer<typeof ToolSchemas.uiDump>) {
@@ -1111,52 +1471,104 @@ export async function handleUiDump(a: z.infer<typeof ToolSchemas.uiDump>) {
   const local = a.outputPath ?? `/tmp/ui-dump-${Date.now()}.xml`;
   const base = adb(a.deviceId);
   let r = await run("adb", [...base, "shell", "uiautomator", "dump", remote], { timeout: 60_000 });
-  if (r.code !== 0) return { content: [{ type: "text" as const, text: `uiautomator dump failed: ${r.stderr}` }], isError: true };
+  if (r.code !== 0)
+    return {
+      content: [{ type: "text" as const, text: `uiautomator dump failed: ${r.stderr}` }],
+      isError: true,
+    };
   r = await run("adb", [...base, "pull", remote, local], { timeout: 60_000 });
-  return { content: [{ type: "text" as const, text: `saved ${local}\n${r.stdout + r.stderr}` }], isError: r.code !== 0 };
+  return {
+    content: [{ type: "text" as const, text: `saved ${local}\n${r.stdout + r.stderr}` }],
+    isError: r.code !== 0,
+  };
 }
-export async function handleComposeRecomposition(a: z.infer<typeof ToolSchemas.composeRecomposition>) {
+export async function handleComposeRecomposition(
+  a: z.infer<typeof ToolSchemas.composeRecomposition>,
+) {
   const base = adb(a.deviceId);
   // Issue 67: the optional package filter gets the same validation as every
   // other package-typed input.
   if (a.packageName && !validatePackageName(a.packageName)) {
     return { content: [{ type: "text" as const, text: "Invalid package name." }], isError: true };
   }
-  const r = await run("adb", [...base, "shell", "dumpsys", "activity", a.packageName ? shquote(a.packageName) : ""].filter(Boolean), { timeout: 60_000 });
-  return { content: [{ type: "text" as const, text: `exit=${r.code}\n${(r.stdout + "\n" + r.stderr).slice(0, 8000)}` }], isError: r.code !== 0 };
+  const r = await run(
+    "adb",
+    [...base, "shell", "dumpsys", "activity", a.packageName ? shquote(a.packageName) : ""].filter(
+      Boolean,
+    ),
+    { timeout: 60_000 },
+  );
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `exit=${r.code}\n${(r.stdout + "\n" + r.stderr).slice(0, 8000)}`,
+      },
+    ],
+    isError: r.code !== 0,
+  };
 }
 export async function handleLayoutBounds(a: z.infer<typeof ToolSchemas.layoutBounds>) {
   const base = adb(a.deviceId);
   const val = a.enabled ? "true" : "false";
-  const r = await run("adb", [...base, "shell", "setprop", "debug.layout", val], { timeout: 30_000 });
-  return { content: [{ type: "text" as const, text: `debug.layout=${val}\n${r.stdout + r.stderr}` }], isError: r.code !== 0 };
+  const r = await run("adb", [...base, "shell", "setprop", "debug.layout", val], {
+    timeout: 30_000,
+  });
+  return {
+    content: [{ type: "text" as const, text: `debug.layout=${val}\n${r.stdout + r.stderr}` }],
+    isError: r.code !== 0,
+  };
 }
 // Emulator management
 // Issue 68: avd names are caller-controlled values passed next to option
 // flags; a leading '-' could be parsed as a flag instead of the name.
 export async function handleAvdCreate(a: z.infer<typeof ToolSchemas.avdCreate>) {
-  if (!notOptionLike(a.avdName)) return { content: [{ type: "text" as const, text: "Invalid avd name: must not start with '-'." }], isError: true };
-  const r = await run("avdmanager", ["create", "avd", "-n", a.avdName, "-k", a.systemImage, "-d", a.device], { timeout: 120_000 });
+  if (!notOptionLike(a.avdName))
+    return {
+      content: [{ type: "text" as const, text: "Invalid avd name: must not start with '-'." }],
+      isError: true,
+    };
+  const r = await run(
+    "avdmanager",
+    ["create", "avd", "-n", a.avdName, "-k", a.systemImage, "-d", a.device],
+    { timeout: 120_000 },
+  );
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
 }
 export async function handleAvdDelete(a: z.infer<typeof ToolSchemas.avdDelete>) {
-  if (!notOptionLike(a.avdName)) return { content: [{ type: "text" as const, text: "Invalid avd name: must not start with '-'." }], isError: true };
+  if (!notOptionLike(a.avdName))
+    return {
+      content: [{ type: "text" as const, text: "Invalid avd name: must not start with '-'." }],
+      isError: true,
+    };
   const r = await run("avdmanager", ["delete", "avd", "-n", a.avdName], { timeout: 60_000 });
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
 }
 export async function handleAvdWipe(a: z.infer<typeof ToolSchemas.avdWipe>) {
-  if (!notOptionLike(a.avdName)) return { content: [{ type: "text" as const, text: "Invalid avd name: must not start with '-'." }], isError: true };
-  const r = await run("emulator", ["-avd", a.avdName, "-wipe-data", "-no-window"], { timeout: 120_000 });
+  if (!notOptionLike(a.avdName))
+    return {
+      content: [{ type: "text" as const, text: "Invalid avd name: must not start with '-'." }],
+      isError: true,
+    };
+  const r = await run("emulator", ["-avd", a.avdName, "-wipe-data", "-no-window"], {
+    timeout: 120_000,
+  });
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
 }
 export async function handleEmulatorSnapshot(a: z.infer<typeof ToolSchemas.emulatorSnapshot>) {
   const base = adb(a.deviceId);
   if (a.action === "list") {
     const r = await run("adb", [...base, "emu", "avd", "snapshot", "list"], { timeout: 30_000 });
-    return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
+    return {
+      content: [{ type: "text" as const, text: r.stdout + r.stderr }],
+      isError: r.code !== 0,
+    };
   }
   const name = a.name ?? "default";
-  const cmd = a.action === "save" ? ["emu", "avd", "snapshot", "save", name] : ["emu", "avd", "snapshot", "load", name];
+  const cmd =
+    a.action === "save"
+      ? ["emu", "avd", "snapshot", "save", name]
+      : ["emu", "avd", "snapshot", "load", name];
   const r = await run("adb", [...base, ...cmd], { timeout: 60_000 });
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
 }
@@ -1166,12 +1578,24 @@ async function unzipList(apkPath: string): Promise<string> {
   return r.stdout + r.stderr;
 }
 export async function handleApkInfo(a: z.infer<typeof ToolSchemas.apkInfo>) {
-  if (!notOptionLike(a.apkPath)) return { content: [{ type: "text" as const, text: "Invalid apk path: must not start with '-'." }], isError: true };
+  if (!notOptionLike(a.apkPath))
+    return {
+      content: [{ type: "text" as const, text: "Invalid apk path: must not start with '-'." }],
+      isError: true,
+    };
   const r = await run("aapt2", ["dump", "badging", a.apkPath], { timeout: 120_000 });
   if (r.code !== 0) {
     // fallback to unzip listing
     const u = await unzipList(a.apkPath);
-    return { content: [{ type: "text" as const, text: `aapt2 unavailable/failed; zip listing:\n${u.slice(0, 12000)}` }], isError: true };
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: `aapt2 unavailable/failed; zip listing:\n${u.slice(0, 12000)}`,
+        },
+      ],
+      isError: true,
+    };
   }
   return { content: [{ type: "text" as const, text: r.stdout.slice(0, 12000) }], isError: false };
 }
@@ -1179,33 +1603,66 @@ export async function handleApkDecompile(a: z.infer<typeof ToolSchemas.apkDecomp
   // Issue 69: refuse to point the decompiler at an existing directory unless
   // the caller explicitly opts into replacement; default destinations are
   // unique (mkdtemp), not bare-timestamp names.
-  if (!notOptionLike(a.apkPath)) return { content: [{ type: "text" as const, text: "Invalid apk path: must not start with '-'." }], isError: true };
+  if (!notOptionLike(a.apkPath))
+    return {
+      content: [{ type: "text" as const, text: "Invalid apk path: must not start with '-'." }],
+      isError: true,
+    };
   const { existsSync } = await import("node:fs");
   let out = a.outputDir;
   if (out) {
-    if (!notOptionLike(out)) return { content: [{ type: "text" as const, text: "Invalid output dir: must not start with '-'." }], isError: true };
+    if (!notOptionLike(out))
+      return {
+        content: [{ type: "text" as const, text: "Invalid output dir: must not start with '-'." }],
+        isError: true,
+      };
     if (existsSync(out) && !a.overwrite) {
-      return { content: [{ type: "text" as const, text: `Refusing to overwrite existing directory ${out}. Pass overwrite:true to replace it.` }], isError: true };
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Refusing to overwrite existing directory ${out}. Pass overwrite:true to replace it.`,
+          },
+        ],
+        isError: true,
+      };
     }
   } else {
     out = await tmpDir("android-mcp-decompiled-");
   }
   const tool = a.tool === "apktool" ? "apktool" : "jadx";
   // apktool -f (force overwrite) only with the explicit opt-in.
-  const args = tool === "apktool"
-    ? ["d", a.apkPath, "-o", out, ...(a.overwrite ? ["-f"] : [])]
-    : ["-d", a.apkPath, "-o", out];
+  const args =
+    tool === "apktool"
+      ? ["d", a.apkPath, "-o", out, ...(a.overwrite ? ["-f"] : [])]
+      : ["-d", a.apkPath, "-o", out];
   const r = await run(tool, args, { timeout: 600_000 });
-  return { content: [{ type: "text" as const, text: `tool=${tool} out=${out}\nexit=${r.code}\n${(r.stdout + "\n" + r.stderr).slice(-8000)}` }], isError: r.code !== 0 };
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `tool=${tool} out=${out}\nexit=${r.code}\n${(r.stdout + "\n" + r.stderr).slice(-8000)}`,
+      },
+    ],
+    isError: r.code !== 0,
+  };
 }
 export async function handleManifestInspect(a: z.infer<typeof ToolSchemas.manifestInspect>) {
-  const r = await run("aapt2", ["dump", "xmltree", a.apkPath, "AndroidManifest.xml"], { timeout: 120_000 });
-  if (r.code !== 0) return { content: [{ type: "text" as const, text: `aapt2 failed: ${r.stderr}` }], isError: true };
+  const r = await run("aapt2", ["dump", "xmltree", a.apkPath, "AndroidManifest.xml"], {
+    timeout: 120_000,
+  });
+  if (r.code !== 0)
+    return {
+      content: [{ type: "text" as const, text: `aapt2 failed: ${r.stderr}` }],
+      isError: true,
+    };
   return { content: [{ type: "text" as const, text: r.stdout.slice(0, 20000) }], isError: false };
 }
 export async function handlePrivacyScan(a: z.infer<typeof ToolSchemas.privacyScan>) {
   try {
-    const result = await scanPrivacyProject(a.projectPath, { declarationsPath: a.declarationsPath });
+    const result = await scanPrivacyProject(a.projectPath, {
+      declarationsPath: a.declarationsPath,
+    });
     let text = renderPrivacyReport(result);
     if (a.reportPath) {
       await mkdir(dirname(a.reportPath), { recursive: true });
@@ -1213,71 +1670,183 @@ export async function handlePrivacyScan(a: z.infer<typeof ToolSchemas.privacySca
       text += `\nReport written to ${a.reportPath}`;
     }
     const blockers = result.findings.filter((finding) => finding.severity === "blocker").length;
-    return { content: [{ type: "text" as const, text }], isError: Boolean(a.strict && blockers > 0) };
+    return {
+      content: [{ type: "text" as const, text }],
+      isError: Boolean(a.strict && blockers > 0),
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return { content: [{ type: "text" as const, text: `privacy_scan failed: ${message}` }], isError: true };
+    return {
+      content: [{ type: "text" as const, text: `privacy_scan failed: ${message}` }],
+      isError: true,
+    };
   }
 }
 export async function handleNativeLibs(a: z.infer<typeof ToolSchemas.nativeLibs>) {
   const listing = await unzipList(a.apkPath);
   const libs = listing.split("\n").filter((l) => /\.so\b/.test(l));
-  return { content: [{ type: "text" as const, text: `native libs (${libs.length}):\n${libs.join("\n").slice(0, 12000)}` }] };
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `native libs (${libs.length}):\n${libs.join("\n").slice(0, 12000)}`,
+      },
+    ],
+  };
 }
 export async function handleDexStrings(a: z.infer<typeof ToolSchemas.dexStrings>) {
   const r = await run("strings", [a.apkPath], { timeout: 120_000 });
   let lines = (r.stdout || "").split("\n");
-  if (a.pattern) { try { const re = new RegExp(a.pattern); lines = lines.filter((l) => re.test(l)); } catch { return { content: [{ type: "text" as const, text: "Invalid pattern" }], isError: true }; } }
-  return { content: [{ type: "text" as const, text: lines.slice(0, 500).join("\n") }], isError: r.code !== 0 };
+  if (a.pattern) {
+    try {
+      const re = new RegExp(a.pattern);
+      lines = lines.filter((l) => re.test(l));
+    } catch {
+      return { content: [{ type: "text" as const, text: "Invalid pattern" }], isError: true };
+    }
+  }
+  return {
+    content: [{ type: "text" as const, text: lines.slice(0, 500).join("\n") }],
+    isError: r.code !== 0,
+  };
 }
 // Testing
 export async function handleInstrumentedTest(a: z.infer<typeof ToolSchemas.instrumentedTest>) {
-  const args = [`${a.module}:connectedAndroidTest`, ...(a.testFilter ? [`-Pandroid.testInstrumentationRunnerArguments.class=${a.testFilter}`] : []), ...(a.offline ? ["--offline"] : []), ...(a.args ?? [])];
+  const args = [
+    `${a.module}:connectedAndroidTest`,
+    ...(a.testFilter ? [`-Pandroid.testInstrumentationRunnerArguments.class=${a.testFilter}`] : []),
+    ...(a.offline ? ["--offline"] : []),
+    ...(a.args ?? []),
+  ];
   const r = await run("gradle", args, { cwd: a.projectPath, timeout: 900_000 });
-  return { content: [{ type: "text" as const, text: `exit=${r.code}\n${(r.stdout + "\n" + r.stderr).slice(-12000)}` }], isError: r.code !== 0 };
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `exit=${r.code}\n${(r.stdout + "\n" + r.stderr).slice(-12000)}`,
+      },
+    ],
+    isError: r.code !== 0,
+  };
 }
 export async function handleTestCoverage(a: z.infer<typeof ToolSchemas.testCoverage>) {
-  const r = await run("gradle", [`${a.module}:testDebugUnitTestCoverage`], { cwd: a.projectPath, timeout: 600_000 });
-  return { content: [{ type: "text" as const, text: `exit=${r.code}\n${(r.stdout + "\n" + r.stderr).slice(-12000)}` }], isError: r.code !== 0 };
+  const r = await run("gradle", [`${a.module}:testDebugUnitTestCoverage`], {
+    cwd: a.projectPath,
+    timeout: 600_000,
+  });
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `exit=${r.code}\n${(r.stdout + "\n" + r.stderr).slice(-12000)}`,
+      },
+    ],
+    isError: r.code !== 0,
+  };
 }
 export async function handleMacrobenchmark(a: z.infer<typeof ToolSchemas.macrobenchmark>) {
   const args = [`${a.module}:connectedAndroidTest`, ...(a.args ?? [])];
   const r = await run("gradle", args, { cwd: a.projectPath, timeout: 900_000 });
-  return { content: [{ type: "text" as const, text: `exit=${r.code}\n${(r.stdout + "\n" + r.stderr).slice(-12000)}` }], isError: r.code !== 0 };
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `exit=${r.code}\n${(r.stdout + "\n" + r.stderr).slice(-12000)}`,
+      },
+    ],
+    isError: r.code !== 0,
+  };
 }
 // Profiling
 export async function handlePerfettoTrace(a: z.infer<typeof ToolSchemas.perfettoTrace>) {
   const dur = Math.max(1, a.durationSec ?? 10);
   const out = a.outputPath ?? `/tmp/trace-${Date.now()}.perfetto-trace`;
   const base = adb(a.deviceId);
-  const r = await run("adb", [...base, "shell", "perfetto", "-o", "/data/misc/perfetto-traces/trace.perfetto-trace", "-t", `${dur}s`, "sched freq idle am wm gfx view binder_driver hal dalvik camera input res memory"], { timeout: (dur + 10) * 1000 });
-  if (r.code !== 0) return { content: [{ type: "text" as const, text: `perfetto failed: ${r.stderr}` }], isError: true };
-  const r2 = await run("adb", [...base, "pull", "/data/misc/perfetto-traces/trace.perfetto-trace", out], { timeout: 120_000 });
-  return { content: [{ type: "text" as const, text: `saved ${out}\n${r2.stdout + r2.stderr}` }], isError: r2.code !== 0 };
+  const r = await run(
+    "adb",
+    [
+      ...base,
+      "shell",
+      "perfetto",
+      "-o",
+      "/data/misc/perfetto-traces/trace.perfetto-trace",
+      "-t",
+      `${dur}s`,
+      "sched freq idle am wm gfx view binder_driver hal dalvik camera input res memory",
+    ],
+    { timeout: (dur + 10) * 1000 },
+  );
+  if (r.code !== 0)
+    return {
+      content: [{ type: "text" as const, text: `perfetto failed: ${r.stderr}` }],
+      isError: true,
+    };
+  const r2 = await run(
+    "adb",
+    [...base, "pull", "/data/misc/perfetto-traces/trace.perfetto-trace", out],
+    { timeout: 120_000 },
+  );
+  return {
+    content: [{ type: "text" as const, text: `saved ${out}\n${r2.stdout + r2.stderr}` }],
+    isError: r2.code !== 0,
+  };
 }
 export async function handleMemoryProfile(a: z.infer<typeof ToolSchemas.memoryProfile>) {
-  if (!validatePackageName(a.packageName)) return { content: [{ type: "text" as const, text: "Invalid package name." }], isError: true };
-  const r = await run("adb", [...adb(a.deviceId), "shell", "dumpsys", "meminfo", a.packageName], { timeout: 60_000 });
-  return { content: [{ type: "text" as const, text: (r.stdout + "\n" + r.stderr).slice(0, 12000) }], isError: r.code !== 0 };
+  if (!validatePackageName(a.packageName))
+    return { content: [{ type: "text" as const, text: "Invalid package name." }], isError: true };
+  const r = await run("adb", [...adb(a.deviceId), "shell", "dumpsys", "meminfo", a.packageName], {
+    timeout: 60_000,
+  });
+  return {
+    content: [{ type: "text" as const, text: (r.stdout + "\n" + r.stderr).slice(0, 12000) }],
+    isError: r.code !== 0,
+  };
 }
 export async function handleStartupTime(a: z.infer<typeof ToolSchemas.startupTime>) {
-  if (!validatePackageName(a.packageName)) return { content: [{ type: "text" as const, text: "Invalid package name." }], isError: true };
+  if (!validatePackageName(a.packageName))
+    return { content: [{ type: "text" as const, text: "Invalid package name." }], isError: true };
   const iters = Math.max(1, a.iterations ?? 5);
   const lines: string[] = [];
   for (let i = 0; i < iters; i++) {
-    const r = await run("adb", [...adb(a.deviceId), "shell", "am", "start-activity", "-W", "-n", `${a.packageName}/.MainActivity`], { timeout: 60_000 });
+    const r = await run(
+      "adb",
+      [
+        ...adb(a.deviceId),
+        "shell",
+        "am",
+        "start-activity",
+        "-W",
+        "-n",
+        `${a.packageName}/.MainActivity`,
+      ],
+      { timeout: 60_000 },
+    );
     lines.push(r.stdout.split("\n").find((l) => /TotalTime/i.test(l)) ?? r.stdout.slice(0, 200));
-    await run("adb", [...adb(a.deviceId), "shell", "am", "force-stop", a.packageName], { timeout: 30_000 });
+    await run("adb", [...adb(a.deviceId), "shell", "am", "force-stop", a.packageName], {
+      timeout: 30_000,
+    });
   }
   return { content: [{ type: "text" as const, text: lines.join("\n") }] };
 }
 // Multi-device
 export async function handleAdbParallel(a: z.infer<typeof ToolSchemas.adbParallel>) {
-  const devices = a.deviceIds && a.deviceIds.length ? a.deviceIds : (await (async () => { const r = await run("adb", ["devices"]); return r.stdout.split("\n").slice(1).map((l) => l.split(/\s+/)[0]).filter(Boolean); })());
-  const results = await Promise.all(devices.map(async (d) => {
-    const r = await run("adb", ["-s", d, "shell", a.command], { timeout: 60_000 });
-    return `=== ${d} (exit ${r.code}) ===\n${(r.stdout + r.stderr).slice(0, 4000)}`;
-  }));
+  const devices =
+    a.deviceIds && a.deviceIds.length
+      ? a.deviceIds
+      : await (async () => {
+          const r = await run("adb", ["devices"]);
+          return r.stdout
+            .split("\n")
+            .slice(1)
+            .map((l) => l.split(/\s+/)[0])
+            .filter(Boolean);
+        })();
+  const results = await Promise.all(
+    devices.map(async (d) => {
+      const r = await run("adb", ["-s", d, "shell", a.command], { timeout: 60_000 });
+      return `=== ${d} (exit ${r.code}) ===\n${(r.stdout + r.stderr).slice(0, 4000)}`;
+    }),
+  );
   return { content: [{ type: "text" as const, text: results.join("\n\n") }] };
 }
 // APK serving (localhost by default, python http.server in the APK output dir)
@@ -1293,7 +1862,11 @@ async function findFirstApk(root: string, maxFiles = 500, maxDepth = 4): Promise
   while (stack.length && scanned < maxFiles) {
     const [dir, depth] = stack.pop()!;
     let entries;
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
     for (const e of entries) {
       if (scanned >= maxFiles) break;
       scanned++;
@@ -1307,12 +1880,30 @@ async function findFirstApk(root: string, maxFiles = 500, maxDepth = 4): Promise
 export async function handleApkServe(a: z.infer<typeof ToolSchemas.apkServe>) {
   if (a.action === "stop") {
     try {
-      const fsMod = await import("node:fs"); const st = JSON.parse(fsMod.readFileSync(serveStatePath(), "utf8"));
-      if (st.pid && (await (async () => { try { process.kill(st.pid, 0); return true; } catch { return false; } })())) {
+      const fsMod = await import("node:fs");
+      const st = JSON.parse(fsMod.readFileSync(serveStatePath(), "utf8"));
+      if (
+        st.pid &&
+        (await (async () => {
+          try {
+            process.kill(st.pid, 0);
+            return true;
+          } catch {
+            return false;
+          }
+        })())
+      ) {
         process.kill(st.pid, "SIGTERM");
       }
-    } catch { /* no state */ }
-    try { const fsMod = await import("node:fs"); fsMod.unlinkSync(serveStatePath()); } catch { /* ignore */ }
+    } catch {
+      /* no state */
+    }
+    try {
+      const fsMod = await import("node:fs");
+      fsMod.unlinkSync(serveStatePath());
+    } catch {
+      /* ignore */
+    }
     return { content: [{ type: "text" as const, text: "apk serve stopped" }] };
   }
   const port = a.port ?? 8000;
@@ -1320,25 +1911,56 @@ export async function handleApkServe(a: z.infer<typeof ToolSchemas.apkServe>) {
   const dir = a.dir ?? (await tmpDir("android-mcp-serve-"));
   const { existsSync } = await import("node:fs");
   if (!existsSync(dir)) {
-    return { content: [{ type: "text" as const, text: `Directory does not exist: ${dir}` }], isError: true };
+    return {
+      content: [{ type: "text" as const, text: `Directory does not exist: ${dir}` }],
+      isError: true,
+    };
   }
   // Issue 66: loopback-only unless the caller explicitly opts into LAN exposure.
   const bind = a.expose ? "0.0.0.0" : "127.0.0.1";
   // Issue 66: kill any previous listener before starting a new one — a second
   // start must never orphan the first server.
   try {
-    const fsMod = await import("node:fs"); const st = JSON.parse(fsMod.readFileSync(serveStatePath(), "utf8"));
-    if (st.pid) { try { process.kill(st.pid, "SIGTERM"); } catch { /* already gone */ } }
-  } catch { /* no state */ }
+    const fsMod = await import("node:fs");
+    const st = JSON.parse(fsMod.readFileSync(serveStatePath(), "utf8"));
+    if (st.pid) {
+      try {
+        process.kill(st.pid, "SIGTERM");
+      } catch {
+        /* already gone */
+      }
+    }
+  } catch {
+    /* no state */
+  }
   const { spawn } = await import("node:child_process");
-  const child = spawn("python3", ["-m", "http.server", String(port), "--directory", dir, "--bind", bind], { detached: true, stdio: "ignore" });
+  const child = spawn(
+    "python3",
+    ["-m", "http.server", String(port), "--directory", dir, "--bind", bind],
+    { detached: true, stdio: "ignore" },
+  );
   child.unref();
   const fs = await import("node:fs");
-  try { fs.chmodSync(serveStatePath(), 0o600); } catch { /* fresh */ }
+  try {
+    fs.chmodSync(serveStatePath(), 0o600);
+  } catch {
+    /* fresh */
+  }
   fs.writeFileSync(serveStatePath(), JSON.stringify({ pid: child.pid, port, dir, bind }));
-  try { fs.chmodSync(serveStatePath(), 0o600); } catch { /* best effort */ }
+  try {
+    fs.chmodSync(serveStatePath(), 0o600);
+  } catch {
+    /* best effort */
+  }
   // Issue 65: no execSync/find — pure fs traversal for a reportable apk path.
   const apk = await findFirstApk(dir);
   const ip = bind;
-  return { content: [{ type: "text" as const, text: `serving ${dir} on http://${ip}:${port}/${a.expose ? " (all interfaces — explicit expose opt-in)" : " (localhost only)"}\n${apk ? "apk: " + apk : "no .apk found in dir"}\nstop with apk_serve action=stop` }] };
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `serving ${dir} on http://${ip}:${port}/${a.expose ? " (all interfaces — explicit expose opt-in)" : " (localhost only)"}\n${apk ? "apk: " + apk : "no .apk found in dir"}\nstop with apk_serve action=stop`,
+      },
+    ],
+  };
 }

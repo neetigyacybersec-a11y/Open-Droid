@@ -16,8 +16,7 @@ export const DEVICE_SERVER_PATH = "/data/local/tmp/frida-server";
  * pidfile for the single-session mitmproxy capture (Task 7). The env override
  * keeps tests and parallel harnesses off the production path.
  */
-export const PIDFILE =
-  process.env.ANDROID_MCP_PIDFILE ?? join(tmpdir(), "android-mcp-mitm.pid");
+export const PIDFILE = process.env.ANDROID_MCP_PIDFILE ?? join(tmpdir(), "android-mcp-mitm.pid");
 
 /** Repo root as seen from src/ (tsx) or dist/ (compiled) — one level up. */
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));

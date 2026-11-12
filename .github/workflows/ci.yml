@@ -20,6 +20,11 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm test --if-present
+      # Issue 71: source quality gates must fail the build, not rely on
+      # developers running them locally.
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run format:check
       - run: node --test test/privacy.test.mjs
       - run: bash scripts/check-readme.sh
       - run: bash scripts/repo-hygiene.sh

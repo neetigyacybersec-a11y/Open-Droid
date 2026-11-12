@@ -291,8 +291,7 @@ const ACCOUNT_DELETION =
 const LOG_CALL =
   /\b(?:Log\.(?:d|i|w|e|v|wtf|println)|Timber\.(?:d|i|w|e|v)|logger\.(?:trace|debug|info|warn|error)|Logger\.(?:trace|debug|info|warn|error)|System\.(?:out|err)\.print(?:ln)?|println|print)\s*\(/g;
 
-const URL_HOST =
-  /\bhttps?:\/\/([^\s"'<>)\]]+)/g;
+const URL_HOST = /\bhttps?:\/\/([^\s"'<>)\]]+)/g;
 
 const IGNORED_HOSTS = new Set([
   "developer.android.com",
@@ -341,7 +340,13 @@ function shortPermission(value: string): string {
 
 function normalizeHost(raw: string): string | null {
   let value = raw.trim().toLowerCase();
-  if (!value || value.includes("$") || value.includes("{") || value.includes("<") || value.includes(">")) {
+  if (
+    !value ||
+    value.includes("$") ||
+    value.includes("{") ||
+    value.includes("<") ||
+    value.includes(">")
+  ) {
     return null;
   }
   value = value.replace(/^https?:\/\//, "");
@@ -377,7 +382,9 @@ export function parsePrivacyDeclarations(raw: unknown): PrivacyDeclarations {
   return {
     permissions: permissions?.map(shortPermission),
     sdks: sdks?.map((value) => value.toLowerCase()),
-    endpoints: endpoints?.map((value) => normalizeHost(value)).filter((value): value is string => value !== null),
+    endpoints: endpoints
+      ?.map((value) => normalizeHost(value))
+      .filter((value): value is string => value !== null),
     accountCreation: readBoolean(object.accountCreation, "accountCreation"),
     accountDeletion: readBoolean(object.accountDeletion, "accountDeletion"),
   };
@@ -390,7 +397,9 @@ function isRelevantFile(name: string): boolean {
   return /\.(kt|java)$/.test(name);
 }
 
-async function collectFiles(root: string): Promise<{ files: string[]; skipped: number; limitReached: boolean }> {
+async function collectFiles(
+  root: string,
+): Promise<{ files: string[]; skipped: number; limitReached: boolean }> {
   const files: string[] = [];
   let skipped = 0;
   let limitReached = false;
@@ -434,7 +443,12 @@ function lineNumber(content: string, index: number): number {
 
 function isCommentLine(line: string): boolean {
   const trimmed = line.trimStart();
-  return trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*") || trimmed.startsWith("<!--");
+  return (
+    trimmed.startsWith("//") ||
+    trimmed.startsWith("*") ||
+    trimmed.startsWith("/*") ||
+    trimmed.startsWith("<!--")
+  );
 }
 
 function linePrefixIsCode(content: string, index: number): boolean {
@@ -461,7 +475,10 @@ function linePrefixIsCode(content: string, index: number): boolean {
   return quote === null;
 }
 
-function extractCallArguments(content: string, openIndex: number): { text: string; end: number } | null {
+function extractCallArguments(
+  content: string,
+  openIndex: number,
+): { text: string; end: number } | null {
   let depth = 0;
   let quote: string | null = null;
   let escaped = false;
@@ -545,11 +562,15 @@ export function piiIdentifiers(argumentsText: string): string[] {
   const { expressions, remaining } = extractTemplateParts(argumentsText);
   for (const expression of expressions) {
     const cleaned = expression.replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, " ");
-    for (const identifier of cleaned.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []) identifiers.add(identifier);
+    for (const identifier of cleaned.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? [])
+      identifiers.add(identifier);
   }
   const withoutStrings = remaining.replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, " ");
-  for (const identifier of withoutStrings.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []) identifiers.add(identifier);
-  return [...identifiers].filter((identifier) => PII_IDENTIFIERS.has(identifier.toLowerCase())).sort();
+  for (const identifier of withoutStrings.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? [])
+    identifiers.add(identifier);
+  return [...identifiers]
+    .filter((identifier) => PII_IDENTIFIERS.has(identifier.toLowerCase()))
+    .sort();
 }
 
 function findPiiLogs(content: string, file: string, limitations: string[]): PiiLogFinding[] {
@@ -580,7 +601,12 @@ function findPiiLogs(content: string, file: string, limitations: string[]): PiiL
   return findings;
 }
 
-function findCodeMatches(content: string, file: string, pattern: RegExp, limitations: string[]): CodeMatch[] {
+function findCodeMatches(
+  content: string,
+  file: string,
+  pattern: RegExp,
+  limitations: string[],
+): CodeMatch[] {
   const matches: CodeMatch[] = [];
   const seen = new Set<string>();
   const lines = content.split("\n");
@@ -605,7 +631,14 @@ function findCodeMatches(content: string, file: string, pattern: RegExp, limitat
   return matches;
 }
 
-function declarationCheck(result: Omit<PrivacyScanResult, "declarationsCheck" | "candidateDataTypes" | "findings" | "limitations">, declared: PrivacyDeclarations, path: string): DeclarationCheck {
+function declarationCheck(
+  result: Omit<
+    PrivacyScanResult,
+    "declarationsCheck" | "candidateDataTypes" | "findings" | "limitations"
+  >,
+  declared: PrivacyDeclarations,
+  path: string,
+): DeclarationCheck {
   const missingFields: string[] = [];
   if (declared.permissions === undefined) missingFields.push("permissions");
   if (declared.sdks === undefined) missingFields.push("sdks");
@@ -683,7 +716,9 @@ function declarationCheck(result: Omit<PrivacyScanResult, "declarationsCheck" | 
   };
 }
 
-function buildFindings(result: Omit<PrivacyScanResult, "findings" | "limitations">): PrivacyFinding[] {
+function buildFindings(
+  result: Omit<PrivacyScanResult, "findings" | "limitations">,
+): PrivacyFinding[] {
   const findings: PrivacyFinding[] = [];
   for (const log of result.piiLogs) {
     findings.push({
@@ -774,7 +809,8 @@ function buildFindings(result: Omit<PrivacyScanResult, "findings" | "limitations
       findings.push({
         severity: "review",
         rule: "account-creation-stale",
-        message: "Declarations say account creation is enabled, but no creation marker was observed.",
+        message:
+          "Declarations say account creation is enabled, but no creation marker was observed.",
         evidence: check.path,
       });
     }
@@ -790,7 +826,8 @@ function buildFindings(result: Omit<PrivacyScanResult, "findings" | "limitations
       findings.push({
         severity: "review",
         rule: "account-deletion-stale",
-        message: "Declarations say account deletion is enabled, but no deletion marker was observed.",
+        message:
+          "Declarations say account deletion is enabled, but no deletion marker was observed.",
         evidence: check.path,
       });
     }
@@ -828,7 +865,10 @@ function candidateDataTypes(permissions: string[], sdks: SdkFinding[]): string[]
   return [...types].sort();
 }
 
-export async function scanPrivacyProject(projectPath: string, options: PrivacyScanOptions = {}): Promise<PrivacyScanResult> {
+export async function scanPrivacyProject(
+  projectPath: string,
+  options: PrivacyScanOptions = {},
+): Promise<PrivacyScanResult> {
   const root = resolve(projectPath);
   const rootStat = await stat(root);
   if (!rootStat.isDirectory()) throw new Error(`not a directory: ${root}`);
@@ -863,7 +903,9 @@ export async function scanPrivacyProject(projectPath: string, options: PrivacySc
 
     if (name === "AndroidManifest.xml") {
       const xml = content.replace(/<!--[\s\S]*?-->/g, "");
-      for (const match of xml.matchAll(/<uses-permission(?:-sdk-23)?\b[^>]*\bandroid:name\s*=\s*"([^"]+)"/g)) {
+      for (const match of xml.matchAll(
+        /<uses-permission(?:-sdk-23)?\b[^>]*\bandroid:name\s*=\s*"([^"]+)"/g,
+      )) {
         permissions.add(shortPermission(match[1]));
       }
     }
@@ -871,14 +913,21 @@ export async function scanPrivacyProject(projectPath: string, options: PrivacySc
     if (BUILD_FILE_NAMES.has(name)) {
       for (const line of content.split("\n")) {
         if (isCommentLine(line) || line.trimStart().startsWith("#")) continue;
-        for (const match of line.matchAll(/["']([A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+)(?::[^"'\s]+)?["']/g)) {
+        for (const match of line.matchAll(
+          /["']([A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+)(?::[^"'\s]+)?["']/g,
+        )) {
           const artifact = match[1];
           const lower = artifact.toLowerCase();
           for (const entry of SDK_CATALOG) {
             if (!lower.includes(entry.artifact.toLowerCase())) continue;
             const key = entry.artifact.toLowerCase();
             if (sdks.has(key)) continue;
-            sdks.set(key, { artifact: entry.artifact, id: entry.id, dataTypes: entry.dataTypes, file: filePath });
+            sdks.set(key, {
+              artifact: entry.artifact,
+              id: entry.id,
+              dataTypes: entry.dataTypes,
+              file: filePath,
+            });
           }
         }
       }
@@ -913,12 +962,24 @@ export async function scanPrivacyProject(projectPath: string, options: PrivacySc
   }
 
   const sortedPermissions = [...permissions].sort();
-  const sortedSdks = [...sdks.values()].sort((left, right) => left.artifact.localeCompare(right.artifact));
-  const sortedEndpoints = [...endpoints.values()].sort((left, right) => left.host.localeCompare(right.host));
-  const sortedDataStores = [...dataStores.values()].sort((left, right) => left.kind.localeCompare(right.kind));
-  const sortedCreation = accountCreation.sort((left, right) => left.file.localeCompare(right.file) || left.line - right.line).slice(0, MAX_MATCHES);
-  const sortedDeletion = accountDeletion.sort((left, right) => left.file.localeCompare(right.file) || left.line - right.line).slice(0, MAX_MATCHES);
-  const sortedPiiLogs = piiLogs.sort((left, right) => left.file.localeCompare(right.file) || left.line - right.line).slice(0, MAX_PII_LOGS);
+  const sortedSdks = [...sdks.values()].sort((left, right) =>
+    left.artifact.localeCompare(right.artifact),
+  );
+  const sortedEndpoints = [...endpoints.values()].sort((left, right) =>
+    left.host.localeCompare(right.host),
+  );
+  const sortedDataStores = [...dataStores.values()].sort((left, right) =>
+    left.kind.localeCompare(right.kind),
+  );
+  const sortedCreation = accountCreation
+    .sort((left, right) => left.file.localeCompare(right.file) || left.line - right.line)
+    .slice(0, MAX_MATCHES);
+  const sortedDeletion = accountDeletion
+    .sort((left, right) => left.file.localeCompare(right.file) || left.line - right.line)
+    .slice(0, MAX_MATCHES);
+  const sortedPiiLogs = piiLogs
+    .sort((left, right) => left.file.localeCompare(right.file) || left.line - right.line)
+    .slice(0, MAX_PII_LOGS);
 
   limitations.push(
     "Backend request and response payloads are not inspected; review API models and backend data flows for every observed endpoint.",
@@ -926,11 +987,17 @@ export async function scanPrivacyProject(projectPath: string, options: PrivacySc
     "Candidate data types are derived from permissions and SDKs only; they are not a completed Play Data safety declaration.",
     "Account deletion may live in a backend or web flow; this scan only finds source-code markers.",
   );
-  if (limitReached) limitations.push(`File limit reached (${MAX_FILES}); results may be incomplete.`);
-  if (filesSkipped > 0) limitations.push(`${filesSkipped} unreadable or oversized file(s), or unreadable directories, were skipped.`);
+  if (limitReached)
+    limitations.push(`File limit reached (${MAX_FILES}); results may be incomplete.`);
+  if (filesSkipped > 0)
+    limitations.push(
+      `${filesSkipped} unreadable or oversized file(s), or unreadable directories, were skipped.`,
+    );
 
   const defaultDeclarationsPath = join(root, "privacy", "data-safety.json");
-  const declarationsPath = options.declarationsPath ? resolve(root, options.declarationsPath) : defaultDeclarationsPath;
+  const declarationsPath = options.declarationsPath
+    ? resolve(root, options.declarationsPath)
+    : defaultDeclarationsPath;
   const declarationsRequired = Boolean(options.declarationsPath);
   let declarations: PrivacyDeclarations | null = null;
   let declarationsError: string | null = null;
@@ -940,7 +1007,10 @@ export async function scanPrivacyProject(projectPath: string, options: PrivacySc
     declarationsError = error instanceof Error ? error.message : String(error);
   }
 
-  const baseResult: Omit<PrivacyScanResult, "declarationsCheck" | "candidateDataTypes" | "findings" | "limitations"> = {
+  const baseResult: Omit<
+    PrivacyScanResult,
+    "declarationsCheck" | "candidateDataTypes" | "findings" | "limitations"
+  > = {
     root,
     projectName: basename(root),
     filesScanned,
@@ -959,7 +1029,9 @@ export async function scanPrivacyProject(projectPath: string, options: PrivacySc
     declarationsRequired,
   };
 
-  const declarationsCheck = declarations ? declarationCheck(baseResult, declarations, declarationsPath) : null;
+  const declarationsCheck = declarations
+    ? declarationCheck(baseResult, declarations, declarationsPath)
+    : null;
   const result: PrivacyScanResult = {
     ...baseResult,
     declarationsCheck,
@@ -972,7 +1044,9 @@ export async function scanPrivacyProject(projectPath: string, options: PrivacySc
 }
 
 function renderList(values: string[]): string {
-  return values.length > 0 ? values.map((value) => `\`${value.replaceAll("`", "'")}\``).join(", ") : "none";
+  return values.length > 0
+    ? values.map((value) => `\`${value.replaceAll("`", "'")}\``).join(", ")
+    : "none";
 }
 
 function renderCode(value: string): string {
@@ -987,9 +1061,14 @@ export function renderPrivacyReport(result: PrivacyScanResult): string {
     "",
     `Scanned ${result.filesScanned} relevant file(s) under ${renderCode(result.root)}.`,
   ];
-  if (result.filesSkipped > 0) lines.push(`Skipped ${result.filesSkipped} unreadable or oversized file(s).`);
+  if (result.filesSkipped > 0)
+    lines.push(`Skipped ${result.filesSkipped} unreadable or oversized file(s).`);
   if (result.limitReached) lines.push("The file limit was reached; results may be incomplete.");
-  lines.push("", `Verdict: **${blockers.length} blocker(s), ${reviews.length} review item(s)**.`, "");
+  lines.push(
+    "",
+    `Verdict: **${blockers.length} blocker(s), ${reviews.length} review item(s)**.`,
+    "",
+  );
 
   lines.push("## Observed signals", "", "### Permissions", "");
   if (result.permissions.length === 0) lines.push("No permissions observed.");
@@ -1000,31 +1079,42 @@ export function renderPrivacyReport(result: PrivacyScanResult): string {
   if (result.sdks.length === 0) lines.push("No known privacy-relevant SDK artifacts observed.");
   else {
     for (const sdk of result.sdks) {
-      lines.push(`- ${renderCode(sdk.artifact)} — ${sdk.id}; candidate data: ${sdk.dataTypes.join(", ")} — ${renderCode(sdk.file)}`);
+      lines.push(
+        `- ${renderCode(sdk.artifact)} — ${sdk.id}; candidate data: ${sdk.dataTypes.join(", ")} — ${renderCode(sdk.file)}`,
+      );
     }
   }
   lines.push("");
 
   lines.push("### Network endpoints", "");
-  if (result.endpoints.length === 0) lines.push("No network endpoints observed in source or network-security configuration.");
+  if (result.endpoints.length === 0)
+    lines.push("No network endpoints observed in source or network-security configuration.");
   else {
-    for (const endpoint of result.endpoints) lines.push(`- ${renderCode(endpoint.host)} — ${renderCode(endpoint.file)}`);
+    for (const endpoint of result.endpoints)
+      lines.push(`- ${renderCode(endpoint.host)} — ${renderCode(endpoint.file)}`);
     lines.push("", "Endpoints are observed; request and response payloads are not inspected.");
   }
   lines.push("");
 
   lines.push("### On-device storage", "");
   if (result.dataStores.length === 0) lines.push("No known on-device storage markers observed.");
-  else for (const store of result.dataStores) lines.push(`- ${store.kind} — ${renderCode(store.file)}`);
+  else
+    for (const store of result.dataStores)
+      lines.push(`- ${store.kind} — ${renderCode(store.file)}`);
   lines.push("");
 
   lines.push("### Account flows", "");
   lines.push(`- Account creation markers: ${result.accountCreation.length}`);
-  for (const match of result.accountCreation) lines.push(`  - ${renderCode(`${match.file}:${match.line}`)} — ${renderCode(match.snippet)}`);
+  for (const match of result.accountCreation)
+    lines.push(`  - ${renderCode(`${match.file}:${match.line}`)} — ${renderCode(match.snippet)}`);
   lines.push(`- Account deletion markers: ${result.accountDeletion.length}`);
-  for (const match of result.accountDeletion) lines.push(`  - ${renderCode(`${match.file}:${match.line}`)} — ${renderCode(match.snippet)}`);
+  for (const match of result.accountDeletion)
+    lines.push(`  - ${renderCode(`${match.file}:${match.line}`)} — ${renderCode(match.snippet)}`);
   if (result.accountCreation.length > 0 && result.accountDeletion.length === 0) {
-    lines.push("", "Account creation is present without a deletion marker. Play requires an in-app deletion path when account creation is enabled.");
+    lines.push(
+      "",
+      "Account creation is present without a deletion marker. Play requires an in-app deletion path when account creation is enabled.",
+    );
   }
   lines.push("");
 
@@ -1032,55 +1122,82 @@ export function renderPrivacyReport(result: PrivacyScanResult): string {
   if (result.piiLogs.length === 0) lines.push("No PII identifiers found in log calls.");
   else {
     for (const log of result.piiLogs) {
-      lines.push(`- ${renderCode(`${log.file}:${log.line}`)} — identifiers: ${log.identifiers.join(", ")} — ${renderCode(log.snippet)}`);
+      lines.push(
+        `- ${renderCode(`${log.file}:${log.line}`)} — identifiers: ${log.identifiers.join(", ")} — ${renderCode(log.snippet)}`,
+      );
     }
   }
   lines.push("");
 
   lines.push("### Candidate data types (verify, do not paste blindly)", "");
-  if (result.candidateDataTypes.length === 0) lines.push("No data types derived from permissions or SDKs.");
+  if (result.candidateDataTypes.length === 0)
+    lines.push("No data types derived from permissions or SDKs.");
   else for (const type of result.candidateDataTypes) lines.push(`- ${type}`);
   lines.push("");
 
   lines.push("## Declaration check", "");
   if (!result.declarations) {
-    lines.push(`No machine-readable declarations loaded from ${renderCode(result.declarationsPath)}.`);
+    lines.push(
+      `No machine-readable declarations loaded from ${renderCode(result.declarationsPath)}.`,
+    );
     if (result.declarationsError) lines.push("", `Reason: ${result.declarationsError}`);
   } else if (result.declarationsCheck) {
     const check = result.declarationsCheck;
     lines.push(`- File: ${renderCode(check.path)}`);
     lines.push(`- Result: **${check.ok ? "PASS" : "FAIL"}**`);
     lines.push(`- Missing fields: ${renderList(check.missingFields)}`);
-    lines.push(`- Observed but not declared permissions: ${renderList(check.undeclaredPermissions)}`);
+    lines.push(
+      `- Observed but not declared permissions: ${renderList(check.undeclaredPermissions)}`,
+    );
     lines.push(`- Declared but not observed permissions: ${renderList(check.stalePermissions)}`);
     lines.push(`- Observed but not declared SDKs: ${renderList(check.undeclaredSdks)}`);
     lines.push(`- Declared but not observed SDKs: ${renderList(check.staleSdks)}`);
     lines.push(`- Observed but not declared endpoints: ${renderList(check.undeclaredEndpoints)}`);
     lines.push(`- Declared but not observed endpoints: ${renderList(check.staleEndpoints)}`);
-    lines.push(`- Account creation observed: ${check.accountCreationObserved ? "yes" : "no"}; declared: ${check.declared.accountCreation === undefined ? "unset" : check.declared.accountCreation ? "yes" : "no"}`);
-    lines.push(`- Account deletion observed: ${check.accountDeletionObserved ? "yes" : "no"}; declared: ${check.declared.accountDeletion === undefined ? "unset" : check.declared.accountDeletion ? "yes" : "no"}`);
+    lines.push(
+      `- Account creation observed: ${check.accountCreationObserved ? "yes" : "no"}; declared: ${check.declared.accountCreation === undefined ? "unset" : check.declared.accountCreation ? "yes" : "no"}`,
+    );
+    lines.push(
+      `- Account deletion observed: ${check.accountDeletionObserved ? "yes" : "no"}; declared: ${check.declared.accountDeletion === undefined ? "unset" : check.declared.accountDeletion ? "yes" : "no"}`,
+    );
     lines.push(`- Account deletion gap: ${check.accountDeletionGap ? "yes" : "no"}`);
   }
   lines.push("");
 
   lines.push("## Findings", "");
   if (result.findings.length === 0) {
-    lines.push("No blockers or review items from the static scan. Manual evidence is still required.");
+    lines.push(
+      "No blockers or review items from the static scan. Manual evidence is still required.",
+    );
   } else {
     for (const finding of result.findings) {
       const evidence = finding.evidence ? ` (${finding.evidence})` : "";
-      lines.push(`- **${finding.severity}** ${renderCode(finding.rule)} — ${finding.message}${evidence}`);
+      lines.push(
+        `- **${finding.severity}** ${renderCode(finding.rule)} — ${finding.message}${evidence}`,
+      );
     }
   }
   lines.push("");
 
   lines.push("## Manual evidence still required", "");
-  lines.push("- Review every observed endpoint's request and response models, and the backend data flows that are not in this repository.");
-  lines.push("- Verify runtime collection and sharing with `net_capture`, `adb_logcat`, and SDK documentation; a static scan cannot prove behavior.");
-  lines.push("- Complete the Play Data safety form from the reviewed inventory, not from permissions and SDKs alone.");
-  lines.push("- Determine applicable consent and disclosure flows from the data types, user age, and jurisdictions in scope.");
-  lines.push("- If account creation is enabled, provide an in-app deletion path and a public web deletion URL, then test both.");
-  lines.push("- Host the privacy policy at a public, stable URL and link it in the app and the Play listing.");
+  lines.push(
+    "- Review every observed endpoint's request and response models, and the backend data flows that are not in this repository.",
+  );
+  lines.push(
+    "- Verify runtime collection and sharing with `net_capture`, `adb_logcat`, and SDK documentation; a static scan cannot prove behavior.",
+  );
+  lines.push(
+    "- Complete the Play Data safety form from the reviewed inventory, not from permissions and SDKs alone.",
+  );
+  lines.push(
+    "- Determine applicable consent and disclosure flows from the data types, user age, and jurisdictions in scope.",
+  );
+  lines.push(
+    "- If account creation is enabled, provide an in-app deletion path and a public web deletion URL, then test both.",
+  );
+  lines.push(
+    "- Host the privacy policy at a public, stable URL and link it in the app and the Play listing.",
+  );
   lines.push("- This scan is a review aid, not legal advice.");
   for (const limitation of result.limitations) lines.push(`- ${limitation}`);
   lines.push("");

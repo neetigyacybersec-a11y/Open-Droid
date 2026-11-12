@@ -21,7 +21,7 @@ export interface RunResult {
 export async function run(
   cmd: string,
   args: string[],
-  opts: { cwd?: string; timeout?: number; env?: NodeJS.ProcessEnv } = {}
+  opts: { cwd?: string; timeout?: number; env?: NodeJS.ProcessEnv } = {},
 ): Promise<RunResult> {
   try {
     const { stdout, stderr } = await execFileAsync(cmd, args, {
@@ -67,7 +67,7 @@ export function validateGradleTask(t: string): boolean {
   // Issue 68: the previous pattern accepted a leading '-' ("-Ievil.gradle"
   // parses as a Gradle option). Identifiers must start with a letter, digit,
   // '_', ':' or '.', never a dash; dashes stay legal *inside* the value.
-  return /^[a-zA-Z0-9_:.][a-zA-Z0-9_:.\-]*$/.test(t);
+  return /^[a-zA-Z0-9_:.][a-zA-Z0-9_:.-]*$/.test(t);
 }
 
 export function validatePackageName(p: string): boolean {
