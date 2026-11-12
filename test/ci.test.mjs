@@ -70,6 +70,19 @@ test('CI runs the Maestro smoke flow in the emulator session (FR-B2 slice 3)', (
   assert.ok(inst.includes(':app:installDebug'), 'the app must be reinstalled before the flow (AGP uninstalls after connected tests)');
 });
 
+test('maestro driver startup timeout is in milliseconds and the driver port is pinned (runs 43162090162)', () => {
+  const inst = ci.slice(ci.indexOf('android-instrumented:'), ci.indexOf('docker:'));
+  // MAESTRO_DRIVER_STARTUP_TIMEOUT is parsed as milliseconds by
+  // AndroidDriver.getStartupTimeout (default 15000L, no unit conversion).
+  // A seconds-looking value like 180 means a 180 ms poll window — any slower
+  // driver start fails outright with AndroidDriverTimeoutException.
+  for (const m of inst.matchAll(/MAESTRO_DRIVER_STARTUP_TIMEOUT=(\d+)/g)) {
+    assert.ok(Number(m[1]) >= 60000, `driver startup timeout must be milliseconds (got ${m[1]}): a small value starves awaitLaunch`);
+  }
+  assert.match(inst, /maestro test --driver-host-port \d+/m, 'the driver port must be pinned below the device ephemeral range (upstream maestro #3684)');
+  assert.doesNotMatch(inst, /--driver-host-port (\d{5,})/, 'the pinned driver port must be below the 32768-60999 device ephemeral range');
+});
+
 // ---------------------------------------------------------------------------
 // Issue 72 [security]: workflow hardening — least-privilege permissions,
 // SHA-pinned actions, gated publishing with provenance.

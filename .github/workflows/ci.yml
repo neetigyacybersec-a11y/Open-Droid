@@ -126,7 +126,12 @@ jobs:
             # 43161053168). --driver-host-port 7001 pins a port below the
             # device's ephemeral range (the <=2.5.0 behavior). Flag verified
             # present in cli 2.12.1 TestCommand.class.
-            MAESTRO_DRIVER_STARTUP_TIMEOUT=180 PATH="$HOME/.maestro/bin:$PATH" maestro test --driver-host-port 7001 templates/compose-starter/maestro/smoke.yaml || MAESTRO_DRIVER_STARTUP_TIMEOUT=180 PATH="$HOME/.maestro/bin:$PATH" maestro test --driver-host-port 7001 templates/compose-starter/maestro/smoke.yaml || { echo '=== maestro failed (after retry): device events + crash buffer + TestRunner errors ==='; adb logcat -d -b events 2>/dev/null | grep -E 'maestro|am_anr|am_kill' | tail -20; adb logcat -d -b crash 2>/dev/null | tail -30; adb logcat -d 2>/dev/null | grep -E 'TestRunner|Failed to bind|grpcServer|maestro' | tail -20; exit 1; }
+            # MAESTRO_DRIVER_STARTUP_TIMEOUT is parsed as MILLISECONDS
+            # (AndroidDriver.getStartupTimeout default 15000L, no unit
+            # conversion) — our old value of 180 gave awaitLaunch a 180 ms
+            # poll window, so any driver startup slower than that failed
+            # outright (run 43162090162). 180000 = the intended 180 s.
+            MAESTRO_DRIVER_STARTUP_TIMEOUT=180000 PATH="$HOME/.maestro/bin:$PATH" maestro test --driver-host-port 7001 templates/compose-starter/maestro/smoke.yaml || MAESTRO_DRIVER_STARTUP_TIMEOUT=180000 PATH="$HOME/.maestro/bin:$PATH" maestro test --driver-host-port 7001 templates/compose-starter/maestro/smoke.yaml || { echo '=== maestro failed (after retry): device events + crash buffer + TestRunner errors ==='; adb logcat -d -b events 2>/dev/null | grep -E 'maestro|am_anr|am_kill' | tail -20; adb logcat -d -b crash 2>/dev/null | tail -30; adb logcat -d 2>/dev/null | grep -E 'TestRunner|Failed to bind|grpcServer|maestro' | tail -20; exit 1; }
 
   docker:
     runs-on: ubuntu-latest
