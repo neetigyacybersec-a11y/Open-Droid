@@ -302,17 +302,24 @@ if ! ok_file "$TOOLCHAIN/gradle/bin/gradle" && ! ok_file "$TOOLCHAIN/gradle/bin/
 fi
 
 # ---- Maestro ----
+# Issue 73: pinned release zip (same version vendored locally), never the
+# unpinned "latest" installer script piped into bash.
+MAESTRO_VERSION="cli-2.12.1"
 if ! ok_file "$TOOLCHAIN/maestro/bin/maestro" && ! ok_file "$TOOLCHAIN/maestro/bin/maestro.exe"; then
-  log "Downloading Maestro..."
+  log "Downloading Maestro ${MAESTRO_VERSION}..."
   mkdir -p "$TOOLCHAIN/maestro"
   # Reuse system maestro if present
   if command -v maestro >/dev/null 2>&1; then
     SYSM="$(dirname "$(dirname "$(readlink -f "$(command -v maestro)" 2>/dev/null || command -v maestro)")")"
     cp -a "$SYSM"/. "$TOOLCHAIN/maestro/" 2>/dev/null || true
   else
-    curl -fsSL "https://get.maestro.mobile.dev" | bash >/dev/null 2>&1 || true
-    if [ -d "$HOME/.maestro" ]; then
-      cp -a "$HOME/.maestro"/. "$TOOLCHAIN/maestro/" 2>/dev/null || true
+    download_to "https://github.com/mobile-dev-inc/maestro/releases/download/${MAESTRO_VERSION}/maestro.zip" /tmp/maestro-pin.zip
+    if unzip -q -o /tmp/maestro-pin.zip -d /tmp/maestro-pin; then
+      mkdir -p "$TOOLCHAIN/maestro"
+      cp -a /tmp/maestro-pin/maestro/. "$TOOLCHAIN/maestro/"
+      rm -rf /tmp/maestro-pin /tmp/maestro-pin.zip
+    else
+      log "WARNING: maestro ${MAESTRO_VERSION} download/extract failed (optional tool). Re-run setup or install from https://docs.maestro.dev"
     fi
   fi
 fi
@@ -324,9 +331,13 @@ if [ ! -d "$TOOLCHAIN/android-skills/.git" ]; then
 fi
 
 # ---- compose-preview CLI (compose-ai-tools) — best effort ----
+# Issue 73: the installer script is fetched from a pinned commit (not the
+# mutable main branch), staged to a file, then executed explicitly.
+SKILLS_PIN="ecdcc9b225e48487fad9ca1a75db0be865ba4029"
 if ! command -v compose-preview >/dev/null 2>&1; then
   log "Installing compose-ai-tools (compose-preview CLI)..."
-  if curl -fsSL "https://raw.githubusercontent.com/yschimke/skills/main/scripts/install.sh" | bash >/dev/null 2>&1; then
+  if download_to "https://raw.githubusercontent.com/yschimke/skills@${SKILLS_PIN}/scripts/install.sh" /tmp/skills-install.sh \
+    && bash /tmp/skills-install.sh >/dev/null 2>&1; then
     log "compose-preview installed."
   else
     log "WARNING: compose-preview install failed (optional). Install later: https://github.com/yschimke/compose-ai-tools"
@@ -334,10 +345,13 @@ if ! command -v compose-preview >/dev/null 2>&1; then
 fi
 
 # ---- Android CLI (Google agent CLI) — best effort; Linux-only installer URL ----
+# Issue 73: staged to a file and executed explicitly (Google does not publish
+# a versioned URL or checksums for this installer; it stays optional).
 if ! command -v android >/dev/null 2>&1; then
   if [ "$OS_KIND" = "linux" ] && [ "$HOST_ARCH" = "x86_64" ]; then
     log "Installing Android CLI..."
-    if curl -fsSL "https://dl.google.com/android/cli/latest/linux_x86_64/install.sh" | bash >/dev/null 2>&1; then
+    if download_to "https://dl.google.com/android/cli/latest/linux_x86_64/install.sh" /tmp/android-cli-install.sh \
+      && bash /tmp/android-cli-install.sh >/dev/null 2>&1; then
       log "Android CLI installed."
     else
       log "WARNING: Android CLI install failed (optional). Install later: https://developer.android.com/tools/agents/android-cli/download"

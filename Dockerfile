@@ -23,10 +23,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libxtst6 libnss3 libasound2t64 \
     && rm -rf /var/lib/apt/lists/*
 
-# Node 22 (runtime for MCP server)
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/*
+# Node 22: official dist tarball, SHA-256-verified from nodejs.org (issue 73:
+# replaces the unpinned `curl nodesource | bash` pipe-to-shell).
+ARG NODE_VERSION=22.18.0
+RUN cd /tmp \
+    && wget -q "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
+    && wget -q "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt" \
+    && grep "node-v${NODE_VERSION}-linux-x64.tar.xz" SHASUMS256.txt | sha256sum -c - \
+    && tar -xf "node-v${NODE_VERSION}-linux-x64.tar.xz" -C /usr/local --strip-components=1 \
+    && rm -f "node-v${NODE_VERSION}-linux-x64.tar.xz" SHASUMS256.txt
 
 # Android SDK
 ENV ANDROID_HOME=/opt/android-sdk
@@ -40,21 +45,27 @@ RUN mkdir -p ${ANDROID_HOME}/cmdline-tools \
     && mv ${ANDROID_HOME}/cmdline-tools/cmdline-tools ${ANDROID_HOME}/cmdline-tools/latest \
     && rm cmdline.zip
 
-RUN yes | sdkmanager --licenses >/dev/null 2>&1 || true
+# Issue 73: required SDK components must fail closed — a missing platform
+# image silently breaks every downstream job.
+RUN yes | sdkmanager --licenses >/dev/null
 RUN sdkmanager --install \
         "platform-tools" \
         "platforms;android-35" \
         "build-tools;35.0.0" \
         "emulator" \
-        "system-images;android-35;default;x86_64" \
-    || true
+        "system-images;android-35;default;x86_64"
 
 RUN echo "no" | avdmanager create avd -n Pixel_9_API_35 \
-        -k "system-images;android-35;default;x86_64" -d pixel_9 2>/dev/null || true
+        -k "system-images;android-35;default;x86_64" -d pixel_9
 
-# Maestro (best-effort)
-RUN curl -fsSL "https://get.maestro.mobile.dev" | bash 2>/dev/null || true
-ENV PATH="/root/.maestro/bin:${PATH}"
+# Maestro: pinned release zip (same version vendored locally), not the
+# unpinned "latest" installer (issue 73).
+RUN mkdir -p /opt/maestro \
+    && wget -q "https://github.com/mobile-dev-inc/maestro/releases/download/cli-2.12.1/maestro.zip" -O /tmp/maestro.zip \
+    && unzip -q /tmp/maestro.zip -d /tmp/maestro-extract \
+    && cp -a /tmp/maestro-extract/maestro/. /opt/maestro/ \
+    && rm -rf /tmp/maestro.zip /tmp/maestro-extract
+ENV PATH="/opt/maestro/bin:${PATH}"
 
 # App
 WORKDIR /app
@@ -65,6 +76,14 @@ COPY scripts/run-mcp.sh ./scripts/run-mcp.sh
 # Normalize line endings so a Windows (CRLF) checkout can't break the shebang.
 RUN sed -i 's/\r$//' ./scripts/run-mcp.sh && chmod +x ./scripts/run-mcp.sh
 
+# Issue 73: run the MCP server as a dedicated non-root user. Android SDK and
+# toolchain paths stay root-owned read/execute; per-user state lives in the
+# user's home (gradle caches, avds) — no world-writable fallbacks.
+RUN useradd --create-home --shell /usr/sbin/nologin mcp \
+    && mkdir -p /opt/gradle-home \
+    && chown -R mcp:mcp /app /opt/gradle-home
+USER mcp
+ENV HOME=/home/mcp
 ENV NODE_ENV=production
 ENV GRADLE_USER_HOME=/opt/gradle-home
 ENTRYPOINT ["./scripts/run-mcp.sh"]
