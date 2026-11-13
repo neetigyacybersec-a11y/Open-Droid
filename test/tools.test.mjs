@@ -15,6 +15,9 @@ import {
   handleAdbRm,
   handleAdbReboot,
   handleAdbScreenshot,
+  handleCrashSummary,
+  handleStartupTime,
+  handleBuildVariant,
   handleAdbDeepLink,
   handleAdbBroadcast,
   handleComposeRecomposition,
@@ -125,45 +128,56 @@ async function withStubs(stubs, fn) {
   }
 }
 
-const RECORD = () => join(tmpdir(), `android-mcp-record-${process.pid}-${Math.random().toString(36).slice(2)}`);
-const readRecord = async (p) => (await readFile(p, "utf8").catch(() => "")).trim().split("\n").filter(Boolean);
+const RECORD = () =>
+  join(tmpdir(), `android-mcp-record-${process.pid}-${Math.random().toString(36).slice(2)}`);
+const readRecord = async (p) =>
+  (await readFile(p, "utf8").catch(() => "")).trim().split("\n").filter(Boolean);
 // one arg per line (newline-separated so embedded spaces/quotes survive)
 const APPEND_ARGS = 'printf \'%s\\n\' "$@" >> "$RECORD"';
 
-stubbedTests("apk_serve start: localhost bind by default, no shell in APK discovery (issues 65, 66)", async () => {
-  const work = await mkdtemp(join(tmpdir(), "android-mcp-serve-work-"));
-  const marker = join(work, "marker");
-  const state = join(work, "serve-state.json");
-  const record = RECORD();
-  const payloadDir = `${work}/x"; touch ${marker}; #`;
-  const realDir = join(work, "serve");
-  await mkdir(realDir, { recursive: true });
-  process.env.RECORD = record;
-  process.env.MARKER = marker;
-  process.env.ANDROID_MCP_SERVE_STATE = state;
-  try {
-    await withStubs({ python3: APPEND_ARGS }, async () => {
-      // crafted dir payload: discovery must not run a shell command derived from dir
-      await handleApkServe({ action: "start", dir: payloadDir, port: 18099 });
-      await new Promise((r) => setTimeout(r, 300));
-      assert.equal((await readFile(marker, "utf8").then(() => true).catch(() => false)), false, "a marker command executed — shell interpolation in APK discovery");
-      // then a legitimate start: python3 must bind to loopback only
-      await handleApkServe({ action: "start", dir: realDir, port: 18099 });
-      await new Promise((r) => setTimeout(r, 300));
-      const pyArgs = await readRecord(record);
-      assert.ok(pyArgs.length > 0, "python3 (http.server) was not invoked");
-      assert.ok(pyArgs.includes("--bind"), "http.server must be started with an explicit --bind");
-      assert.ok(pyArgs.includes("127.0.0.1"), "default bind must be 127.0.0.1");
-      assert.ok(!pyArgs.includes("0.0.0.0"), "default bind must not be 0.0.0.0");
-    });
-  } finally {
-    await handleApkServe({ action: "stop" }).catch(() => {});
-    delete process.env.RECORD;
-    delete process.env.MARKER;
-    delete process.env.ANDROID_MCP_SERVE_STATE;
-    await rm(work, { recursive: true, force: true });
-  }
-});
+stubbedTests(
+  "apk_serve start: localhost bind by default, no shell in APK discovery (issues 65, 66)",
+  async () => {
+    const work = await mkdtemp(join(tmpdir(), "android-mcp-serve-work-"));
+    const marker = join(work, "marker");
+    const state = join(work, "serve-state.json");
+    const record = RECORD();
+    const payloadDir = `${work}/x"; touch ${marker}; #`;
+    const realDir = join(work, "serve");
+    await mkdir(realDir, { recursive: true });
+    process.env.RECORD = record;
+    process.env.MARKER = marker;
+    process.env.ANDROID_MCP_SERVE_STATE = state;
+    try {
+      await withStubs({ python3: APPEND_ARGS }, async () => {
+        // crafted dir payload: discovery must not run a shell command derived from dir
+        await handleApkServe({ action: "start", dir: payloadDir, port: 18099 });
+        await new Promise((r) => setTimeout(r, 300));
+        assert.equal(
+          await readFile(marker, "utf8")
+            .then(() => true)
+            .catch(() => false),
+          false,
+          "a marker command executed — shell interpolation in APK discovery",
+        );
+        // then a legitimate start: python3 must bind to loopback only
+        await handleApkServe({ action: "start", dir: realDir, port: 18099 });
+        await new Promise((r) => setTimeout(r, 300));
+        const pyArgs = await readRecord(record);
+        assert.ok(pyArgs.length > 0, "python3 (http.server) was not invoked");
+        assert.ok(pyArgs.includes("--bind"), "http.server must be started with an explicit --bind");
+        assert.ok(pyArgs.includes("127.0.0.1"), "default bind must be 127.0.0.1");
+        assert.ok(!pyArgs.includes("0.0.0.0"), "default bind must not be 0.0.0.0");
+      });
+    } finally {
+      await handleApkServe({ action: "stop" }).catch(() => {});
+      delete process.env.RECORD;
+      delete process.env.MARKER;
+      delete process.env.ANDROID_MCP_SERVE_STATE;
+      await rm(work, { recursive: true, force: true });
+    }
+  },
+);
 
 stubbedTests("apk_serve start: LAN exposure requires explicit opt-in (issue 66)", async () => {
   const work = await mkdtemp(join(tmpdir(), "android-mcp-serve-work-"));
@@ -203,7 +217,12 @@ stubbedTests("apk_serve start twice kills the first listener (issue 66)", async 
       // the first listener must be gone, not orphaned (allow SIGTERM a moment)
       let alive = true;
       for (let i = 0; i < 20; i++) {
-        try { process.kill(firstPid, 0); } catch { alive = false; break; }
+        try {
+          process.kill(firstPid, 0);
+        } catch {
+          alive = false;
+          break;
+        }
         await new Promise((r) => setTimeout(r, 100));
       }
       assert.equal(alive, false, "repeated start orphaned the first listener");
@@ -216,103 +235,164 @@ stubbedTests("apk_serve start twice kills the first listener (issue 66)", async 
   }
 });
 
-stubbedTests("apk_decompile refuses to overwrite an existing output dir; default dirs are unique (issue 69)", async () => {
-  const work = await mkdtemp(join(tmpdir(), "android-mcp-decomp-work-"));
-  const record = RECORD();
-  const outDir = join(work, "existing-out");
-  await mkdir(outDir, { recursive: true });
-  await writeFile(join(outDir, "keep.txt"), "sentinel");
-  await writeFile(join(work, "fake.apk"), "PK\u0003\u0004");
-  process.env.RECORD = record;
-  try {
-    await withStubs({ jadx: APPEND_ARGS, apktool: APPEND_ARGS }, async () => {
-      // existing dir without explicit opt-in: refuse, do not invoke the tool
-      const res = await handleApkDecompile({ apkPath: `${work}/fake.apk`, outputDir: outDir });
-      assert.equal(res.isError, true, "must refuse to reuse an existing output dir without opt-in");
-      assert.equal(await readFile(join(outDir, "keep.txt"), "utf8"), "sentinel", "sentinel in existing output dir was disturbed");
-      assert.equal((await readRecord(record)).length, 0, "decompiler was invoked despite the refusal");
-      // opt-in works
-      const ok = await handleApkDecompile({ apkPath: `${work}/fake.apk`, outputDir: outDir, overwrite: true });
-      assert.equal(ok.isError, false, "overwrite:true must be honored");
-      assert.ok((await readRecord(record)).length > 0, "decompiler was not invoked despite explicit opt-in");
-      // default outputs are unique across calls
-      const a = text(await handleApkDecompile({ apkPath: `${work}/fake.apk` }));
-      const b = text(await handleApkDecompile({ apkPath: `${work}/fake.apk` }));
-      const outA = /out=(\S+)/.exec(a)?.[1];
-      const outB = /out=(\S+)/.exec(b)?.[1];
-      assert.ok(outA && outB, "both default calls must report an output dir");
-      assert.notEqual(outA, outB, "default output dirs must not collide");
-      assert.doesNotMatch(outA, /^\/tmp\/decompiled-\d+$/, "default output must not be a bare timestamp name");
-    });
-  } finally {
-    delete process.env.RECORD;
-    await rm(work, { recursive: true, force: true });
-  }
-});
+stubbedTests(
+  "apk_decompile refuses to overwrite an existing output dir; default dirs are unique (issue 69)",
+  async () => {
+    const work = await mkdtemp(join(tmpdir(), "android-mcp-decomp-work-"));
+    const record = RECORD();
+    const outDir = join(work, "existing-out");
+    await mkdir(outDir, { recursive: true });
+    await writeFile(join(outDir, "keep.txt"), "sentinel");
+    await writeFile(join(work, "fake.apk"), "PK\u0003\u0004");
+    process.env.RECORD = record;
+    try {
+      await withStubs({ jadx: APPEND_ARGS, apktool: APPEND_ARGS }, async () => {
+        // existing dir without explicit opt-in: refuse, do not invoke the tool
+        const res = await handleApkDecompile({ apkPath: `${work}/fake.apk`, outputDir: outDir });
+        assert.equal(
+          res.isError,
+          true,
+          "must refuse to reuse an existing output dir without opt-in",
+        );
+        assert.equal(
+          await readFile(join(outDir, "keep.txt"), "utf8"),
+          "sentinel",
+          "sentinel in existing output dir was disturbed",
+        );
+        assert.equal(
+          (await readRecord(record)).length,
+          0,
+          "decompiler was invoked despite the refusal",
+        );
+        // opt-in works
+        const ok = await handleApkDecompile({
+          apkPath: `${work}/fake.apk`,
+          outputDir: outDir,
+          overwrite: true,
+        });
+        assert.equal(ok.isError, false, "overwrite:true must be honored");
+        assert.ok(
+          (await readRecord(record)).length > 0,
+          "decompiler was not invoked despite explicit opt-in",
+        );
+        // default outputs are unique across calls
+        const a = text(await handleApkDecompile({ apkPath: `${work}/fake.apk` }));
+        const b = text(await handleApkDecompile({ apkPath: `${work}/fake.apk` }));
+        const outA = /out=(\S+)/.exec(a)?.[1];
+        const outB = /out=(\S+)/.exec(b)?.[1];
+        assert.ok(outA && outB, "both default calls must report an output dir");
+        assert.notEqual(outA, outB, "default output dirs must not collide");
+        assert.doesNotMatch(
+          outA,
+          /^\/tmp\/decompiled-\d+$/,
+          "default output must not be a bare timestamp name",
+        );
+      });
+    } finally {
+      delete process.env.RECORD;
+      await rm(work, { recursive: true, force: true });
+    }
+  },
+);
 
-stubbedTests("adb shell values are remote-shell quoted and destructive paths are scoped (issue 67)", async () => {
-  const work = await mkdtemp(join(tmpdir(), "android-mcp-adbq-work-"));
-  const record = RECORD();
-  process.env.RECORD = record;
-  try {
-    await withStubs({ adb: APPEND_ARGS }, async () => {
-      // rm: valid in-scope path with spaces arrives as ONE remote-shell-quoted arg
-      const rmRes = await handleAdbRm({ remotePath: "/sdcard/hello world dir/x.apk" });
-      assert.equal(rmRes.isError, false);
-      const rmArgs = await readRecord(record);
-      assert.ok(rmArgs.some((a) => a === "'/sdcard/hello world dir/x.apk'"), `remote path must be single-quoted, got: ${rmArgs.join(" | ")}`);
-      // rm: out-of-scope path is rejected
-      await rm(record).catch(() => {});
-      const badScope = await handleAdbRm({ remotePath: "/etc/passwd" });
-      assert.equal(badScope.isError, true, "out-of-scope rm must be rejected");
-      // rm: metacharacter payload is rejected
-      const badMeta = await handleAdbRm({ remotePath: "/sdcard/x; touch /tmp/pwned" });
-      assert.equal(badMeta.isError, true, "metacharacter payload in rm path must be rejected");
-      // deep link: full URI (with &) arrives quoted as a single remote arg
-      await rm(record).catch(() => {});
-      const dlRes = await handleAdbDeepLink({ uri: "https://example.com/?a=1&b=2" });
-      assert.equal(dlRes.isError, false);
-      const dlArgs = await readRecord(record);
-      assert.ok(dlArgs.some((a) => a === "'https://example.com/?a=1&b=2'"), `deep link URI must be quoted and intact, got: ${dlArgs.join(" | ")}`);
-      // broadcast: malicious action is rejected
-      await rm(record).catch(() => {});
-      const bcRes = await handleAdbBroadcast({ action: "com.x.Y; rm -rf /", extras: [] });
-      assert.equal(bcRes.isError, true, "malicious broadcast action must be rejected");
-      // dumpsys activity: package validation applies when provided
-      await rm(record).catch(() => {});
-      const coRes = await handleComposeRecomposition({ kind: "activity", packageName: "pkg; id" });
-      assert.equal(coRes.isError, true, "invalid package name in dumpsys must be rejected");
-    });
-  } finally {
-    delete process.env.RECORD;
-    await rm(work, { recursive: true, force: true });
-  }
-});
+stubbedTests(
+  "adb shell values are remote-shell quoted and destructive paths are scoped (issue 67)",
+  async () => {
+    const work = await mkdtemp(join(tmpdir(), "android-mcp-adbq-work-"));
+    const record = RECORD();
+    process.env.RECORD = record;
+    try {
+      await withStubs({ adb: APPEND_ARGS }, async () => {
+        // rm: valid in-scope path with spaces arrives as ONE remote-shell-quoted arg
+        const rmRes = await handleAdbRm({ remotePath: "/sdcard/hello world dir/x.apk" });
+        assert.equal(rmRes.isError, false);
+        const rmArgs = await readRecord(record);
+        assert.ok(
+          rmArgs.some((a) => a === "'/sdcard/hello world dir/x.apk'"),
+          `remote path must be single-quoted, got: ${rmArgs.join(" | ")}`,
+        );
+        // rm: out-of-scope path is rejected
+        await rm(record).catch(() => {});
+        const badScope = await handleAdbRm({ remotePath: "/etc/passwd" });
+        assert.equal(badScope.isError, true, "out-of-scope rm must be rejected");
+        // rm: metacharacter payload is rejected
+        const badMeta = await handleAdbRm({ remotePath: "/sdcard/x; touch /tmp/pwned" });
+        assert.equal(badMeta.isError, true, "metacharacter payload in rm path must be rejected");
+        // deep link: full URI (with &) arrives quoted as a single remote arg
+        await rm(record).catch(() => {});
+        const dlRes = await handleAdbDeepLink({ uri: "https://example.com/?a=1&b=2" });
+        assert.equal(dlRes.isError, false);
+        const dlArgs = await readRecord(record);
+        assert.ok(
+          dlArgs.some((a) => a === "'https://example.com/?a=1&b=2'"),
+          `deep link URI must be quoted and intact, got: ${dlArgs.join(" | ")}`,
+        );
+        // broadcast: malicious action is rejected
+        await rm(record).catch(() => {});
+        const bcRes = await handleAdbBroadcast({ action: "com.x.Y; rm -rf /", extras: [] });
+        assert.equal(bcRes.isError, true, "malicious broadcast action must be rejected");
+        // dumpsys activity: package validation applies when provided
+        await rm(record).catch(() => {});
+        const coRes = await handleComposeRecomposition({
+          kind: "activity",
+          packageName: "pkg; id",
+        });
+        assert.equal(coRes.isError, true, "invalid package name in dumpsys must be rejected");
+      });
+    } finally {
+      delete process.env.RECORD;
+      await rm(work, { recursive: true, force: true });
+    }
+  },
+);
 
-stubbedTests("option-like values are rejected for gradle tasks, avd names and apk paths (issue 68)", async () => {
-  // task name validation
-  assert.equal(validateGradleTask("-Ievil.gradle"), false, "gradle task must not accept option-like strings");
-  assert.equal(validateGradleTask(":app:assembleDebug"), true, "legit task paths must keep working");
-  assert.equal(validateGradleTask("assembleDebug"), true);
-  const work = await mkdtemp(join(tmpdir(), "android-mcp-opt-work-"));
-  const record = RECORD();
-  process.env.RECORD = record;
-  try {
-    await withStubs({ avdmanager: APPEND_ARGS, aapt2: APPEND_ARGS }, async () => {
-      // avd name: option-like value rejected without invoking the tool
-      const avd = await handleAvdCreate({ avdName: "-Ievil", systemImage: "system-images;android-35;default;x86_64", device: "pixel" });
-      assert.equal(avd.isError, true, "option-like avd name must be rejected");
-      assert.equal((await readRecord(record)).length, 0, "avdmanager was invoked with an option-like name");
-      // apk path: option-like value rejected
-      const apk = await handleApkInfo({ apkPath: "-Ievil.apk" });
-      assert.equal(apk.isError, true, "option-like apk path must be rejected");
-      assert.equal((await readRecord(record)).length, 0, "aapt2 was invoked with an option-like path");
-    });
-  } finally {
-    delete process.env.RECORD;
-    await rm(work, { recursive: true, force: true });
-  }
-});
+stubbedTests(
+  "option-like values are rejected for gradle tasks, avd names and apk paths (issue 68)",
+  async () => {
+    // task name validation
+    assert.equal(
+      validateGradleTask("-Ievil.gradle"),
+      false,
+      "gradle task must not accept option-like strings",
+    );
+    assert.equal(
+      validateGradleTask(":app:assembleDebug"),
+      true,
+      "legit task paths must keep working",
+    );
+    assert.equal(validateGradleTask("assembleDebug"), true);
+    const work = await mkdtemp(join(tmpdir(), "android-mcp-opt-work-"));
+    const record = RECORD();
+    process.env.RECORD = record;
+    try {
+      await withStubs({ avdmanager: APPEND_ARGS, aapt2: APPEND_ARGS }, async () => {
+        // avd name: option-like value rejected without invoking the tool
+        const avd = await handleAvdCreate({
+          avdName: "-Ievil",
+          systemImage: "system-images;android-35;default;x86_64",
+          device: "pixel",
+        });
+        assert.equal(avd.isError, true, "option-like avd name must be rejected");
+        assert.equal(
+          (await readRecord(record)).length,
+          0,
+          "avdmanager was invoked with an option-like name",
+        );
+        // apk path: option-like value rejected
+        const apk = await handleApkInfo({ apkPath: "-Ievil.apk" });
+        assert.equal(apk.isError, true, "option-like apk path must be rejected");
+        assert.equal(
+          (await readRecord(record)).length,
+          0,
+          "aapt2 was invoked with an option-like path",
+        );
+      });
+    } finally {
+      delete process.env.RECORD;
+      await rm(work, { recursive: true, force: true });
+    }
+  },
+);
 
 stubbedTests("adb_reboot reports success only when adb exits 0 (issue 90)", async () => {
   const record = RECORD();
@@ -346,19 +426,36 @@ stubbedTests("apk_decompile passes JADX its real CLI contract (issue 78)", async
       const ok = await handleApkDecompile({ apkPath: apk, outputDir: outDir });
       assert.equal(ok.isError, false);
       const args = await readRecord(record);
-      assert.deepEqual(args, ["-d", outDir, apk], "JADX must receive -d <out> <apk> as separate argv values");
+      assert.deepEqual(
+        args,
+        ["-d", outDir, apk],
+        "JADX must receive -d <out> <apk> as separate argv values",
+      );
       assert.ok(!args.includes("-o"), "JADX must not receive apktool's -o flag");
 
       await rm(record).catch(() => {});
-      const apktool = await handleApkDecompile({ apkPath: apk, outputDir: outDir, tool: "apktool", overwrite: true });
+      const apktool = await handleApkDecompile({
+        apkPath: apk,
+        outputDir: outDir,
+        tool: "apktool",
+        overwrite: true,
+      });
       assert.equal(apktool.isError, false);
       assert.deepEqual(await readRecord(record), ["d", apk, "-o", outDir, "-f"]);
 
       await rm(record).catch(() => {});
       const missing = await handleApkDecompile({ apkPath: join(work, "missing.apk") });
-      assert.equal(missing.isError, true, "a missing input APK must fail before invoking the decompiler");
+      assert.equal(
+        missing.isError,
+        true,
+        "a missing input APK must fail before invoking the decompiler",
+      );
       assert.match(text(missing), /missing|not found|readable/i);
-      assert.equal((await readRecord(record)).length, 0, "the decompiler was invoked for a missing APK");
+      assert.equal(
+        (await readRecord(record)).length,
+        0,
+        "the decompiler was invoked for a missing APK",
+      );
 
       await writeFile(record, "", "utf8");
       await withStubs({ jadx: "printf 'boom' >&2; exit 3" }, async () => {
@@ -373,64 +470,346 @@ stubbedTests("apk_decompile passes JADX its real CLI contract (issue 78)", async
   }
 });
 
-stubbedTests("adb_screenshot never advertises a deleted path and uses unique remote names (issue 84)", async () => {
-  const work = await mkdtemp(join(tmpdir(), "android-mcp-shot-"));
-  const record = RECORD();
-  process.env.RECORD = record;
-  const stub = [
-    'if [ "$1" = "shell" ] && [ "$2" = "screencap" ]; then printf "%s\\n" "$4" >> "$RECORD"; exit "${SCREENCAP_FAIL:-0}"; fi',
-    'if [ "$1" = "pull" ]; then printf "PNGDATA" > "$3"; exit "${PULL_FAIL:-0}"; fi',
-    'if [ "$1" = "shell" ] && [ "$2" = "rm" ]; then printf "rm:%s\\n" "$4" >> "$RECORD"; exit 0; fi',
-    'exit 0',
-  ].join('\n');
-  try {
-    await withStubs({ adb: stub }, async () => {
-      const transient = await handleAdbScreenshot({});
-      assert.equal(transient.isError, false);
-      assert.ok(transient.content.some((c) => c.type === "image"), "inline image must survive");
-      assert.doesNotMatch(text(transient), /Saved screenshot to/i, "a deleted temp path must not be advertised");
-      assert.match(text(transient), /transient|inline/i);
+stubbedTests(
+  "adb_screenshot never advertises a deleted path and uses unique remote names (issue 84)",
+  async () => {
+    const work = await mkdtemp(join(tmpdir(), "android-mcp-shot-"));
+    const record = RECORD();
+    process.env.RECORD = record;
+    const stub = [
+      'if [ "$1" = "shell" ] && [ "$2" = "screencap" ]; then printf "%s\\n" "$4" >> "$RECORD"; exit "${SCREENCAP_FAIL:-0}"; fi',
+      'if [ "$1" = "pull" ]; then printf "PNGDATA" > "$3"; exit "${PULL_FAIL:-0}"; fi',
+      'if [ "$1" = "shell" ] && [ "$2" = "rm" ]; then printf "rm:%s\\n" "$4" >> "$RECORD"; exit 0; fi',
+      "exit 0",
+    ].join("\n");
+    try {
+      await withStubs({ adb: stub }, async () => {
+        const transient = await handleAdbScreenshot({});
+        assert.equal(transient.isError, false);
+        assert.ok(
+          transient.content.some((c) => c.type === "image"),
+          "inline image must survive",
+        );
+        assert.doesNotMatch(
+          text(transient),
+          /Saved screenshot to/i,
+          "a deleted temp path must not be advertised",
+        );
+        assert.match(text(transient), /transient|inline/i);
 
-      const first = await readRecord(record);
-      const remotes = first.filter((l) => l.startsWith("/sdcard/") && l.endsWith(".png"));
-      assert.equal(remotes.length, 1, "remote capture path must be recorded");
-      assert.notEqual(remotes[0], "/sdcard/screen.png", "remote path must be unique per capture");
-      assert.ok(first.includes(`rm:${remotes[0]}`), "remote temp file must be cleaned up");
+        const first = await readRecord(record);
+        const remotes = first.filter((l) => l.startsWith("/sdcard/") && l.endsWith(".png"));
+        assert.equal(remotes.length, 1, "remote capture path must be recorded");
+        assert.notEqual(remotes[0], "/sdcard/screen.png", "remote path must be unique per capture");
+        assert.ok(first.includes(`rm:${remotes[0]}`), "remote temp file must be cleaned up");
 
-      const target = join(work, "kept shot.png");
-      const persistent = await handleAdbScreenshot({ outputPath: target });
-      assert.equal(persistent.isError, false);
-      assert.ok(text(persistent).includes(target), "persistent path must be reported");
-      assert.equal(await readFile(target, "utf8"), "PNGDATA", "persistent file must remain after return");
+        const target = join(work, "kept shot.png");
+        const persistent = await handleAdbScreenshot({ outputPath: target });
+        assert.equal(persistent.isError, false);
+        assert.ok(text(persistent).includes(target), "persistent path must be reported");
+        assert.equal(
+          await readFile(target, "utf8"),
+          "PNGDATA",
+          "persistent file must remain after return",
+        );
 
-      const secondRemotes = (await readRecord(record)).filter((l) => l.startsWith("/sdcard/") && l.endsWith(".png"));
-      assert.notEqual(secondRemotes[0], secondRemotes[1], "two captures must not share a remote filename");
-    });
+        const secondRemotes = (await readRecord(record)).filter(
+          (l) => l.startsWith("/sdcard/") && l.endsWith(".png"),
+        );
+        assert.notEqual(
+          secondRemotes[0],
+          secondRemotes[1],
+          "two captures must not share a remote filename",
+        );
+      });
 
-    await withStubs({ adb: stub }, async () => {
-      // pull failure must be an error and still attempt remote cleanup
-      process.env.PULL_FAIL = "1";
-      const before = (await readRecord(record)).length;
-      const failed = await handleAdbScreenshot({ outputPath: join(work, "never.png") });
+      await withStubs({ adb: stub }, async () => {
+        // pull failure must be an error and still attempt remote cleanup
+        process.env.PULL_FAIL = "1";
+        const before = (await readRecord(record)).length;
+        const failed = await handleAdbScreenshot({ outputPath: join(work, "never.png") });
+        delete process.env.PULL_FAIL;
+        assert.equal(failed.isError, true);
+        assert.match(text(failed), /pull failed/);
+        const after = (await readRecord(record)).slice(before);
+        assert.ok(
+          after.some((l) => l.startsWith("rm:/sdcard/")),
+          "pull failure must still attempt remote cleanup",
+        );
+      });
+
+      await withStubs({ adb: stub }, async () => {
+        process.env.SCREENCAP_FAIL = "1";
+        const failed = await handleAdbScreenshot({});
+        delete process.env.SCREENCAP_FAIL;
+        assert.equal(failed.isError, true);
+        assert.match(text(failed), /screencap failed/);
+        assert.doesNotMatch(text(failed), /Saved screenshot to/i);
+      });
+    } finally {
+      delete process.env.RECORD;
       delete process.env.PULL_FAIL;
-      assert.equal(failed.isError, true);
-      assert.match(text(failed), /pull failed/);
-      const after = (await readRecord(record)).slice(before);
-      assert.ok(after.some((l) => l.startsWith("rm:/sdcard/")), "pull failure must still attempt remote cleanup");
-    });
-
-    await withStubs({ adb: stub }, async () => {
-      process.env.SCREENCAP_FAIL = "1";
-      const failed = await handleAdbScreenshot({});
       delete process.env.SCREENCAP_FAIL;
+      await rm(work, { recursive: true, force: true });
+    }
+  },
+);
+
+stubbedTests(
+  "crash_summary distinguishes unavailable logcat from zero crashes (issue 87)",
+  async () => {
+    const record = RECORD();
+    process.env.RECORD = record;
+    const stub = [
+      'printf "%s\\n" "$*" >> "$RECORD"',
+      'if [ "$1" = "get-serialno" ]; then printf "emulator-5554\\n"; exit 0; fi',
+      'if [ "$1" = "logcat" ] && [ "$2" = "-c" ]; then exit "${CLEAR_FAIL:-0}"; fi',
+      'if [ "$1" = "logcat" ] && [ "$2" = "-d" ]; then',
+      '  if [ -n "${COLLECT_FAIL:-}" ]; then printf "logcat: device offline\\n" >&2; exit 1; fi',
+      '  printf "%b" "${LOGCAT_BODY:-}"; exit 0',
+      "fi",
+      "exit 0",
+    ].join("\n");
+    const runSummary = async (env = {}) => {
+      Object.assign(process.env, env);
+      try {
+        return await handleCrashSummary({ durationSec: 0 });
+      } finally {
+        for (const k of Object.keys(env)) delete process.env[k];
+      }
+    };
+    try {
+      await withStubs({ adb: stub }, async () => {
+        const clean = await runSummary();
+        assert.equal(clean.isError, false);
+        assert.match(text(clean), /status=no-crashes-observed/);
+        assert.match(text(clean), /crashes=0/);
+        assert.match(text(clean), /device=emulator-5554/);
+        assert.match(text(clean), /window=\S+\.\.\S+/);
+        assert.match(text(clean), /duration=0s/);
+
+        const crashes = await runSummary({
+          LOGCAT_BODY: "FATAL EXCEPTION: main\\nAndroidRuntime: boom\\n",
+        });
+        assert.equal(crashes.isError, false);
+        assert.match(text(crashes), /status=crashes-found/);
+        assert.match(text(crashes), /crashes=2/);
+        assert.match(text(crashes), /FATAL EXCEPTION/);
+
+        const clearFailed = await runSummary({ CLEAR_FAIL: "1" });
+        assert.equal(
+          clearFailed.isError,
+          true,
+          "a failed logcat -c must not look like a clean run",
+        );
+        assert.match(text(clearFailed), /status=not-assessed/);
+        assert.doesNotMatch(text(clearFailed), /no-crashes-observed/);
+
+        const collectFailed = await runSummary({ COLLECT_FAIL: "1" });
+        assert.equal(
+          collectFailed.isError,
+          true,
+          "a failed logcat -d must not look like a clean run",
+        );
+        assert.match(text(collectFailed), /status=unavailable/);
+        assert.match(text(collectFailed), /device offline/);
+        assert.doesNotMatch(text(collectFailed), /no-crashes-observed/);
+      });
+    } finally {
+      delete process.env.RECORD;
+    }
+  },
+);
+
+stubbedTests(
+  "startup_time resolves the launcher and surfaces launch/timing failures (issue 85)",
+  async () => {
+    const record = RECORD();
+    const counter = join(
+      tmpdir(),
+      `startup-counter-${process.pid}-${Math.random().toString(36).slice(2)}`,
+    );
+    process.env.RECORD = record;
+    process.env.STARTUP_COUNTER = counter;
+    const stub = [
+      'printf "%s\\n" "$*" >> "$RECORD"',
+      'if [ "$1" = "shell" ] && [ "$2" = "cmd" ] && [ "$3" = "package" ] && [ "$4" = "resolve-activity" ]; then',
+      '  if [ -n "${NO_LAUNCHER:-}" ]; then printf "No activity found\\n"; exit 0; fi',
+      '  printf "priority=0\\ncom.example.app/.HomeScreen\\n"; exit 0',
+      "fi",
+      'if [ "$1" = "shell" ] && [ "$2" = "am" ] && [ "$3" = "start-activity" ]; then',
+      '  if [ -n "${START_FAIL:-}" ]; then printf "Error: Activity not started\\n" >&2; exit 1; fi',
+      '  if [ -n "${FAIL_FIRST:-}" ]; then',
+      '    n=$(cat "$STARTUP_COUNTER" 2>/dev/null || echo 0); n=$((n+1)); printf "%s" "$n" > "$STARTUP_COUNTER"',
+      '    if [ "$n" -eq 1 ]; then printf "first launch failed\\n" >&2; exit 1; fi',
+      "  fi",
+      '  if [ -n "${NO_TOTAL:-}" ]; then printf "Status: ok\\n"; exit 0; fi',
+      '  printf "Status: ok\\nTotalTime: 123\\n"; exit 0',
+      "fi",
+      'if [ "$1" = "shell" ] && [ "$2" = "am" ] && [ "$3" = "force-stop" ]; then',
+      '  if [ -n "${STOP_FAIL:-}" ]; then printf "force-stop failed\\n" >&2; exit 1; fi',
+      "  exit 0",
+      "fi",
+      "exit 0",
+    ].join("\n");
+    const runStartup = async (args, env = {}) => {
+      Object.assign(process.env, env);
+      try {
+        return await handleStartupTime({ packageName: "com.example.app", iterations: 1, ...args });
+      } finally {
+        for (const k of Object.keys(env)) delete process.env[k];
+      }
+    };
+    try {
+      await withStubs({ adb: stub }, async () => {
+        const ok = await runStartup({});
+        assert.equal(ok.isError, false);
+        assert.match(text(ok), /activity=com\.example\.app\/\.HomeScreen/);
+        assert.match(
+          text(ok),
+          /iteration=1 component=com\.example\.app\/\.HomeScreen launch_exit=0 time_ms=123 cleanup=ok result=measured/,
+        );
+        assert.match(text(ok), /summary=ok/);
+        const args = await readRecord(record);
+        assert.ok(
+          args.some((l) => l.includes("resolve-activity") && l.includes("com.example.app")),
+        );
+        assert.ok(
+          args.some(
+            (l) => l.includes("start-activity") && l.includes("com.example.app/.HomeScreen"),
+          ),
+        );
+
+        await rm(record).catch(() => {});
+        const explicit = await runStartup({ activity: ".SettingsActivity" });
+        assert.equal(explicit.isError, false);
+        assert.match(text(explicit), /activity=com\.example\.app\/\.SettingsActivity/);
+        assert.ok(
+          (await readRecord(record)).some((l) => l.includes("com.example.app/.SettingsActivity")),
+        );
+
+        await rm(record).catch(() => {});
+        const noLauncher = await runStartup({}, { NO_LAUNCHER: "1" });
+        assert.equal(noLauncher.isError, true);
+        assert.match(text(noLauncher), /could not resolve|launcher/i);
+
+        const startFailed = await runStartup({}, { START_FAIL: "1" });
+        assert.equal(startFailed.isError, true);
+        assert.match(text(startFailed), /launch_exit=1/);
+        assert.match(text(startFailed), /Activity not started/);
+
+        const noMetric = await runStartup({}, { NO_TOTAL: "1" });
+        assert.equal(
+          noMetric.isError,
+          true,
+          "a missing TotalTime must not be reported as zero milliseconds",
+        );
+        assert.match(text(noMetric), /time_ms=unavailable/);
+        assert.doesNotMatch(text(noMetric), /time_ms=0\b/);
+
+        const stopFailed = await runStartup({}, { STOP_FAIL: "1" });
+        assert.equal(stopFailed.isError, true);
+        assert.match(text(stopFailed), /cleanup=force-stop-failed/);
+        assert.match(text(stopFailed), /force-stop failed/);
+
+        await rm(record).catch(() => {});
+        const partial = await runStartup({ iterations: 2 }, { FAIL_FIRST: "1" });
+        assert.equal(partial.isError, true);
+        assert.match(text(partial), /iteration=1 .*result=failed/);
+        assert.match(text(partial), /iteration=2 .*result=measured/);
+        assert.match(text(partial), /summary=partial/);
+
+        await rm(record).catch(() => {});
+        const invalid = await runStartup({ activity: ".Evil; reboot" });
+        assert.equal(
+          invalid.isError,
+          true,
+          "activity must be validated before reaching the device shell",
+        );
+        assert.equal((await readRecord(record)).length, 0, "invalid activity must not invoke adb");
+      });
+    } finally {
+      delete process.env.RECORD;
+      delete process.env.STARTUP_COUNTER;
+      await rm(counter, { force: true });
+    }
+  },
+);
+
+stubbedTests("build_variant maps variant labels to valid Gradle tasks (issue 83)", async () => {
+  const record = RECORD();
+  const work = await mkdtemp(join(tmpdir(), "android-mcp-variant-"));
+  process.env.RECORD = record;
+  process.env.TASKS_BODY = "assembleDebug\\nassembleRelease\\nassembleStagingDebug\\n";
+  const stub = [
+    'printf "%s\\n" "$*" >> "$RECORD"',
+    'case "$1" in *:tasks) printf "%b" "$TASKS_BODY"; exit 0;; esac',
+    'if [ -n "${BUILD_FAIL:-}" ]; then printf "build failed\\n" >&2; exit 1; fi',
+    'printf "BUILD SUCCESSFUL\\n"; exit 0',
+  ].join("\n");
+  const build = async (args, env = {}) => {
+    Object.assign(process.env, env);
+    try {
+      return await handleBuildVariant({ projectPath: work, ...args });
+    } finally {
+      for (const k of Object.keys(env)) delete process.env[k];
+    }
+  };
+  try {
+    await withStubs({ gradle: stub }, async () => {
+      const debug = await build({ variant: "debug" });
+      assert.equal(debug.isError, false);
+      assert.match(text(debug), /task=:app:assembleDebug/);
+      let calls = await readRecord(record);
+      assert.equal(calls[0], ":app:tasks --all -q");
+      assert.equal(calls[1], ":app:assembleDebug");
+
+      await rm(record).catch(() => {});
+      const release = await build({ variant: "release", offline: true });
+      assert.equal(release.isError, false);
+      assert.match(text(release), /task=:app:assembleRelease/);
+      assert.equal((await readRecord(record))[1], ":app:assembleRelease --offline");
+
+      await rm(record).catch(() => {});
+      const flavor = await build({ variant: "stagingDebug" });
+      assert.equal(flavor.isError, false);
+      assert.match(text(flavor), /task=:app:assembleStagingDebug/);
+
+      await rm(record).catch(() => {});
+      const lib = await build({ variant: "debug", module: ":lib" });
+      assert.equal(lib.isError, false);
+      assert.match(text(lib), /task=:lib:assembleDebug/);
+      assert.ok((await readRecord(record)).some((l) => l.startsWith(":lib:assembleDebug")));
+
+      await rm(record).catch(() => {});
+      const unknown = await build({ variant: "qaDebug" });
+      assert.equal(
+        unknown.isError,
+        true,
+        "an unknown variant must fail before the build task runs",
+      );
+      assert.match(text(unknown), /unknown variant|available/i);
+      calls = await readRecord(record);
+      assert.equal(calls.length, 1, "only task discovery may run for an unknown variant");
+      assert.match(calls[0], /:tasks/);
+
+      await rm(record).catch(() => {});
+      const optionLike = await build({ variant: "-Ievil.gradle" });
+      assert.equal(optionLike.isError, true);
+      assert.equal(
+        (await readRecord(record)).length,
+        0,
+        "option-like variant must never reach Gradle",
+      );
+
+      await rm(record).catch(() => {});
+      const failed = await build({ variant: "debug" }, { BUILD_FAIL: "1" });
       assert.equal(failed.isError, true);
-      assert.match(text(failed), /screencap failed/);
-      assert.doesNotMatch(text(failed), /Saved screenshot to/i);
+      assert.match(text(failed), /build failed/);
     });
   } finally {
     delete process.env.RECORD;
-    delete process.env.PULL_FAIL;
-    delete process.env.SCREENCAP_FAIL;
+    delete process.env.TASKS_BODY;
     await rm(work, { recursive: true, force: true });
   }
 });

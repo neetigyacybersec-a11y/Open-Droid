@@ -150,7 +150,10 @@ export const ToolSchemas = {
   }),
   buildVariant: z.object({
     projectPath: z.string(),
-    variant: z.string(),
+    variant: z
+      .string()
+      .describe("Variant label such as debug, release, or stagingDebug (not a Gradle task name)"),
+    module: z.string().optional().default(":app").describe("Gradle module path, e.g. :app or :lib"),
     args: z.array(z.string()).optional(),
     offline: z.boolean().optional().default(false),
   }),
@@ -309,6 +312,10 @@ export const ToolSchemas = {
   startupTime: z.object({
     deviceId: z.string().optional(),
     packageName: z.string(),
+    activity: z
+      .string()
+      .optional()
+      .describe("Optional activity class (.SettingsActivity) or full package/activity component"),
     iterations: z.number().optional().default(5),
   }),
   adbParallel: z.object({ command: z.string(), deviceIds: z.array(z.string()).optional() }),
@@ -1234,13 +1241,69 @@ export async function handleGradleDependencies(a: z.infer<typeof ToolSchemas.gra
   };
 }
 export async function handleBuildVariant(a: z.infer<typeof ToolSchemas.buildVariant>) {
-  const args = [a.variant, ...(a.offline ? ["--offline"] : []), ...(a.args ?? [])];
+  const module = a.module ?? ":app";
+  if (!/^:[A-Za-z0-9_.-]+(?::[A-Za-z0-9_.-]+)*$/.test(module)) {
+    return {
+      content: [{ type: "text" as const, text: `Invalid Gradle module path: ${module}` }],
+      isError: true,
+    };
+  }
+  const label = a.variant.trim().replace(/^assemble/, "");
+  if (!/^[A-Za-z][A-Za-z0-9]*$/.test(label)) {
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: `Invalid variant label: ${a.variant}. Pass a variant name such as debug or stagingDebug, not a Gradle task or option.`,
+        },
+      ],
+      isError: true,
+    };
+  }
+  const suffix = label.charAt(0).toUpperCase() + label.slice(1);
+
+  // Discover assemble tasks so an unknown flavor fails before a build is
+  // attempted. Discovery is best-effort: a project whose task listing fails
+  // still gets the deterministic mapping and Gradle's own task error.
+  const discovery = await run("gradle", [`${module}:tasks`, "--all", "-q"], {
+    cwd: a.projectPath,
+    timeout: 180_000,
+  });
+  const available = [
+    ...new Set([...discovery.stdout.matchAll(/\bassemble([A-Z][A-Za-z0-9]*)\b/g)].map((m) => m[1])),
+  ];
+  let resolvedSuffix = suffix;
+  if (discovery.code === 0 && available.length > 0) {
+    const match = available.find((name) => name.toLowerCase() === suffix.toLowerCase());
+    if (!match) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text:
+              `Unknown variant "${a.variant}" for module ${module}. ` +
+              `Available assemble tasks: ${available.map((n) => `assemble${n}`).join(", ")}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+    resolvedSuffix = match;
+  }
+  const task = `${module}:assemble${resolvedSuffix}`;
+  if (!validateGradleTask(task)) {
+    return {
+      content: [{ type: "text" as const, text: `Invalid resolved Gradle task: ${task}` }],
+      isError: true,
+    };
+  }
+  const args = [task, ...(a.offline ? ["--offline"] : []), ...(a.args ?? [])];
   const r = await run("gradle", args, { cwd: a.projectPath, timeout: 600_000 });
   return {
     content: [
       {
         type: "text" as const,
-        text: `exit=${r.code}\n${(r.stdout + "\n" + r.stderr).slice(-12000)}`,
+        text: `task=${task}\nexit=${r.code}\n${(r.stdout + "\n" + r.stderr).slice(-12000)}`,
       },
     ],
     isError: r.code !== 0,
@@ -1503,19 +1566,61 @@ export async function handleAnrCheck(a: z.infer<typeof ToolSchemas.anrCheck>) {
     isError: r.code !== 0,
   };
 }
+async function resolveCrashSummarySerial(deviceId?: string): Promise<string> {
+  if (deviceId) return deviceId;
+  const r = await run("adb", ["get-serialno"], { timeout: 15_000 });
+  const serial = r.stdout.trim();
+  return r.code === 0 && serial && serial !== "unknown" ? serial : "(default)";
+}
 export async function handleCrashSummary(a: z.infer<typeof ToolSchemas.crashSummary>) {
   const base = adb(a.deviceId);
-  await run("adb", [...base, "logcat", "-c"], { timeout: 30_000 });
-  await new Promise((res) => setTimeout(res, Math.max(0, (a.durationSec ?? 10) * 1000)));
+  const serial = await resolveCrashSummarySerial(a.deviceId);
+  const durationSec = Math.max(0, a.durationSec ?? 10);
+  const startedAt = new Date().toISOString();
+  const header = (status: string) =>
+    [
+      `status=${status}`,
+      `device=${serial}`,
+      `window=${startedAt}..${new Date().toISOString()}`,
+      `duration=${durationSec}s`,
+    ].join("\n");
+
+  const clear = await run("adb", [...base, "logcat", "-c"], { timeout: 30_000 });
+  if (clear.code !== 0) {
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: `${header("not-assessed")}\ncrashes=unavailable\nlogcat -c failed (exit ${clear.code}): ${clear.stderr.trim()}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  await new Promise((res) => setTimeout(res, durationSec * 1000));
   const r = await run("adb", [...base, "logcat", "-d"], { timeout: 120_000 });
+  if (r.code !== 0) {
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: `${header("unavailable")}\ncrashes=unavailable\nlogcat -d failed (exit ${r.code}): ${r.stderr.trim()}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+
   const crashes = (r.stdout || "")
     .split("\n")
     .filter((l) => /FATAL EXCEPTION|AndroidRuntime/i.test(l));
+  const status = crashes.length > 0 ? "crashes-found" : "no-crashes-observed";
   return {
     content: [
       {
         type: "text" as const,
-        text: `crashes=${crashes.length}\n${crashes.slice(0, 50).join("\n")}`,
+        text: `${header(status)}\ncrashes=${crashes.length}\n${crashes.slice(0, 50).join("\n")}`,
       },
     ],
     isError: false,
@@ -1988,31 +2093,130 @@ export async function handleMemoryProfile(a: z.infer<typeof ToolSchemas.memoryPr
     isError: r.code !== 0,
   };
 }
+function startupComponent(packageName: string, activity?: string): string | null {
+  const value = activity?.trim();
+  if (!value || value.startsWith("-") || /[^A-Za-z0-9_.$/]/.test(value)) return null;
+  if (value.includes("/")) {
+    const [pkg, cls] = value.split("/");
+    return pkg === packageName && cls ? value : null;
+  }
+  return `${packageName}/${value}`;
+}
+export async function resolveLauncherComponent(
+  base: string[],
+  packageName: string,
+): Promise<{ component: string | null; error: string | null }> {
+  const r = await run(
+    "adb",
+    [
+      ...base,
+      "shell",
+      "cmd",
+      "package",
+      "resolve-activity",
+      "--brief",
+      "-c",
+      "android.intent.category.LAUNCHER",
+      packageName,
+    ],
+    { timeout: 30_000 },
+  );
+  if (r.code !== 0) {
+    return {
+      component: null,
+      error: `resolve-activity failed (exit ${r.code}): ${r.stderr.trim()}`,
+    };
+  }
+  const component =
+    r.stdout
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => /^[A-Za-z0-9_.]+\/[A-Za-z0-9_.$]+$/.test(line))
+      .pop() ?? null;
+  if (!component) {
+    return {
+      component: null,
+      error: `could not resolve launcher activity for ${packageName}: ${r.stdout.trim().slice(0, 300) || "no output"}`,
+    };
+  }
+  return { component, error: null };
+}
 export async function handleStartupTime(a: z.infer<typeof ToolSchemas.startupTime>) {
   if (!validatePackageName(a.packageName))
     return { content: [{ type: "text" as const, text: "Invalid package name." }], isError: true };
-  const iters = Math.max(1, a.iterations ?? 5);
-  const lines: string[] = [];
+
+  let component: string;
+  if (a.activity !== undefined) {
+    const built = startupComponent(a.packageName, a.activity);
+    if (!built)
+      return {
+        content: [{ type: "text" as const, text: `Invalid activity component: ${a.activity}` }],
+        isError: true,
+      };
+    component = built;
+  } else {
+    const resolved = await resolveLauncherComponent(adb(a.deviceId), a.packageName);
+    if (!resolved.component)
+      return {
+        content: [{ type: "text" as const, text: resolved.error ?? "launcher resolution failed" }],
+        isError: true,
+      };
+    component = resolved.component;
+  }
+
+  const iters = Math.max(1, Math.min(a.iterations ?? 5, 50));
+  const lines: string[] = [
+    `package=${a.packageName}`,
+    `activity=${component}`,
+    `iterations=${iters}`,
+  ];
+  let failures = 0;
+  let measured = 0;
   for (let i = 0; i < iters; i++) {
-    const r = await run(
+    const start = await run(
       "adb",
-      [
-        ...adb(a.deviceId),
-        "shell",
-        "am",
-        "start-activity",
-        "-W",
-        "-n",
-        `${a.packageName}/.MainActivity`,
-      ],
+      [...adb(a.deviceId), "shell", "am", "start-activity", "-W", "-n", component],
       { timeout: 60_000 },
     );
-    lines.push(r.stdout.split("\n").find((l) => /TotalTime/i.test(l)) ?? r.stdout.slice(0, 200));
-    await run("adb", [...adb(a.deviceId), "shell", "am", "force-stop", a.packageName], {
-      timeout: 30_000,
-    });
+    const timeMs = /TotalTime:\s*(\d+)/.exec(start.stdout)?.[1];
+    const stop = await run(
+      "adb",
+      [...adb(a.deviceId), "shell", "am", "force-stop", a.packageName],
+      {
+        timeout: 30_000,
+      },
+    );
+    let result: string;
+    if (start.code !== 0) {
+      result = "failed";
+      failures++;
+    } else if (!timeMs) {
+      result = "metric-unavailable";
+      failures++;
+    } else if (stop.code !== 0) {
+      result = "measured-with-cleanup-failure";
+      failures++;
+      measured++;
+    } else {
+      result = "measured";
+      measured++;
+    }
+    lines.push(
+      `iteration=${i + 1} component=${component} launch_exit=${start.code} ` +
+        `time_ms=${timeMs ?? "unavailable"} cleanup=${stop.code === 0 ? "ok" : "force-stop-failed"} ` +
+        `result=${result}`,
+    );
+    if (start.code !== 0 || !timeMs) {
+      const diagnostic = (start.stderr || start.stdout).trim().split("\n").slice(0, 5).join(" | ");
+      if (diagnostic) lines.push(`  diagnostic: ${diagnostic}`);
+    }
+    if (stop.code !== 0) {
+      lines.push(`  cleanup diagnostic: ${stop.stderr.trim().slice(0, 300) || "no output"}`);
+    }
   }
-  return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+  const summary = failures === 0 ? "ok" : measured > 0 ? "partial" : "failed";
+  lines.push(`summary=${summary}`);
+  return { content: [{ type: "text" as const, text: lines.join("\n") }], isError: failures > 0 };
 }
 // Multi-device
 export async function handleAdbParallel(a: z.infer<typeof ToolSchemas.adbParallel>) {
