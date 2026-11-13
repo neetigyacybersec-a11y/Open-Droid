@@ -1,0 +1,7 @@
+[
+  {
+    "check": "exported-component-no-permission",
+    "file": "app/src/main/AndroidManifest.xml",
+    "rationale": "MainActivity is the launcher entry — exported by design."
+  }
+]
