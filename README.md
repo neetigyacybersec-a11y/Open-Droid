@@ -25,7 +25,7 @@ No scattered MCP servers. No repeated downloads. No "works on my machine."
 - [Quick start — Clone + setup (automatic registration)](#quick-start--clone--setup-automatic-registration)
 - [What's included](#whats-included)
 - [Skills (30)](#skills-30)
-- [MCP tools (63)](#mcp-tools-63)
+- [MCP tools (66)](#mcp-tools-66)
 - [Create your first app](#create-your-first-app)
 - [Live visual output](#live-visual-output)
 - [Architecture](#architecture)
@@ -167,9 +167,9 @@ See `THIRD-PARTY.md` for attribution.
 
 ---
 
-## MCP tools (63)
+## MCP tools (66)
 
-The server exposes 63 tools grouped by category. The full list with schemas is
+The server exposes 66 tools grouped by category. The full list with schemas is
 returned by `tools/list` (MCP); `docs/agent-install.md` covers installation,
 registration, and verification.
 
@@ -190,6 +190,7 @@ registration, and verification.
 | APK serving (localhost) | 1 | `apk_serve` (python http.server in the APK output dir; binds 127.0.0.1, `expose:true` opts into 0.0.0.0) |
 | Skills / SDK | 4 | `android_skills_list`, `android_skills_search`, `sdkmanager_install`, `compose_preview_render` |
 | Privacy / compliance | 1 | `privacy_scan` (permissions, SDKs, endpoints, storage, account flows, PII logs, declaration diff) |
+| Security audit | 3 | `secret_scan` (redacted credentials), `security_audit` (manifest/components), `policy_preflight` (sourced Play policy checks) |
 | Maestro | 1 | `maestro_run` |
 
 Run `tools/list` for the exact schema of every tool.
@@ -242,7 +243,7 @@ per-agent).
 ```bash
 npm install
 npm run build        # compile TypeScript
-npm test             # smoke test (63 tools)
+npm test             # smoke test (66 tools)
 npm run lint         # eslint
 npm run format       # prettier
 make doctor          # toolchain + registration checks

@@ -148,7 +148,7 @@ test("clean manifest reports zero findings, passed check ids, and the deferred n
     assert.ok(result.notAssessed.includes(id), `notAssessed must contain ${id}`);
   }
   assert.ok(result.scannedAt.length > 0);
-  assert.ok(result.manifestPath.endsWith(MANIFEST));
+  assert.ok(result.manifestPath.replaceAll("\\", "/").endsWith(MANIFEST));
 });
 
 test("a project without a manifest throws a clear error", async () => {
