@@ -346,6 +346,33 @@ server.registerTool(
   logged("privacy_scan", async (a: any) => H.handlePrivacyScan(a)),
 );
 server.registerTool(
+  "secret_scan",
+  {
+    description:
+      "Scan an Android project tree for committed credentials (provider tokens, private keys, generic secrets). Values are always redacted; supports an allowlist and severity threshold.",
+    inputSchema: ToolSchemas.secretScan,
+  },
+  logged("secret_scan", async (a: any) => H.handleSecretScan(a)),
+);
+server.registerTool(
+  "security_audit",
+  {
+    description:
+      "Audit the source AndroidManifest.xml for exported components, backup, cleartext, debuggable, deep-link, and dangerous-permission risks. Supports a .securitybaseline.json acceptance file.",
+    inputSchema: ToolSchemas.securityAudit,
+  },
+  logged("security_audit", async (a: any) => H.handleSecurityAudit(a)),
+);
+server.registerTool(
+  "policy_preflight",
+  {
+    description:
+      "Run a sourced Google Play policy preflight (target SDK, data safety, privacy policy, account deletion, ads, foreground services, exact alarms, billing, native ABIs, secrets, listing) with last-verified policy links.",
+    inputSchema: ToolSchemas.policyPreflight,
+  },
+  logged("policy_preflight", async (a: any) => H.handlePolicyPreflight(a)),
+);
+server.registerTool(
   "native_libs",
   { description: "native_libs tool.", inputSchema: ToolSchemas.nativeLibs },
   logged("native_libs", async (a: any) => H.handleNativeLibs(a)),

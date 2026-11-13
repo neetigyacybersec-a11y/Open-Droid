@@ -3,16 +3,30 @@ import { strict as assert } from "node:assert";
 
 const proc = spawn("node", ["dist/index.js"], { stdio: ["pipe", "pipe", "pipe"] });
 let out = "";
-proc.stdout.on("data", (d) => { out += d.toString(); });
+proc.stdout.on("data", (d) => {
+  out += d.toString();
+});
 
-const init = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "test", version: "1" } } });
+const init = JSON.stringify({
+  jsonrpc: "2.0",
+  id: 1,
+  method: "initialize",
+  params: {
+    protocolVersion: "2024-11-05",
+    capabilities: {},
+    clientInfo: { name: "test", version: "1" },
+  },
+});
 const list = JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
 proc.stdin.write(init + "\n");
 proc.stdin.write(list + "\n");
 
 setTimeout(() => {
   proc.kill();
-  const lines = out.trim().split("\n").map((l) => JSON.parse(l));
+  const lines = out
+    .trim()
+    .split("\n")
+    .map((l) => JSON.parse(l));
   const tools = lines.find((l) => l.id === 2)?.result?.tools;
   const EXPECTED = new Set([
     "adb_battery",
@@ -72,7 +86,10 @@ setTimeout(() => {
     "native_libs",
     "net_capture",
     "perfetto_trace",
+    "policy_preflight",
     "privacy_scan",
+    "secret_scan",
+    "security_audit",
     "runtime_dump",
     "sdkmanager_install",
     "startup_time",

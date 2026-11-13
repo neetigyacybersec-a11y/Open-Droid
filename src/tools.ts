@@ -21,6 +21,9 @@ import {
 } from "./util.js";
 import { PIDFILE, ensureServer, pidRunning, resolveFridaCli, resolveMitmDump } from "./frida.js";
 import { renderPrivacyReport, scanPrivacyProject } from "./privacy.js";
+import { auditProjectManifest } from "./manifestAudit.js";
+import { scanProjectSecrets } from "./secretScan.js";
+import { renderPolicyPreflight, runPolicyPreflight } from "./policyPreflight.js";
 
 export const ToolSchemas = {
   envCheck: z.object({}),
@@ -255,6 +258,28 @@ export const ToolSchemas = {
       .optional()
       .default(false)
       .describe("Return an error when blockers are present"),
+  }),
+  secretScan: z.object({
+    projectPath: z.string().describe("Absolute path to the Android project root"),
+    severityThreshold: z
+      .enum(["critical", "high", "medium", "low"])
+      .optional()
+      .default("low")
+      .describe("Only report findings at or above this severity"),
+    reportPath: z.string().optional().describe("Write the Markdown report to this file"),
+  }),
+  securityAudit: z.object({
+    projectPath: z.string().describe("Absolute path to the Android project root"),
+    reportPath: z.string().optional().describe("Write the Markdown report to this file"),
+  }),
+  policyPreflight: z.object({
+    projectPath: z.string().describe("Absolute path to the Android project root"),
+    strict: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe("Return an error when any engineering check fails"),
+    reportPath: z.string().optional().describe("Write the Markdown report to this file"),
   }),
   nativeLibs: z.object({ apkPath: z.string() }),
   dexStrings: z.object({ apkPath: z.string(), pattern: z.string().optional() }),
@@ -1678,6 +1703,127 @@ export async function handlePrivacyScan(a: z.infer<typeof ToolSchemas.privacySca
     const message = error instanceof Error ? error.message : String(error);
     return {
       content: [{ type: "text" as const, text: `privacy_scan failed: ${message}` }],
+      isError: true,
+    };
+  }
+}
+export async function handleSecretScan(a: z.infer<typeof ToolSchemas.secretScan>) {
+  try {
+    const result = await scanProjectSecrets({
+      projectPath: a.projectPath,
+      severityThreshold: a.severityThreshold,
+    });
+    const lines: string[] = [
+      "# Secret scan",
+      "",
+      `Scanned ${result.scannedFiles} file(s) under ${result.projectPath}.`,
+      `Findings: ${result.findings.length} (values redacted).`,
+      "",
+    ];
+    for (const f of result.findings) {
+      lines.push(
+        `## [${f.severity}/${f.confidence}] ${f.rule} — ${f.file}:${f.line}:${f.column}`,
+        "",
+        `Evidence: ${f.snippet}`,
+        `Remediation: ${f.remediation}`,
+        "",
+      );
+    }
+    if (result.excludedPaths.length > 0) {
+      lines.push(
+        `Excluded ${result.excludedPaths.length} path(s) (binaries/keystores/build dirs):`,
+        ...result.excludedPaths.slice(0, 50).map((p) => `- ${p}`),
+        "",
+      );
+    }
+    if (result.allowlist.length > 0) {
+      lines.push(
+        "Allowlisted:",
+        ...result.allowlist.map((e) => `- ${e.rule} in ${e.file}: ${e.rationale}`),
+        "",
+      );
+    }
+    lines.push(`Scanned at ${result.scannedAt}.`);
+    let text = lines.join("\n");
+    if (a.reportPath) {
+      await mkdir(dirname(a.reportPath), { recursive: true });
+      await writeFile(a.reportPath, text.endsWith("\n") ? text : `${text}\n`, "utf8");
+      text += `\nReport written to ${a.reportPath}`;
+    }
+    return { content: [{ type: "text" as const, text }], isError: false };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      content: [{ type: "text" as const, text: `secret_scan failed: ${message}` }],
+      isError: true,
+    };
+  }
+}
+export async function handleSecurityAudit(a: z.infer<typeof ToolSchemas.securityAudit>) {
+  try {
+    const result = await auditProjectManifest({ projectPath: a.projectPath });
+    const lines: string[] = [
+      "# AndroidManifest security audit",
+      "",
+      `Scanned ${result.manifestPath}.`,
+      `Findings: ${result.findings.length}; passed checks: ${result.passed.length}; ` +
+        `accepted (baseline): ${result.accepted.length}; not assessed: ${result.notAssessed.length}.`,
+      "",
+    ];
+    for (const f of result.findings) {
+      lines.push(
+        `## [${f.severity}/${f.classification}] ${f.check}`,
+        "",
+        `Evidence: ${f.evidence}`,
+        `Why: ${f.rationale}`,
+        `Remediation: ${f.remediation}`,
+        "",
+      );
+    }
+    if (result.passed.length > 0) lines.push(`Passed: ${result.passed.join(", ")}`, "");
+    if (result.notAssessed.length > 0) {
+      lines.push(`Not assessed (needs source/APK analysis): ${result.notAssessed.join(", ")}`, "");
+    }
+    if (result.accepted.length > 0) {
+      lines.push(
+        "Accepted by baseline:",
+        ...result.accepted.map((e) => `- ${e.check} in ${e.file}: ${e.acceptedRationale}`),
+        "",
+      );
+    }
+    lines.push(`Scanned at ${result.scannedAt}.`);
+    let text = lines.join("\n");
+    if (a.reportPath) {
+      await mkdir(dirname(a.reportPath), { recursive: true });
+      await writeFile(a.reportPath, text.endsWith("\n") ? text : `${text}\n`, "utf8");
+      text += `\nReport written to ${a.reportPath}`;
+    }
+    return { content: [{ type: "text" as const, text }], isError: false };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      content: [{ type: "text" as const, text: `security_audit failed: ${message}` }],
+      isError: true,
+    };
+  }
+}
+export async function handlePolicyPreflight(a: z.infer<typeof ToolSchemas.policyPreflight>) {
+  try {
+    const result = await runPolicyPreflight({ projectPath: a.projectPath });
+    let text = renderPolicyPreflight(result);
+    if (a.reportPath) {
+      await mkdir(dirname(a.reportPath), { recursive: true });
+      await writeFile(a.reportPath, text.endsWith("\n") ? text : `${text}\n`, "utf8");
+      text += `\nReport written to ${a.reportPath}`;
+    }
+    return {
+      content: [{ type: "text" as const, text }],
+      isError: Boolean(a.strict && result.summary.failed > 0),
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      content: [{ type: "text" as const, text: `policy_preflight failed: ${message}` }],
       isError: true,
     };
   }
