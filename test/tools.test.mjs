@@ -13,6 +13,8 @@ import {
   handleApkServe,
   handleApkDecompile,
   handleAdbRm,
+  handleAdbReboot,
+  handleAdbScreenshot,
   handleAdbDeepLink,
   handleAdbBroadcast,
   handleComposeRecomposition,
@@ -220,6 +222,7 @@ stubbedTests("apk_decompile refuses to overwrite an existing output dir; default
   const outDir = join(work, "existing-out");
   await mkdir(outDir, { recursive: true });
   await writeFile(join(outDir, "keep.txt"), "sentinel");
+  await writeFile(join(work, "fake.apk"), "PK\u0003\u0004");
   process.env.RECORD = record;
   try {
     await withStubs({ jadx: APPEND_ARGS, apktool: APPEND_ARGS }, async () => {
@@ -307,6 +310,127 @@ stubbedTests("option-like values are rejected for gradle tasks, avd names and ap
     });
   } finally {
     delete process.env.RECORD;
+    await rm(work, { recursive: true, force: true });
+  }
+});
+
+stubbedTests("adb_reboot reports success only when adb exits 0 (issue 90)", async () => {
+  const record = RECORD();
+  process.env.RECORD = record;
+  try {
+    await withStubs({ adb: `${APPEND_ARGS}; exit 0` }, async () => {
+      const ok = await handleAdbReboot({ deviceId: "emulator-5554" });
+      assert.equal(ok.isError, false);
+      assert.match(text(ok), /rebooting/i);
+      assert.deepEqual(await readRecord(record), ["-s", "emulator-5554", "reboot"]);
+    });
+    await withStubs({ adb: "printf 'error: no devices/emulators found' >&2; exit 1" }, async () => {
+      const failed = await handleAdbReboot({});
+      assert.equal(failed.isError, true, "a failed adb reboot must be an error");
+      assert.match(text(failed), /no devices\/emulators found/);
+    });
+  } finally {
+    delete process.env.RECORD;
+  }
+});
+
+stubbedTests("apk_decompile passes JADX its real CLI contract (issue 78)", async () => {
+  const work = await mkdtemp(join(tmpdir(), "android-mcp-jadx-"));
+  const record = RECORD();
+  const apk = join(work, "sample app.apk");
+  const outDir = join(work, "decompiled output");
+  await writeFile(apk, "PK\u0003\u0004");
+  process.env.RECORD = record;
+  try {
+    await withStubs({ jadx: APPEND_ARGS, apktool: APPEND_ARGS }, async () => {
+      const ok = await handleApkDecompile({ apkPath: apk, outputDir: outDir });
+      assert.equal(ok.isError, false);
+      const args = await readRecord(record);
+      assert.deepEqual(args, ["-d", outDir, apk], "JADX must receive -d <out> <apk> as separate argv values");
+      assert.ok(!args.includes("-o"), "JADX must not receive apktool's -o flag");
+
+      await rm(record).catch(() => {});
+      const apktool = await handleApkDecompile({ apkPath: apk, outputDir: outDir, tool: "apktool", overwrite: true });
+      assert.equal(apktool.isError, false);
+      assert.deepEqual(await readRecord(record), ["d", apk, "-o", outDir, "-f"]);
+
+      await rm(record).catch(() => {});
+      const missing = await handleApkDecompile({ apkPath: join(work, "missing.apk") });
+      assert.equal(missing.isError, true, "a missing input APK must fail before invoking the decompiler");
+      assert.match(text(missing), /missing|not found|readable/i);
+      assert.equal((await readRecord(record)).length, 0, "the decompiler was invoked for a missing APK");
+
+      await writeFile(record, "", "utf8");
+      await withStubs({ jadx: "printf 'boom' >&2; exit 3" }, async () => {
+        const failed = await handleApkDecompile({ apkPath: apk });
+        assert.equal(failed.isError, true);
+        assert.match(text(failed), /boom/);
+      });
+    });
+  } finally {
+    delete process.env.RECORD;
+    await rm(work, { recursive: true, force: true });
+  }
+});
+
+stubbedTests("adb_screenshot never advertises a deleted path and uses unique remote names (issue 84)", async () => {
+  const work = await mkdtemp(join(tmpdir(), "android-mcp-shot-"));
+  const record = RECORD();
+  process.env.RECORD = record;
+  const stub = [
+    'if [ "$1" = "shell" ] && [ "$2" = "screencap" ]; then printf "%s\\n" "$4" >> "$RECORD"; exit "${SCREENCAP_FAIL:-0}"; fi',
+    'if [ "$1" = "pull" ]; then printf "PNGDATA" > "$3"; exit "${PULL_FAIL:-0}"; fi',
+    'if [ "$1" = "shell" ] && [ "$2" = "rm" ]; then printf "rm:%s\\n" "$4" >> "$RECORD"; exit 0; fi',
+    'exit 0',
+  ].join('\n');
+  try {
+    await withStubs({ adb: stub }, async () => {
+      const transient = await handleAdbScreenshot({});
+      assert.equal(transient.isError, false);
+      assert.ok(transient.content.some((c) => c.type === "image"), "inline image must survive");
+      assert.doesNotMatch(text(transient), /Saved screenshot to/i, "a deleted temp path must not be advertised");
+      assert.match(text(transient), /transient|inline/i);
+
+      const first = await readRecord(record);
+      const remotes = first.filter((l) => l.startsWith("/sdcard/") && l.endsWith(".png"));
+      assert.equal(remotes.length, 1, "remote capture path must be recorded");
+      assert.notEqual(remotes[0], "/sdcard/screen.png", "remote path must be unique per capture");
+      assert.ok(first.includes(`rm:${remotes[0]}`), "remote temp file must be cleaned up");
+
+      const target = join(work, "kept shot.png");
+      const persistent = await handleAdbScreenshot({ outputPath: target });
+      assert.equal(persistent.isError, false);
+      assert.ok(text(persistent).includes(target), "persistent path must be reported");
+      assert.equal(await readFile(target, "utf8"), "PNGDATA", "persistent file must remain after return");
+
+      const secondRemotes = (await readRecord(record)).filter((l) => l.startsWith("/sdcard/") && l.endsWith(".png"));
+      assert.notEqual(secondRemotes[0], secondRemotes[1], "two captures must not share a remote filename");
+    });
+
+    await withStubs({ adb: stub }, async () => {
+      // pull failure must be an error and still attempt remote cleanup
+      process.env.PULL_FAIL = "1";
+      const before = (await readRecord(record)).length;
+      const failed = await handleAdbScreenshot({ outputPath: join(work, "never.png") });
+      delete process.env.PULL_FAIL;
+      assert.equal(failed.isError, true);
+      assert.match(text(failed), /pull failed/);
+      const after = (await readRecord(record)).slice(before);
+      assert.ok(after.some((l) => l.startsWith("rm:/sdcard/")), "pull failure must still attempt remote cleanup");
+    });
+
+    await withStubs({ adb: stub }, async () => {
+      process.env.SCREENCAP_FAIL = "1";
+      const failed = await handleAdbScreenshot({});
+      delete process.env.SCREENCAP_FAIL;
+      assert.equal(failed.isError, true);
+      assert.match(text(failed), /screencap failed/);
+      assert.doesNotMatch(text(failed), /Saved screenshot to/i);
+    });
+  } finally {
+    delete process.env.RECORD;
+    delete process.env.PULL_FAIL;
+    delete process.env.SCREENCAP_FAIL;
     await rm(work, { recursive: true, force: true });
   }
 });

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { closeSync, constants, openSync } from "node:fs";
-import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -376,34 +376,59 @@ export async function handleAdbDevices() {
 }
 
 export async function handleAdbScreenshot(args: z.infer<typeof ToolSchemas.adbScreenshot>) {
-  const dir = await tmpDir();
-  const local = args.outputPath ?? join(dir, "screen.png");
-  const remote = "/sdcard/screen.png";
   const base = await adbBase(args.deviceId);
-  let r = await run("adb", [...base, "shell", "screencap", "-p", remote]);
-  if (r.code !== 0) {
-    await cleanup(dir);
+  const persistent = Boolean(args.outputPath);
+  const dir = persistent ? null : await tmpDir();
+  const local = args.outputPath ?? join(dir!, "screen.png");
+  // Unique per capture: overlapping captures must not overwrite each other's
+  // device-side file before the pull completes (issue 84).
+  const remote = `/sdcard/screen-${process.pid}-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}.png`;
+  try {
+    let r = await run("adb", [...base, "shell", "screencap", "-p", remote], {
+      timeout: 60_000,
+    });
+    if (r.code !== 0) {
+      return {
+        content: [{ type: "text" as const, text: `screencap failed: ${r.stderr}` }],
+        isError: true,
+      };
+    }
+    r = await run("adb", [...base, "pull", remote, local], { timeout: 120_000 });
+    if (r.code !== 0) {
+      return {
+        content: [{ type: "text" as const, text: `pull failed: ${r.stderr}` }],
+        isError: true,
+      };
+    }
+    const b64 = await readBase64(local);
+    if (persistent) {
+      return {
+        content: [
+          { type: "image" as const, data: b64, mimeType: "image/png" },
+          { type: "text" as const, text: `Saved screenshot to ${local}` },
+        ],
+        isError: false,
+      };
+    }
     return {
-      content: [{ type: "text" as const, text: `screencap failed: ${r.stderr}` }],
-      isError: true,
+      content: [
+        { type: "image" as const, data: b64, mimeType: "image/png" },
+        {
+          type: "text" as const,
+          text: "Screenshot captured inline (transient; no local file retained). Pass outputPath to keep a copy.",
+        },
+      ],
+      isError: false,
     };
+  } finally {
+    // Best-effort remote cleanup; never mask the primary diagnostic.
+    await run("adb", [...base, "shell", "rm", "-f", remote], { timeout: 15_000 }).catch(
+      () => undefined,
+    );
+    if (dir) await cleanup(dir);
   }
-  r = await run("adb", [...base, "pull", remote, local]);
-  if (r.code !== 0) {
-    await cleanup(dir);
-    return {
-      content: [{ type: "text" as const, text: `pull failed: ${r.stderr}` }],
-      isError: true,
-    };
-  }
-  const b64 = await readBase64(local);
-  await cleanup(dir);
-  return {
-    content: [
-      { type: "image" as const, data: b64, mimeType: "image/png" },
-      { type: "text" as const, text: `Saved screenshot to ${local}` },
-    ],
-  };
 }
 
 export async function handleAdbInstall(args: z.infer<typeof ToolSchemas.adbInstall>) {
@@ -1298,7 +1323,13 @@ export async function handleAdbForceStop(a: z.infer<typeof ToolSchemas.adbForceS
 }
 export async function handleAdbReboot(a: z.infer<typeof ToolSchemas.adbReboot>) {
   const r = await run("adb", [...adb(a.deviceId), "reboot"], { timeout: 60_000 });
-  return { content: [{ type: "text" as const, text: r.stdout + r.stderr || "rebooting" }] };
+  const output = (r.stdout + r.stderr).trim();
+  const prefix = a.deviceId ? `device ${a.deviceId}: ` : "";
+  const message =
+    r.code === 0
+      ? `${prefix}${output || "rebooting"}`
+      : `${prefix}reboot failed (exit ${r.code}): ${output || "no output"}`;
+  return { content: [{ type: "text" as const, text: message }], isError: r.code !== 0 };
 }
 export async function handleAdbScreenrecord(a: z.infer<typeof ToolSchemas.adbScreenrecord>) {
   const dur = Math.max(1, a.durationSec ?? 10);
@@ -1633,6 +1664,15 @@ export async function handleApkDecompile(a: z.infer<typeof ToolSchemas.apkDecomp
       content: [{ type: "text" as const, text: "Invalid apk path: must not start with '-'." }],
       isError: true,
     };
+  try {
+    const info = await stat(a.apkPath);
+    if (!info.isFile()) throw new Error("not a file");
+  } catch {
+    return {
+      content: [{ type: "text" as const, text: `Input APK not found or unreadable: ${a.apkPath}` }],
+      isError: true,
+    };
+  }
   const { existsSync } = await import("node:fs");
   let out = a.outputDir;
   if (out) {
@@ -1660,7 +1700,7 @@ export async function handleApkDecompile(a: z.infer<typeof ToolSchemas.apkDecomp
   const args =
     tool === "apktool"
       ? ["d", a.apkPath, "-o", out, ...(a.overwrite ? ["-f"] : [])]
-      : ["-d", a.apkPath, "-o", out];
+      : ["-d", out, a.apkPath];
   const r = await run(tool, args, { timeout: 600_000 });
   return {
     content: [
