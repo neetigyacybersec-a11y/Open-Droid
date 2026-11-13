@@ -22,6 +22,7 @@ gradle --no-daemon :app:assembleDebugAndroidTest
 bash "$ROOT/scripts/offline-proof.sh"
 # PACKS (FR-R1): comma/space separated pack ids resolve pack artifacts online.
 # Empty = template-only warm (the compose pack is covered by the build above).
+PACKS="${PACKS:-}"
 PACKS="${PACKS//,/ }"
 if [ -n "$PACKS" ]; then
   for p in $PACKS; do
