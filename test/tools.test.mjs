@@ -6,6 +6,8 @@ import { test, skip } from "node:test";
 import { mkdtemp, writeFile, chmod, rm, readFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawn } from "node:child_process";
+import net from "node:net";
 import {
   capOutput,
   handleAdbShell,
@@ -18,6 +20,8 @@ import {
   handleCrashSummary,
   handleStartupTime,
   handleBuildVariant,
+  handleAvdWipe,
+  handleEmulatorBoot,
   handleAdbDeepLink,
   handleAdbBroadcast,
   handleComposeRecomposition,
@@ -135,6 +139,68 @@ const readRecord = async (p) =>
 // one arg per line (newline-separated so embedded spaces/quotes survive)
 const APPEND_ARGS = 'printf \'%s\\n\' "$@" >> "$RECORD"';
 
+async function freePort() {
+  return await new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.on("error", reject);
+    srv.listen(0, "127.0.0.1", () => {
+      const { port } = srv.address();
+      srv.close(() => resolve(port));
+    });
+  });
+}
+
+// A python3 stub that behaves like `http.server`: parse the real argv shape and
+// serve a trivial 200 until it is terminated. Its command line keeps the
+// `http.server` marker so the apk_serve ownership check can verify it.
+async function httpServerStub(work) {
+  const js = join(work, "http.server.js");
+  await writeFile(
+    js,
+    'const http=require("http");const [port,bind]=process.argv.slice(2);' +
+      'http.createServer((req,res)=>{res.statusCode=200;res.end("ok");}).listen(Number(port),bind);',
+  );
+  return [
+    'printf \'%s\\n\' "$@" >> "$RECORD"',
+    'port=""; bind="127.0.0.1"',
+    "while [ $# -gt 0 ]; do",
+    '  case "$1" in',
+    "    -m) shift ;;",
+    "    http.server) shift ;;",
+    "    --directory) shift 2 ;;",
+    '    --bind) bind="$2"; shift 2 ;;',
+    '    *) port="$1"; shift ;;',
+    "  esac",
+    "done",
+    `exec node "${js}" "$port" "$bind"`,
+  ].join("\n");
+}
+
+async function waitForPidGone(pid, attempts = 50) {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return true;
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return false;
+}
+
+async function portResponds(port, timeoutMs = 500) {
+  return await new Promise((resolve) => {
+    const socket = net.connect({ host: "127.0.0.1", port });
+    const done = (value) => {
+      socket.destroy();
+      resolve(value);
+    };
+    socket.setTimeout(timeoutMs, () => done(false));
+    socket.once("connect", () => done(true));
+    socket.once("error", () => done(false));
+  });
+}
+
 stubbedTests(
   "apk_serve start: localhost bind by default, no shell in APK discovery (issues 65, 66)",
   async () => {
@@ -142,6 +208,7 @@ stubbedTests(
     const marker = join(work, "marker");
     const state = join(work, "serve-state.json");
     const record = RECORD();
+    const port = await freePort();
     const payloadDir = `${work}/x"; touch ${marker}; #`;
     const realDir = join(work, "serve");
     await mkdir(realDir, { recursive: true });
@@ -149,10 +216,10 @@ stubbedTests(
     process.env.MARKER = marker;
     process.env.ANDROID_MCP_SERVE_STATE = state;
     try {
-      await withStubs({ python3: APPEND_ARGS }, async () => {
+      await withStubs({ python3: await httpServerStub(work) }, async () => {
         // crafted dir payload: discovery must not run a shell command derived from dir
-        await handleApkServe({ action: "start", dir: payloadDir, port: 18099 });
-        await new Promise((r) => setTimeout(r, 300));
+        const rejected = await handleApkServe({ action: "start", dir: payloadDir, port });
+        assert.equal(rejected.isError, true, "a nonexistent served directory must fail");
         assert.equal(
           await readFile(marker, "utf8")
             .then(() => true)
@@ -161,8 +228,9 @@ stubbedTests(
           "a marker command executed — shell interpolation in APK discovery",
         );
         // then a legitimate start: python3 must bind to loopback only
-        await handleApkServe({ action: "start", dir: realDir, port: 18099 });
-        await new Promise((r) => setTimeout(r, 300));
+        const started = await handleApkServe({ action: "start", dir: realDir, port });
+        assert.equal(started.isError, false, text(started));
+        assert.ok(await portResponds(port), "start must not return before the server responds");
         const pyArgs = await readRecord(record);
         assert.ok(pyArgs.length > 0, "python3 (http.server) was not invoked");
         assert.ok(pyArgs.includes("--bind"), "http.server must be started with an explicit --bind");
@@ -182,12 +250,15 @@ stubbedTests(
 stubbedTests("apk_serve start: LAN exposure requires explicit opt-in (issue 66)", async () => {
   const work = await mkdtemp(join(tmpdir(), "android-mcp-serve-work-"));
   const record = RECORD();
+  const port = await freePort();
   process.env.RECORD = record;
   process.env.ANDROID_MCP_SERVE_STATE = join(work, "serve-state.json");
   try {
-    await withStubs({ python3: APPEND_ARGS }, async () => {
-      await handleApkServe({ action: "start", dir: work, port: 18099, expose: true });
-      await new Promise((r) => setTimeout(r, 300));
+    await withStubs({ python3: await httpServerStub(work) }, async () => {
+      const started = await handleApkServe({ action: "start", dir: work, port, expose: true });
+      assert.equal(started.isError, false, text(started));
+      assert.match(text(started), /0\.0\.0\.0/, "expose:true must opt in to a 0.0.0.0 bind");
+      assert.ok(await portResponds(port), "start must not return before the server responds");
       const pyArgs = await readRecord(record);
       assert.ok(pyArgs.includes("--bind"), "http.server must be started with an explicit --bind");
       assert.ok(pyArgs.includes("0.0.0.0"), "expose:true must opt in to a 0.0.0.0 bind");
@@ -200,32 +271,26 @@ stubbedTests("apk_serve start: LAN exposure requires explicit opt-in (issue 66)"
   }
 });
 
-stubbedTests("apk_serve start twice kills the first listener (issue 66)", async () => {
+stubbedTests("apk_serve start twice stops the first listener (issue 66)", async () => {
   const work = await mkdtemp(join(tmpdir(), "android-mcp-serve-work-"));
   const record = RECORD();
+  const port = await freePort();
   process.env.RECORD = record;
   process.env.ANDROID_MCP_SERVE_STATE = join(work, "serve-state.json");
   try {
-    // sleeper stub so the first server stays alive until the second start kills it
-    await withStubs({ python3: `${APPEND_ARGS}; sleep 5` }, async () => {
-      await handleApkServe({ action: "start", dir: work, port: 18099 });
+    await withStubs({ python3: await httpServerStub(work) }, async () => {
+      const first = await handleApkServe({ action: "start", dir: work, port });
+      assert.equal(first.isError, false, text(first));
       const state = JSON.parse(await readFile(process.env.ANDROID_MCP_SERVE_STATE, "utf8"));
       const firstPid = state.pid;
       assert.ok(firstPid, "state file must record the server pid");
-      await new Promise((r) => setTimeout(r, 200));
-      await handleApkServe({ action: "start", dir: work, port: 18099 });
-      // the first listener must be gone, not orphaned (allow SIGTERM a moment)
-      let alive = true;
-      for (let i = 0; i < 20; i++) {
-        try {
-          process.kill(firstPid, 0);
-        } catch {
-          alive = false;
-          break;
-        }
-        await new Promise((r) => setTimeout(r, 100));
-      }
-      assert.equal(alive, false, "repeated start orphaned the first listener");
+      const second = await handleApkServe({ action: "start", dir: work, port });
+      assert.equal(second.isError, false, text(second));
+      assert.equal(
+        await waitForPidGone(firstPid),
+        true,
+        "repeated start orphaned the first listener",
+      );
     });
   } finally {
     await handleApkServe({ action: "stop" }).catch(() => {});
@@ -813,3 +878,533 @@ stubbedTests("build_variant maps variant labels to valid Gradle tasks (issue 83)
     await rm(work, { recursive: true, force: true });
   }
 });
+
+stubbedTests(
+  "avd_wipe runs a bounded lifecycle and never touches other emulators (issue 86)",
+  async () => {
+    const record = RECORD();
+    const pidFile = join(
+      tmpdir(),
+      `avd-wipe-pid-${process.pid}-${Math.random().toString(36).slice(2)}`,
+    );
+    process.env.RECORD = record;
+    process.env.EMULATOR_PID_FILE = pidFile;
+    process.env.TARGET_AVD = "WipeMe";
+    const adbStub = [
+      'printf "%s\\n" "$*" >> "$RECORD"',
+      'if [ "$1" = "devices" ]; then',
+      '  printf "List of devices attached\\n"',
+      '  [ -n "${OTHER_SERIAL:-}" ] && printf "%s\\tdevice\\n" "$OTHER_SERIAL"',
+      '  if [ -f "$EMULATOR_PID_FILE" ] && [ -z "${NEVER_READY:-}" ]; then printf "emulator-5556\\tdevice\\n"; fi',
+      "  exit 0",
+      "fi",
+      'if [ "$1" = "-s" ]; then',
+      '  serial="$2"; shift 2',
+      '  if [ "$1" = "emu" ] && [ "$2" = "avd" ] && [ "$3" = "name" ]; then',
+      '    case "$serial" in',
+      '      emulator-5554) printf "%s\\nOK\\n" "${OTHER_AVD:-OtherAvd}" ;;',
+      '      *) printf "%s\\nOK\\n" "$TARGET_AVD" ;;',
+      "    esac",
+      "    exit 0",
+      "  fi",
+      '  if [ "$1" = "shell" ] && [ "$2" = "getprop" ] && [ "$3" = "sys.boot_completed" ]; then',
+      '    printf "%s\\n" "${BOOT_COMPLETED:-1}"; exit "${BOOT_PROP_FAIL:-0}"',
+      "  fi",
+      '  if [ "$1" = "emu" ] && [ "$2" = "kill" ]; then',
+      '    if [ -n "${KILL_FAIL:-}" ]; then printf "kill failed\\n" >&2; exit 1; fi',
+      '    [ -f "$EMULATOR_PID_FILE" ] && kill "$(cat "$EMULATOR_PID_FILE")" 2>/dev/null',
+      "    exit 0",
+      "  fi",
+      "fi",
+      "exit 0",
+    ].join("\n");
+    const emulatorStub = [
+      'printf "%s\\n" "$*" >> "$RECORD"',
+      'if [ "$1" = "-list-avds" ]; then printf "%s\\n" "${AVD_LIST:-WipeMe}"; exit 0; fi',
+      'printf "%s" "$$" > "$EMULATOR_PID_FILE"',
+      'exec sleep "${EMULATOR_LIFETIME:-2}"',
+    ].join("\n");
+    const wipe = async (args, env = {}) => {
+      Object.assign(process.env, env);
+      try {
+        return await handleAvdWipe({ avdName: "WipeMe", ...args });
+      } finally {
+        for (const k of Object.keys(env)) delete process.env[k];
+      }
+    };
+    const pidAlive = (pid) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    try {
+      await withStubs({ adb: adbStub, emulator: emulatorStub }, async () => {
+        const optionLike = await handleAvdWipe({ avdName: "-wipe-data" });
+        assert.equal(optionLike.isError, true);
+        assert.equal(
+          (await readRecord(record)).length,
+          0,
+          "option-like name must not spawn anything",
+        );
+
+        await rm(record).catch(() => {});
+        const unknown = await wipe({}, { AVD_LIST: "OtherAvd" });
+        assert.equal(unknown.isError, true);
+        assert.match(text(unknown), /status=not-found/);
+        assert.ok(
+          !(await readRecord(record)).some((l) => l.includes("-wipe-data")),
+          "unknown AVD must not launch",
+        );
+
+        await rm(record).catch(() => {});
+        const running = await wipe({}, { OTHER_SERIAL: "emulator-5554", OTHER_AVD: "WipeMe" });
+        assert.equal(running.isError, true, "an already-running target AVD must be refused");
+        assert.match(text(running), /status=refused/);
+        assert.match(text(running), /already-running/);
+        assert.match(text(running), /emulator-5554/);
+
+        await rm(record).catch(() => {});
+        const success = await wipe({}, { OTHER_SERIAL: "emulator-5554", OTHER_AVD: "OtherAvd" });
+        assert.equal(success.isError, false, text(success));
+        assert.match(text(success), /status=ok/);
+        assert.match(text(success), /wipe=complete/);
+        assert.match(text(success), /serial=emulator-5556/);
+        assert.match(text(success), /instance=stopped/);
+        const calls = await readRecord(record);
+        assert.ok(
+          calls.some((l) => l.startsWith("-avd WipeMe -wipe-data")),
+          "a controlled wipe instance must launch",
+        );
+        assert.ok(
+          calls.some((l) => l === "-s emulator-5556 shell getprop sys.boot_completed"),
+          "boot completion must be verified before success",
+        );
+        assert.ok(
+          calls.some((l) => l === "-s emulator-5556 emu kill"),
+          "shutdown must target the wipe serial",
+        );
+        assert.ok(
+          !calls.some((l) => l.includes("emulator-5554") && l.includes("emu kill")),
+          "other emulator must not be killed",
+        );
+        assert.ok(
+          !calls.some((l) => l.includes("pkill") || l.includes("killall")),
+          "no process-wide kill may be used",
+        );
+
+        await rm(record).catch(() => {});
+        const timeout = await wipe(
+          { timeoutSec: 1 },
+          { OTHER_SERIAL: "emulator-5554", OTHER_AVD: "OtherAvd", NEVER_READY: "1" },
+        );
+        assert.equal(timeout.isError, true);
+        assert.match(text(timeout), /status=timeout/);
+        assert.match(text(timeout), /wipe=indeterminate/);
+        const pid = Number(await readFile(pidFile, "utf8"));
+        assert.ok(
+          !pidAlive(pid),
+          "the temporary emulator created by this operation must be terminated",
+        );
+        const timeoutCalls = await readRecord(record);
+        assert.ok(!timeoutCalls.some((l) => l.includes("emulator-5554") && l.includes("emu kill")));
+
+        await rm(record).catch(() => {});
+        await rm(pidFile, { force: true });
+        const killFailed = await wipe(
+          {},
+          { OTHER_SERIAL: "emulator-5554", OTHER_AVD: "OtherAvd", KILL_FAIL: "1" },
+        );
+        assert.equal(
+          killFailed.isError,
+          true,
+          "a failed shutdown must not be reported as cleanly stopped",
+        );
+        assert.match(text(killFailed), /status=shutdown-failed/);
+        assert.match(text(killFailed), /shutdown=failed/);
+        assert.doesNotMatch(text(killFailed), /instance=stopped/);
+        const failedPid = Number(await readFile(pidFile, "utf8"));
+        assert.ok(!pidAlive(failedPid), "the failed instance must not be leaked");
+      });
+    } finally {
+      const stray = await readFile(pidFile, "utf8").catch(() => "");
+      if (stray) {
+        try {
+          process.kill(Number(stray), "SIGKILL");
+        } catch {
+          /* already gone */
+        }
+      }
+      delete process.env.RECORD;
+      delete process.env.EMULATOR_PID_FILE;
+      delete process.env.TARGET_AVD;
+      await rm(pidFile, { force: true });
+    }
+  },
+);
+
+stubbedTests("apk_serve reports a missing python3 and writes no state (issue 81)", async () => {
+  const work = await mkdtemp(join(tmpdir(), "android-mcp-serve-work-"));
+  const empty = join(work, "empty-bin");
+  await mkdir(empty);
+  const statePath = join(work, "serve-state.json");
+  const oldPath = process.env.PATH;
+  process.env.ANDROID_MCP_SERVE_STATE = statePath;
+  process.env.PATH = empty;
+  try {
+    const r = await handleApkServe({ action: "start", dir: work, port: 18099 });
+    assert.equal(r.isError, true, "a missing python3 must be an MCP error");
+    assert.match(text(r), /python3|spawn|not found|ENOENT/i);
+    assert.equal(
+      await readFile(statePath, "utf8")
+        .then(() => true)
+        .catch(() => false),
+      false,
+      "no state may be written before the server is ready",
+    );
+  } finally {
+    process.env.PATH = oldPath;
+    delete process.env.ANDROID_MCP_SERVE_STATE;
+    await rm(work, { recursive: true, force: true });
+  }
+});
+
+stubbedTests(
+  "apk_serve rejects an early exit and a bind conflict, leaving no state (issue 81)",
+  async () => {
+    const work = await mkdtemp(join(tmpdir(), "android-mcp-serve-work-"));
+    const record = RECORD();
+    const statePath = join(work, "serve-state.json");
+    process.env.RECORD = record;
+    process.env.ANDROID_MCP_SERVE_STATE = statePath;
+    try {
+      await withStubs({ python3: `${APPEND_ARGS}; exit 3` }, async () => {
+        const r = await handleApkServe({ action: "start", dir: work, port: 18099 });
+        assert.equal(r.isError, true, "a server that exits immediately must be an error");
+        assert.match(text(r), /exit|exited/i);
+        assert.equal(
+          await readFile(statePath, "utf8")
+            .then(() => true)
+            .catch(() => false),
+          false,
+        );
+      });
+
+      const port = await freePort();
+      const blocker = net.createServer();
+      const blockedSockets = new Set();
+      blocker.on("connection", (socket) => {
+        blockedSockets.add(socket);
+        socket.once("close", () => blockedSockets.delete(socket));
+      });
+      await new Promise((resolve, reject) => {
+        blocker.once("error", reject);
+        blocker.listen(port, "127.0.0.1", resolve);
+      });
+      try {
+        await withStubs({ python3: await httpServerStub(work) }, async () => {
+          const r = await handleApkServe({ action: "start", dir: work, port });
+          assert.equal(r.isError, true, "a bind conflict must be an error");
+          assert.match(text(r), /address|in use|exit|exited/i);
+          assert.equal(
+            await readFile(statePath, "utf8")
+              .then(() => true)
+              .catch(() => false),
+            false,
+          );
+        });
+      } finally {
+        for (const socket of blockedSockets) socket.destroy();
+        await new Promise((resolve) => blocker.close(() => resolve()));
+      }
+    } finally {
+      delete process.env.RECORD;
+      delete process.env.ANDROID_MCP_SERVE_STATE;
+      await rm(work, { recursive: true, force: true });
+    }
+  },
+);
+
+stubbedTests(
+  "apk_serve readiness timeout terminates only its child and leaves no state (issue 81)",
+  async () => {
+    const work = await mkdtemp(join(tmpdir(), "android-mcp-serve-work-"));
+    const pidFile = join(work, "serve.pid");
+    const statePath = join(work, "serve-state.json");
+    process.env.SERVE_PID_FILE = pidFile;
+    process.env.ANDROID_MCP_SERVE_STATE = statePath;
+    try {
+      await withStubs(
+        { python3: 'printf "%s" "$$" > "$SERVE_PID_FILE"; exec sleep 30' },
+        async () => {
+          const r = await handleApkServe({
+            action: "start",
+            dir: work,
+            port: await freePort(),
+            readyTimeoutSec: 1,
+          });
+          assert.equal(r.isError, true);
+          assert.match(text(r), /status=timeout/);
+          assert.equal(
+            await readFile(statePath, "utf8")
+              .then(() => true)
+              .catch(() => false),
+            false,
+          );
+        },
+      );
+      const pid = Number(await readFile(pidFile, "utf8"));
+      assert.ok(await waitForPidGone(pid), "the timed-out server must be terminated");
+    } finally {
+      delete process.env.SERVE_PID_FILE;
+      delete process.env.ANDROID_MCP_SERVE_STATE;
+      await rm(work, { recursive: true, force: true });
+    }
+  },
+);
+
+stubbedTests("apk_serve stop refuses to signal a reused stale pid (issue 81)", async () => {
+  const work = await mkdtemp(join(tmpdir(), "android-mcp-serve-work-"));
+  const statePath = join(work, "serve-state.json");
+  process.env.ANDROID_MCP_SERVE_STATE = statePath;
+  const sleeper = spawn("sleep", ["30"], { stdio: "ignore" });
+  try {
+    await writeFile(
+      statePath,
+      JSON.stringify({ pid: sleeper.pid, port: 18099, dir: work, bind: "127.0.0.1" }),
+    );
+    const r = await handleApkServe({ action: "stop" });
+    assert.equal(r.isError, true, "an unowned pid must not be reported as a clean stop");
+    assert.match(text(r), /refused|identity|stale|not-stopped/i);
+    assert.equal(sleeper.exitCode, null, "an unrelated process must not be signalled");
+    assert.equal(
+      await readFile(statePath, "utf8")
+        .then(() => true)
+        .catch(() => false),
+      false,
+      "the unusable state file must be discarded",
+    );
+  } finally {
+    sleeper.kill("SIGKILL");
+    delete process.env.ANDROID_MCP_SERVE_STATE;
+    await rm(work, { recursive: true, force: true });
+  }
+});
+
+stubbedTests("apk_serve stop confirms the verified listener is gone (issue 81)", async () => {
+  const work = await mkdtemp(join(tmpdir(), "android-mcp-serve-work-"));
+  const record = RECORD();
+  const statePath = join(work, "serve-state.json");
+  const port = await freePort();
+  process.env.RECORD = record;
+  process.env.ANDROID_MCP_SERVE_STATE = statePath;
+  try {
+    await withStubs({ python3: await httpServerStub(work) }, async () => {
+      const started = await handleApkServe({ action: "start", dir: work, port });
+      assert.equal(started.isError, false, text(started));
+      assert.ok(await portResponds(port));
+      const stopped = await handleApkServe({ action: "stop" });
+      assert.equal(stopped.isError, false, text(stopped));
+      assert.match(text(stopped), /status=stopped/);
+      assert.equal(
+        await readFile(statePath, "utf8")
+          .then(() => true)
+          .catch(() => false),
+        false,
+        "stop must remove the state file",
+      );
+    });
+  } finally {
+    delete process.env.RECORD;
+    delete process.env.ANDROID_MCP_SERVE_STATE;
+    await rm(work, { recursive: true, force: true });
+  }
+});
+
+stubbedTests(
+  "emulator_boot reports list and spawn failures instead of claiming success (issue 81)",
+  async () => {
+    const work = await mkdtemp(join(tmpdir(), "android-mcp-boot-"));
+    const record = RECORD();
+    const empty = join(work, "empty-bin");
+    await mkdir(empty);
+    const oldPath = process.env.PATH;
+    process.env.RECORD = record;
+    try {
+      process.env.PATH = empty;
+      const missing = await handleEmulatorBoot({ avdName: "BootMe" });
+      assert.equal(missing.isError, true, "a missing emulator must be an MCP error");
+      assert.match(text(missing), /unavailable|list-avds|emulator/i);
+
+      process.env.PATH = oldPath;
+      const adbStub = [
+        'printf "%s\\n" "$*" >> "$RECORD"',
+        'if [ "$1" = "devices" ]; then printf "List of devices attached\\n"; exit 0; fi',
+        "exit 0",
+      ].join("\n");
+      const earlyExit = [
+        'printf "%s\\n" "$*" >> "$RECORD"',
+        'if [ "$1" = "-list-avds" ]; then printf "BootMe\\n"; exit 0; fi',
+        "exit 1",
+      ].join("\n");
+      await withStubs({ adb: adbStub, emulator: earlyExit }, async () => {
+        const failed = await handleEmulatorBoot({ avdName: "BootMe", timeoutSec: 2 });
+        assert.equal(failed.isError, true);
+        assert.match(text(failed), /status=exited/);
+        assert.doesNotMatch(text(failed), /status=ready|Booted AVD/i);
+      });
+    } finally {
+      process.env.PATH = oldPath;
+      delete process.env.RECORD;
+      await rm(work, { recursive: true, force: true });
+    }
+  },
+);
+
+stubbedTests(
+  "emulator_boot times out and terminates the instance it launched (issue 81)",
+  async () => {
+    const work = await mkdtemp(join(tmpdir(), "android-mcp-boot-"));
+    const pidFile = join(work, "boot.pid");
+    const record = RECORD();
+    process.env.RECORD = record;
+    process.env.EMULATOR_PID_FILE = pidFile;
+    process.env.BOOT_COMPLETED = "0";
+    const adbStub = [
+      'printf "%s\\n" "$*" >> "$RECORD"',
+      'if [ "$1" = "devices" ]; then',
+      '  printf "List of devices attached\\n"',
+      '  if [ -f "$EMULATOR_PID_FILE" ] && [ -z "${NEVER_READY:-}" ]; then printf "emulator-5556\\tdevice\\n"; fi',
+      "  exit 0",
+      "fi",
+      'if [ "$1" = "-s" ]; then',
+      '  serial="$2"; shift 2',
+      '  if [ "$1" = "emu" ] && [ "$2" = "avd" ] && [ "$3" = "name" ]; then printf "BootMe\\nOK\\n"; exit 0; fi',
+      '  if [ "$1" = "shell" ] && [ "$2" = "getprop" ] && [ "$3" = "sys.boot_completed" ]; then printf "%s\\n" "$BOOT_COMPLETED"; exit 0; fi',
+      '  if [ "$1" = "emu" ] && [ "$2" = "kill" ]; then [ -f "$EMULATOR_PID_FILE" ] && kill "$(cat "$EMULATOR_PID_FILE")" 2>/dev/null; exit 0; fi',
+      "fi",
+      "exit 0",
+    ].join("\n");
+    const emulatorStub = [
+      'printf "%s\\n" "$*" >> "$RECORD"',
+      'if [ "$1" = "-list-avds" ]; then printf "BootMe\\n"; exit 0; fi',
+      'printf "%s" "$$" > "$EMULATOR_PID_FILE"',
+      'exec sleep "${EMULATOR_LIFETIME:-30}"',
+    ].join("\n");
+    const pidAlive = (pid) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    try {
+      await withStubs({ adb: adbStub, emulator: emulatorStub }, async () => {
+        const bootTimeout = await handleEmulatorBoot({ avdName: "BootMe", timeoutSec: 2 });
+        assert.equal(bootTimeout.isError, true);
+        assert.match(text(bootTimeout), /status=timeout/);
+        assert.match(text(bootTimeout), /phase=boot/);
+        const pid = Number(await readFile(pidFile, "utf8"));
+        assert.ok(!pidAlive(pid), "a boot timeout must terminate the launched instance");
+        assert.ok(
+          (await readRecord(record)).some((l) => l === "-s emulator-5556 emu kill"),
+          "a boot timeout must ask the exact serial to shut down",
+        );
+
+        await rm(record).catch(() => {});
+        await rm(pidFile, { force: true });
+        process.env.NEVER_READY = "1";
+        const neverReady = await handleEmulatorBoot({ avdName: "BootMe", timeoutSec: 2 });
+        delete process.env.NEVER_READY;
+        assert.equal(neverReady.isError, true);
+        assert.match(text(neverReady), /status=timeout/);
+        const secondPid = Number(await readFile(pidFile, "utf8"));
+        assert.ok(!pidAlive(secondPid), "a never-ready instance must be terminated");
+        assert.doesNotMatch(text(neverReady), /status=ready/);
+      });
+    } finally {
+      delete process.env.RECORD;
+      delete process.env.EMULATOR_PID_FILE;
+      delete process.env.BOOT_COMPLETED;
+      delete process.env.NEVER_READY;
+      await rm(work, { recursive: true, force: true });
+    }
+  },
+);
+
+stubbedTests(
+  "emulator_boot only reports ready after ADB identity and boot completion (issue 81)",
+  async () => {
+    const work = await mkdtemp(join(tmpdir(), "android-mcp-boot-"));
+    const pidFile = join(work, "boot.pid");
+    const record = RECORD();
+    process.env.RECORD = record;
+    process.env.EMULATOR_PID_FILE = pidFile;
+    process.env.BOOT_COMPLETED = "1";
+    const adbStub = [
+      'printf "%s\\n" "$*" >> "$RECORD"',
+      'if [ "$1" = "devices" ]; then',
+      '  printf "List of devices attached\\n"',
+      '  [ -n "${OTHER_SERIAL:-}" ] && printf "%s\\tdevice\\n" "$OTHER_SERIAL"',
+      '  [ -f "$EMULATOR_PID_FILE" ] && printf "emulator-5556\\tdevice\\n"',
+      "  exit 0",
+      "fi",
+      'if [ "$1" = "-s" ]; then',
+      '  serial="$2"; shift 2',
+      '  if [ "$1" = "emu" ] && [ "$2" = "avd" ] && [ "$3" = "name" ]; then',
+      '    case "$serial" in emulator-5554) printf "OtherAvd\\nOK\\n" ;; *) printf "BootMe\\nOK\\n" ;; esac',
+      "    exit 0",
+      "  fi",
+      '  if [ "$1" = "shell" ] && [ "$2" = "getprop" ] && [ "$3" = "sys.boot_completed" ]; then printf "%s\\n" "$BOOT_COMPLETED"; exit 0; fi',
+      "fi",
+      "exit 0",
+    ].join("\n");
+    const emulatorStub = [
+      'printf "%s\\n" "$*" >> "$RECORD"',
+      'if [ "$1" = "-list-avds" ]; then printf "BootMe\\n"; exit 0; fi',
+      'printf "%s" "$$" > "$EMULATOR_PID_FILE"',
+      'exec sleep "${EMULATOR_LIFETIME:-30}"',
+    ].join("\n");
+    try {
+      await withStubs({ adb: adbStub, emulator: emulatorStub }, async () => {
+        const started = await handleEmulatorBoot({
+          avdName: "BootMe",
+          timeoutSec: 5,
+          // other emulator present must not be mistaken for the new instance
+        });
+        assert.equal(started.isError, false, text(started));
+        assert.match(text(started), /status=ready/);
+        assert.match(text(started), /avd=BootMe/);
+        assert.match(text(started), /serial=emulator-5556/);
+        assert.match(text(started), /boot=sys\.boot_completed=1/);
+        assert.match(text(started), /pid=\d+/);
+        const calls = await readRecord(record);
+        assert.ok(
+          calls.some((l) => l === "-s emulator-5556 shell getprop sys.boot_completed"),
+          "readiness must include a boot completion query",
+        );
+        assert.ok(
+          calls.some((l) => l === "-s emulator-5556 emu avd name"),
+          "the new instance must be identified by AVD name, not just its serial",
+        );
+        assert.ok(!calls.some((l) => l.includes("emulator-5554") && l.includes("emu kill")));
+      });
+    } finally {
+      const pid = Number(await readFile(pidFile, "utf8").catch(() => "0"));
+      if (pid) {
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {
+          /* already gone */
+        }
+      }
+      delete process.env.RECORD;
+      delete process.env.EMULATOR_PID_FILE;
+      delete process.env.BOOT_COMPLETED;
+      await rm(work, { recursive: true, force: true });
+    }
+  },
+);

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { closeSync, constants, openSync } from "node:fs";
+import { closeSync, constants, openSync, readFileSync, unlinkSync } from "node:fs";
 import { access, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -56,6 +56,14 @@ export const ToolSchemas = {
     avdName: z.string(),
     headless: z.boolean().optional().default(true),
     gpu: z.string().optional().default("swiftshader_indirect"),
+    timeoutSec: z
+      .number()
+      .int()
+      .min(1)
+      .max(1800)
+      .optional()
+      .default(180)
+      .describe("Upper bound for the new instance to reach sys.boot_completed=1"),
   }),
   maestroRun: z.object({
     flowPath: z.string(),
@@ -235,7 +243,17 @@ export const ToolSchemas = {
     device: z.string().optional().default("pixel_6"),
   }),
   avdDelete: z.object({ avdName: z.string() }),
-  avdWipe: z.object({ avdName: z.string() }),
+  avdWipe: z.object({
+    avdName: z.string(),
+    timeoutSec: z
+      .number()
+      .int()
+      .min(1)
+      .max(1800)
+      .optional()
+      .default(300)
+      .describe("Upper bound for reaching boot completion and stopping the wipe instance"),
+  }),
   emulatorSnapshot: z.object({
     deviceId: z.string().optional(),
     action: z.enum(["save", "load", "list"]),
@@ -321,9 +339,17 @@ export const ToolSchemas = {
   adbParallel: z.object({ command: z.string(), deviceIds: z.array(z.string()).optional() }),
   apkServe: z.object({
     action: z.enum(["start", "stop"]),
-    port: z.number().optional().default(8000),
+    port: z.number().int().min(1).max(65535).optional().default(8000),
     dir: z.string().optional(),
     expose: z.boolean().optional().default(false),
+    readyTimeoutSec: z
+      .number()
+      .int()
+      .min(1)
+      .max(120)
+      .optional()
+      .default(10)
+      .describe("Upper bound for the server to answer a loopback HTTP request"),
   }),
 };
 
@@ -478,8 +504,41 @@ export async function handleEmulatorList() {
   };
 }
 
+// Issue 81: a returned ChildProcess object is not proof that an emulator
+// started or booted. Verify a new ADB serial belongs to the requested AVD, wait
+// for sys.boot_completed=1, and report readiness only after both checks.
 export async function handleEmulatorBoot(args: z.infer<typeof ToolSchemas.emulatorBoot>) {
-  // spawn detached
+  const fail = (text: string) => ({ content: [{ type: "text" as const, text }], isError: true });
+  if (!notOptionLike(args.avdName) || !AVD_NAME_RE.test(args.avdName))
+    return fail(`Invalid avd name: ${args.avdName}`);
+
+  const listed = await run("emulator", ["-list-avds"], { timeout: 30_000 });
+  if (listed.code !== 0)
+    return fail(
+      `status=unavailable\navd=${args.avdName}\nreason=emulator -list-avds failed (exit ${listed.code}): ${listed.stderr.trim()}`,
+    );
+  const avds = listed.stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (!avds.includes(args.avdName))
+    return fail(`status=not-found\navd=${args.avdName}\navailable=${avds.join(",") || "(none)"}`);
+
+  const before = await runningEmulatorSerials();
+  if (before === null)
+    return fail(
+      `status=unavailable\navd=${args.avdName}\nreason=adb devices failed; cannot establish a baseline`,
+    );
+  for (const serial of before) {
+    if ((await emulatorAvdName(serial)) === args.avdName)
+      return fail(
+        `status=already-running\navd=${args.avdName}\nserial=${serial}\n` +
+          `The AVD is already running; use the existing instance instead of starting a duplicate.`,
+      );
+  }
+
+  const timeoutSec = Math.max(1, args.timeoutSec ?? 180);
+  const deadline = Date.now() + timeoutSec * 1000;
   const { spawn: sp } = await import("node:child_process");
   const gpu = args.gpu ?? "swiftshader_indirect";
   const child = sp(
@@ -487,14 +546,76 @@ export async function handleEmulatorBoot(args: z.infer<typeof ToolSchemas.emulat
     ["-avd", args.avdName, ...(args.headless ? ["-no-window", "-no-audio"] : []), "-gpu", gpu],
     { detached: true, stdio: "ignore" },
   );
+  let spawnError: Error | null = null;
+  let exited = false;
+  child.once("error", (err) => {
+    spawnError = err;
+  });
+  child.once("exit", () => {
+    exited = true;
+  });
   child.unref();
+  const exitedNow = () => exited || child.exitCode !== null || child.signalCode !== null;
+
+  let serial: string | null = null;
+  while (!serial && Date.now() < deadline) {
+    if (spawnError || exitedNow()) break;
+    const now = await runningEmulatorSerials();
+    for (const candidate of (now ?? []).filter((s) => !before.includes(s))) {
+      if ((await emulatorAvdName(candidate)) === args.avdName) {
+        serial = candidate;
+        break;
+      }
+    }
+    if (!serial) await sleep(WIPE_POLL_MS);
+  }
+  if (!serial) {
+    const exitedEarly = exitedNow();
+    const instance = await stopManagedChild(child);
+    const reason = spawnError
+      ? `could not start emulator: ${(spawnError as Error).message}`
+      : exitedEarly
+        ? "emulator exited before it appeared on ADB"
+        : "the new instance did not appear on ADB before the deadline";
+    return fail(
+      `status=${spawnError || exitedEarly ? "exited" : "timeout"}\navd=${args.avdName}\nphase=serial\n` +
+        `instance=${instance}\nreason=${reason}`,
+    );
+  }
+
+  let booted = false;
+  while (!booted && Date.now() < deadline) {
+    if (exitedNow()) break;
+    const r = await run("adb", ["-s", serial, "shell", "getprop", "sys.boot_completed"], {
+      timeout: 15_000,
+    });
+    if (r.code === 0 && r.stdout.trim() === "1") booted = true;
+    else await sleep(WIPE_POLL_MS);
+  }
+  if (!booted) {
+    const exitedEarly = exitedNow();
+    await run("adb", ["-s", serial, "emu", "kill"], { timeout: 30_000 }).catch(() => undefined);
+    const instance = await stopManagedChild(child);
+    return fail(
+      `status=${exitedEarly ? "exited" : "timeout"}\navd=${args.avdName}\nserial=${serial}\nphase=boot\n` +
+        `instance=${instance}\nreason=sys.boot_completed=1 was not observed before the deadline`,
+    );
+  }
+  if (exitedNow())
+    return fail(
+      `status=exited\navd=${args.avdName}\nserial=${serial}\nreason=emulator exited immediately after boot readiness`,
+    );
+
   return {
     content: [
       {
         type: "text" as const,
-        text: `Booted AVD ${args.avdName} (pid ${child.pid}). Use adb wait-for-device.`,
+        text:
+          `status=ready\navd=${args.avdName}\nserial=${serial}\nboot=sys.boot_completed=1\n` +
+          `pid=${child.pid}\nThe instance is running; stop it with adb -s ${serial} emu kill.`,
       },
     ],
+    isError: false,
   };
 }
 
@@ -1705,16 +1826,178 @@ export async function handleAvdDelete(a: z.infer<typeof ToolSchemas.avdDelete>) 
   const r = await run("avdmanager", ["delete", "avd", "-n", a.avdName], { timeout: 60_000 });
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
 }
-export async function handleAvdWipe(a: z.infer<typeof ToolSchemas.avdWipe>) {
-  if (!notOptionLike(a.avdName))
-    return {
-      content: [{ type: "text" as const, text: "Invalid avd name: must not start with '-'." }],
-      isError: true,
+const AVD_NAME_RE = /^[A-Za-z0-9._-]+$/;
+const WIPE_POLL_MS = 250;
+
+async function waitForExit(
+  child: import("node:child_process").ChildProcess,
+  ms: number,
+): Promise<boolean> {
+  if (child.exitCode !== null || child.signalCode !== null) return true;
+  return new Promise((resolve) => {
+    const onExit = () => {
+      clearTimeout(timer);
+      resolve(true);
     };
-  const r = await run("emulator", ["-avd", a.avdName, "-wipe-data", "-no-window"], {
-    timeout: 120_000,
+    const timer = setTimeout(() => {
+      child.off("exit", onExit);
+      resolve(false);
+    }, ms);
+    child.once("exit", onExit);
   });
-  return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
+}
+
+async function stopManagedChild(child: import("node:child_process").ChildProcess): Promise<string> {
+  if (!child.pid) return "not-spawned";
+  if (child.exitCode !== null || child.signalCode !== null) return "already-exited";
+  child.kill("SIGTERM");
+  if (await waitForExit(child, 5_000)) return "terminated";
+  child.kill("SIGKILL");
+  return (await waitForExit(child, 2_000)) ? "force-killed" : "still-running";
+}
+
+async function runningEmulatorSerials(): Promise<string[] | null> {
+  const r = await run("adb", ["devices"], { timeout: 15_000 });
+  if (r.code !== 0) return null;
+  return r.stdout
+    .split("\n")
+    .slice(1)
+    .map((line) => line.trim().split(/\s+/)[0] ?? "")
+    .filter((serial) => /^emulator-\d+$/.test(serial));
+}
+
+async function emulatorAvdName(serial: string): Promise<string | null> {
+  const r = await run("adb", ["-s", serial, "emu", "avd", "name"], { timeout: 15_000 });
+  if (r.code !== 0) return null;
+  const name = r.stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line && line !== "OK");
+  return name ?? null;
+}
+
+// Issue 86: wipe is a bounded lifecycle, not a long-running `emulator` call
+// under a generic timeout. The tool resolves the exact AVD, refuses to touch a
+// running target, starts one controlled instance, waits for the reset to reach
+// boot completion, then shuts down that exact ADB serial and waits for the
+// child to exit. It never reads PID files, so a stale record cannot terminate
+// an unrelated process, and it never kills emulator processes by name.
+export async function handleAvdWipe(a: z.infer<typeof ToolSchemas.avdWipe>) {
+  const fail = (text: string) => ({ content: [{ type: "text" as const, text }], isError: true });
+  if (!notOptionLike(a.avdName) || !AVD_NAME_RE.test(a.avdName))
+    return fail(`Invalid avd name: ${a.avdName}`);
+
+  const listed = await run("emulator", ["-list-avds"], { timeout: 30_000 });
+  if (listed.code !== 0)
+    return fail(
+      `status=unavailable\navd=${a.avdName}\nreason=emulator -list-avds failed (exit ${listed.code}): ${listed.stderr.trim()}`,
+    );
+  const avds = listed.stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (!avds.includes(a.avdName))
+    return fail(
+      `status=not-found\navd=${a.avdName}\nwipe=not-started\navailable=${avds.join(",") || "(none)"}`,
+    );
+
+  const before = await runningEmulatorSerials();
+  if (before === null)
+    return fail(
+      `status=unavailable\navd=${a.avdName}\nreason=adb devices failed; cannot prove the target is stopped`,
+    );
+  for (const serial of before) {
+    if ((await emulatorAvdName(serial)) === a.avdName)
+      return fail(
+        `status=refused\navd=${a.avdName}\nreason=already-running\nserial=${serial}\nwipe=not-started\n` +
+          `Refusing to wipe a running AVD. Stop it explicitly first.`,
+      );
+  }
+
+  const deadline = Date.now() + Math.max(1, a.timeoutSec ?? 300) * 1000;
+  const { spawn } = await import("node:child_process");
+  const child = spawn(
+    "emulator",
+    [
+      "-avd",
+      a.avdName,
+      "-wipe-data",
+      "-no-window",
+      "-no-audio",
+      "-no-snapshot-save",
+      "-gpu",
+      "swiftshader_indirect",
+    ],
+    { stdio: "ignore" },
+  );
+  let spawnError: Error | null = null;
+  child.once("error", (err) => {
+    spawnError = err;
+  });
+
+  let serial: string | null = null;
+  while (!serial && Date.now() < deadline) {
+    if (spawnError) break;
+    const now = await runningEmulatorSerials();
+    for (const candidate of (now ?? []).filter((s) => !before.includes(s))) {
+      if ((await emulatorAvdName(candidate)) === a.avdName) {
+        serial = candidate;
+        break;
+      }
+    }
+    if (!serial) await sleep(WIPE_POLL_MS);
+  }
+  if (!serial) {
+    const instance = await stopManagedChild(child);
+    const reason = spawnError
+      ? `emulator failed to spawn: ${(spawnError as Error).message}`
+      : "no matching emulator serial became ready before the deadline";
+    return fail(
+      `status=timeout\navd=${a.avdName}\nphase=serial\nwipe=indeterminate\ninstance=${instance}\nreason=${reason}`,
+    );
+  }
+
+  let booted = false;
+  while (!booted && Date.now() < deadline) {
+    const r = await run("adb", ["-s", serial, "shell", "getprop", "sys.boot_completed"], {
+      timeout: 15_000,
+    });
+    if (r.code === 0 && r.stdout.trim() === "1") booted = true;
+    else await sleep(WIPE_POLL_MS);
+  }
+  if (!booted) {
+    // Best effort: ask this exact serial to stop, then terminate only the
+    // child this operation spawned.
+    await run("adb", ["-s", serial, "emu", "kill"], { timeout: 30_000 }).catch(() => undefined);
+    const instance = await stopManagedChild(child);
+    return fail(
+      `status=timeout\navd=${a.avdName}\nserial=${serial}\nphase=boot\nwipe=indeterminate\ninstance=${instance}\n` +
+        `reason=sys.boot_completed was not observed before the deadline; reset state is unknown`,
+    );
+  }
+
+  const kill = await run("adb", ["-s", serial, "emu", "kill"], { timeout: 30_000 });
+  const exited = await waitForExit(child, 30_000);
+  if (kill.code !== 0 || !exited) {
+    const instance = await stopManagedChild(child);
+    return fail(
+      `status=shutdown-failed\navd=${a.avdName}\nserial=${serial}\nwipe=complete\nshutdown=failed\ninstance=${instance}\n` +
+        `reason=${kill.code !== 0 ? `emu kill exited ${kill.code}: ${kill.stderr.trim()}` : "emulator process did not exit"} ` +
+        `The AVD was not confirmed stopped.`,
+    );
+  }
+
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text:
+          `status=ok\navd=${a.avdName}\nserial=${serial}\nwipe=complete\nboot=sys.boot_completed=1\n` +
+          `instance=stopped\nUser data was reset; AVD configuration and snapshots were preserved.`,
+      },
+    ],
+    isError: false,
+  };
 }
 export async function handleEmulatorSnapshot(a: z.infer<typeof ToolSchemas.emulatorSnapshot>) {
   const base = adb(a.deviceId);
@@ -2267,40 +2550,158 @@ async function findFirstApk(root: string, maxFiles = 500, maxDepth = 4): Promise
   }
   return "";
 }
+interface ServeState {
+  pid?: number;
+  port?: number;
+  dir?: string;
+  bind?: string;
+  startedAt?: string;
+}
+
+function readServeState(): ServeState | null {
+  try {
+    const parsed = JSON.parse(readFileSync(serveStatePath(), "utf8"));
+    return parsed && typeof parsed === "object" ? (parsed as ServeState) : null;
+  } catch {
+    return null;
+  }
+}
+
+function removeServeState(): void {
+  try {
+    unlinkSync(serveStatePath());
+  } catch {
+    /* already gone */
+  }
+}
+
+// Issue 81: a stale state file may point at a PID that now belongs to an
+// unrelated process. Verify the command line still matches the recorded
+// server (port, bind and directory) before signalling anything.
+async function serveProcessCommand(pid: number): Promise<string | null> {
+  if (process.platform === "win32") {
+    const r = await run(
+      "powershell",
+      [
+        "-NoProfile",
+        "-Command",
+        `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CommandLine`,
+      ],
+      { timeout: 15_000 },
+    );
+    return r.code === 0 ? r.stdout.trim() || null : null;
+  }
+  const r = await run("ps", ["-ww", "-p", String(pid), "-o", "command="], { timeout: 15_000 });
+  return r.code === 0 ? r.stdout.trim() || null : null;
+}
+
+function serveCommandMatches(state: ServeState, command: string): boolean {
+  if (!/http\.server/.test(command)) return false;
+  const normalized = command.replaceAll("\\", "/");
+  const dir = String(state.dir ?? "").replaceAll("\\", "/");
+  return (
+    Boolean(dir) &&
+    command.includes(String(state.port ?? "")) &&
+    command.includes(String(state.bind ?? "")) &&
+    normalized.includes(dir)
+  );
+}
+
+async function servePidRunning(pid: number): Promise<boolean> {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForPidExit(pid: number, ms: number): Promise<boolean> {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    if (!(await servePidRunning(pid))) return true;
+    await sleep(100);
+  }
+  return !(await servePidRunning(pid));
+}
+
+async function terminateServeState(
+  state: ServeState,
+): Promise<{ ok: boolean; detail: string; unowned?: boolean }> {
+  const pid = state.pid;
+  if (!pid || !Number.isInteger(pid) || pid <= 0) return { ok: true, detail: "no-valid-pid" };
+  if (!(await servePidRunning(pid))) return { ok: true, detail: "already-exited" };
+  const command = await serveProcessCommand(pid);
+  if (!command || !serveCommandMatches(state, command)) {
+    return { ok: false, detail: "identity-unverified", unowned: true };
+  }
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch {
+    return { ok: true, detail: "already-exited" };
+  }
+  if (await waitForPidExit(pid, 5_000)) return { ok: true, detail: "stopped" };
+  return { ok: false, detail: "stop-timeout" };
+}
+
+async function httpProbe(host: string, port: number, timeoutMs = 1_000): Promise<boolean> {
+  const http = await import("node:http");
+  return await new Promise<boolean>((resolve) => {
+    const req = http.get({ host, port, path: "/", timeout: timeoutMs }, (res) => {
+      res.resume();
+      resolve(true);
+    });
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(false);
+    });
+    req.on("error", () => resolve(false));
+  });
+}
+
 export async function handleApkServe(a: z.infer<typeof ToolSchemas.apkServe>) {
   if (a.action === "stop") {
-    try {
-      const fsMod = await import("node:fs");
-      const st = JSON.parse(fsMod.readFileSync(serveStatePath(), "utf8"));
-      if (
-        st.pid &&
-        (await (async () => {
-          try {
-            process.kill(st.pid, 0);
-            return true;
-          } catch {
-            return false;
-          }
-        })())
-      ) {
-        process.kill(st.pid, "SIGTERM");
-      }
-    } catch {
-      /* no state */
+    const state = readServeState();
+    if (!state) {
+      return {
+        content: [{ type: "text" as const, text: "status=stopped\nserver=not-running" }],
+        isError: false,
+      };
     }
-    try {
-      const fsMod = await import("node:fs");
-      fsMod.unlinkSync(serveStatePath());
-    } catch {
-      /* ignore */
+    const result = await terminateServeState(state);
+    removeServeState();
+    if (!result.ok) {
+      const reason = result.unowned
+        ? `identity-unverified: state pid ${state.pid} does not match a running apk server; refused to signal it`
+        : `stop-timeout: state pid ${state.pid} did not exit after SIGTERM`;
+      return {
+        content: [{ type: "text" as const, text: `status=not-stopped\nreason=${reason}` }],
+        isError: true,
+      };
     }
-    return { content: [{ type: "text" as const, text: "apk serve stopped" }] };
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: `status=stopped\nserver=${result.detail}\nport=${state.port ?? "unknown"}\ndir=${state.dir ?? "unknown"}`,
+        },
+      ],
+      isError: false,
+    };
   }
   const port = a.port ?? 8000;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return {
+      content: [{ type: "text" as const, text: `Invalid port: ${port} (expected 1-65535)` }],
+      isError: true,
+    };
+  }
   // Issue 66: default to a fresh private temp dir, never /tmp wholesale.
+  const createdDir = a.dir === undefined;
   const dir = a.dir ?? (await tmpDir("android-mcp-serve-"));
   const { existsSync } = await import("node:fs");
   if (!existsSync(dir)) {
+    if (createdDir) await cleanup(dir);
     return {
       content: [{ type: "text" as const, text: `Directory does not exist: ${dir}` }],
       isError: true,
@@ -2308,49 +2709,124 @@ export async function handleApkServe(a: z.infer<typeof ToolSchemas.apkServe>) {
   }
   // Issue 66: loopback-only unless the caller explicitly opts into LAN exposure.
   const bind = a.expose ? "0.0.0.0" : "127.0.0.1";
-  // Issue 66: kill any previous listener before starting a new one — a second
-  // start must never orphan the first server.
-  try {
-    const fsMod = await import("node:fs");
-    const st = JSON.parse(fsMod.readFileSync(serveStatePath(), "utf8"));
-    if (st.pid) {
-      try {
-        process.kill(st.pid, "SIGTERM");
-      } catch {
-        /* already gone */
-      }
-    }
-  } catch {
-    /* no state */
+  const probeHost = bind === "0.0.0.0" ? "127.0.0.1" : bind;
+  const failStart = async (status: string, reason: string) => {
+    if (createdDir) await cleanup(dir);
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: `status=${status}\ndir=${dir}\nport=${port}\nreason=${reason}`,
+        },
+      ],
+      isError: true,
+    };
+  };
+
+  // Issue 66: stop any previous listener before starting a new one — a second
+  // start must never orphan the first server. Issue 81: only signal it when
+  // the recorded identity still matches; never trust a bare stale PID.
+  const previous = readServeState();
+  if (previous) {
+    const result = await terminateServeState(previous);
+    if (!result.ok && !result.unowned)
+      return failStart(
+        "previous-server-not-stopped",
+        `${result.detail}: state pid ${previous.pid} did not exit; refusing to start another server`,
+      );
+    removeServeState();
   }
+
   const { spawn } = await import("node:child_process");
   const child = spawn(
     "python3",
     ["-m", "http.server", String(port), "--directory", dir, "--bind", bind],
     { detached: true, stdio: "ignore" },
   );
+  let spawnError: Error | null = null;
+  let exited = false;
+  child.once("error", (err) => {
+    spawnError = err;
+  });
+  child.once("exit", () => {
+    exited = true;
+  });
   child.unref();
+
+  const readyTimeoutMs = Math.max(1, a.readyTimeoutSec ?? 10) * 1000;
+  const deadline = Date.now() + readyTimeoutMs;
+  let ready = false;
+  while (Date.now() < deadline) {
+    if (spawnError) break;
+    if (exited || child.exitCode !== null || child.signalCode !== null) break;
+    if (await httpProbe(probeHost, port)) {
+      ready = true;
+      break;
+    }
+    await sleep(100);
+  }
+  if (!ready) {
+    const exitedEarly = exited || child.exitCode !== null || child.signalCode !== null;
+    await stopManagedChild(child);
+    if (spawnError)
+      return failStart(
+        "exited",
+        `could not start python3: ${(spawnError as NodeJS.ErrnoException).message}`,
+      );
+    if (exitedEarly)
+      return failStart(
+        "exited",
+        `python3 exited before the server became ready (exit ${child.exitCode ?? "signal"})`,
+      );
+    return failStart(
+      "timeout",
+      `no HTTP response from http://${probeHost}:${port}/ within ${readyTimeoutMs}ms; child terminated`,
+    );
+  }
+  // Readiness and liveness are separate facts: do not persist state for a
+  // process that answered once and then died.
+  if (exited || child.exitCode !== null || child.signalCode !== null) {
+    await stopManagedChild(child);
+    return failStart("exited", "python3 exited immediately after readiness");
+  }
+
   const fs = await import("node:fs");
   try {
-    fs.chmodSync(serveStatePath(), 0o600);
-  } catch {
-    /* fresh */
+    fs.mkdirSync(dirname(serveStatePath()), { recursive: true });
+    fs.writeFileSync(
+      serveStatePath(),
+      JSON.stringify({
+        pid: child.pid,
+        port,
+        dir,
+        bind,
+        startedAt: new Date().toISOString(),
+      }),
+      { mode: 0o600 },
+    );
+    try {
+      fs.chmodSync(serveStatePath(), 0o600);
+    } catch {
+      /* best effort */
+    }
+  } catch (error) {
+    await stopManagedChild(child);
+    const message = error instanceof Error ? error.message : String(error);
+    return failStart("state-write-failed", message);
   }
-  fs.writeFileSync(serveStatePath(), JSON.stringify({ pid: child.pid, port, dir, bind }));
-  try {
-    fs.chmodSync(serveStatePath(), 0o600);
-  } catch {
-    /* best effort */
-  }
+
   // Issue 65: no execSync/find — pure fs traversal for a reportable apk path.
   const apk = await findFirstApk(dir);
-  const ip = bind;
   return {
     content: [
       {
         type: "text" as const,
-        text: `serving ${dir} on http://${ip}:${port}/${a.expose ? " (all interfaces — explicit expose opt-in)" : " (localhost only)"}\n${apk ? "apk: " + apk : "no .apk found in dir"}\nstop with apk_serve action=stop`,
+        text:
+          `status=ready\npid=${child.pid}\nserving ${dir} on http://${bind}:${port}/` +
+          `${a.expose ? " (all interfaces — explicit expose opt-in)" : " (localhost only)"}\n` +
+          `${apk ? "apk: " + apk : "no .apk found in dir"}\nstop with apk_serve action=stop`,
       },
     ],
+    isError: false,
   };
 }
