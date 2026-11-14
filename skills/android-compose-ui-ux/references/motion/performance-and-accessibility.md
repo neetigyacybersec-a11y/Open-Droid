@@ -74,7 +74,7 @@ jankStats.jankHeuristicPercentile = 90           // investigate frames over p90
 
 ```kotlin
 // MotionTokens.kt provides:
-val LocalReducedMotion = staticCompositionLocalOf { false }
+val LocalReduceMotion = staticCompositionLocalOf { false }
 
 fun Context.animatorDurationScale(): Float =
     Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
@@ -82,19 +82,24 @@ fun Context.animatorDurationScale(): Float =
 @Composable
 fun MotionSettingsProvider(content: @Composable () -> Unit) {
     val context = LocalContext.current
-    val reduced = remember { context.animatorDurationScale() == 0f }
-        // optionally listen via ContentObserver for live changes
-    CompositionLocalProvider(LocalReducedMotion provides reduced, content = content)
+    var reduced by remember(context) { mutableStateOf(context.animatorDurationScale() == 0f) }
+    // Reactive: a system-settings change pauses/resumes the activity, so
+    // re-read on ON_RESUME instead of freezing the first-composition value.
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        reduced = context.animatorDurationScale() == 0f
+    }
+    CompositionLocalProvider(LocalReduceMotion provides reduced, content = content)
 }
 
 // Usage helper:
 @Composable
-fun <T> motionSpec(reduced: Boolean = LocalReducedMotion.current, normal: AnimationSpec<T>, fast: AnimationSpec<T> = snap()): AnimationSpec<T> =
+fun <T> motionSpec(reduced: Boolean = LocalReduceMotion.current, normal: AnimationSpec<T>, fast: AnimationSpec<T> = snap()): AnimationSpec<T> =
     if (reduced) fast else normal
 ```
 
+- Requires `androidx.lifecycle:lifecycle-runtime-compose` for `LifecycleEventEffect`.
 - With reduced motion ON: enter/exit render final state instantly (`fadeIn(snap())` / drop slide components), gesture-follow still works (it's user-controlled), progress spinners still run (they're status, not decoration), skeletons may show static shapes.
-- Test: toggle the developer setting, re-run every touched flow — content complete, controls reachable, no stuck invisible states.
+- Test: toggle the developer setting, background/foreground the app, re-run every touched flow — content complete, controls reachable, no stuck invisible states.
 - Also honor Web/Vestibular-style sensitivity: full-screen parallax/zoom transitions (the only places with large travel) should degrade to fades under reduced motion even when scale > 0 — gate the *travel*, not the state change.
 
 ## 7. Accessibility rules

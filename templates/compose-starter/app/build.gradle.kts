@@ -116,6 +116,8 @@ dependencies {
     testImplementation("io.github.takahirom.roborazzi:roborazzi-junit-rule:1.41.0")
     testImplementation("io.github.takahirom.roborazzi:roborazzi-accessibility-check:1.41.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    // ISSUE-23: LifecycleEventEffect re-reads ANIMATOR_DURATION_SCALE on resume.
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation(platform("androidx.compose:compose-bom:2024.11.00"))
     implementation("androidx.compose.ui:ui")

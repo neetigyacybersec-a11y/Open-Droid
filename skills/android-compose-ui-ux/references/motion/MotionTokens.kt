@@ -15,9 +15,15 @@ import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.ProvidableCompositionLocal
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import android.provider.Settings
 
 /**
@@ -84,19 +90,31 @@ object MotionSprings {
 
 /**
  * Reduced motion: Compose ignores the system animator duration scale, so we
- * read it ourselves. Views respect it automatically.
+ * read it ourselves. The value is state, re-read on every onResume, because a
+ * system-settings change pauses and resumes the activity.
  */
-val LocalReducedMotion = staticCompositionLocalOf { false }
+val LocalReduceMotion = staticCompositionLocalOf { false }
+
+/** Backwards-compatible alias; prefer [LocalReduceMotion]. */
+@Deprecated("Use LocalReduceMotion", ReplaceWith("LocalReduceMotion"))
+val LocalReducedMotion: ProvidableCompositionLocal<Boolean>
+    get() = LocalReduceMotion
 
 fun android.content.Context.animatorDurationScale(): Float =
     Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+
+/** True when the user disabled animations (animator duration scale 0). */
+fun android.content.Context.isReduceMotionEnabled(): Boolean = animatorDurationScale() == 0f
 
 /** Wrap your app root once: MotionSettingsProvider { App() } */
 @Composable
 fun MotionSettingsProvider(content: @Composable () -> Unit) {
     val context = LocalContext.current
-    val reduced = remember { context.animatorDurationScale() == 0f }
-    CompositionLocalProvider(LocalReducedMotion provides reduced, content = content)
+    var reduced by remember(context) { mutableStateOf(context.isReduceMotionEnabled()) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        reduced = context.isReduceMotionEnabled()
+    }
+    CompositionLocalProvider(LocalReduceMotion provides reduced, content = content)
 }
 
 /**
@@ -106,7 +124,7 @@ fun MotionSettingsProvider(content: @Composable () -> Unit) {
 @Composable
 fun <T> motionSpec(
     normal: AnimationSpec<T>,
-    reduced: Boolean = LocalReducedMotion.current,
+    reduced: Boolean = LocalReduceMotion.current,
 ): AnimationSpec<T> = if (reduced) snap() else normal
 
 /** Fling decay preset (gesture release), for Animatable fling via animateDecay. */
