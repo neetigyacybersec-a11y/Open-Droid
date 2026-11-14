@@ -15,6 +15,9 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
+const { test, skip } = await import("node:test");
+const posixTest = process.platform === "win32" ? (name, fn) => skip(name, fn) : test;
+
 const { ensureServer } = await import("../dist/frida.js");
 
 const SERVER = "/data/local/tmp/frida-server";
@@ -136,164 +139,170 @@ async function withFixture(env, fn) {
 const lines = (path) => readFileSync(path, "utf8").split("\n").filter(Boolean);
 const indexOf = (list, predicate) => list.findIndex(predicate);
 
-// --- Healthy server: reuse without root/push/kill/start --------------------
-await withFixture(
-  {
-    PS_EXIT: "0",
-    SERVER_PID: "4242",
-    PROC_CMDLINE: SERVER,
-    SERVER_VERSION: VERSION,
-  },
-  async (fixture) => {
-    const result = await ensureServer("emulator-5554", fixture.root);
-    assert.equal(result.reused, true);
-    assert.equal(result.serial, "emulator-5554");
-    assert.equal(result.abi, "x86_64");
-    assert.equal(result.version, VERSION);
-    const calls = lines(fixture.record);
-    assert.equal(
-      indexOf(calls, (l) => l.includes(" root")),
-      -1,
-      "reuse must not run adb root",
-    );
-    assert.equal(
-      indexOf(calls, (l) => l.includes(" push ")),
-      -1,
-      "reuse must not push the server",
-    );
-    assert.equal(
-      indexOf(calls, (l) => l.includes("nohup")),
-      -1,
-      "reuse must not start a server",
-    );
-    assert.equal(
-      indexOf(calls, (l) => l.includes("kill")),
-      -1,
-      "reuse must not kill anything",
-    );
-    assert.equal(
-      indexOf(calls, (l) => l.includes("pkill") || l.includes("killall")),
-      -1,
-      "the ensure path must never use a broad process-name kill",
-    );
-  },
-);
+posixTest("frida-server ensure/reuse semantics (issue 77)", async () => {
+  // --- Healthy server: reuse without root/push/kill/start --------------------
+  await withFixture(
+    {
+      PS_EXIT: "0",
+      SERVER_PID: "4242",
+      PROC_CMDLINE: SERVER,
+      SERVER_VERSION: VERSION,
+    },
+    async (fixture) => {
+      const result = await ensureServer("emulator-5554", fixture.root);
+      assert.equal(result.reused, true);
+      assert.equal(result.serial, "emulator-5554");
+      assert.equal(result.abi, "x86_64");
+      assert.equal(result.version, VERSION);
+      const calls = lines(fixture.record);
+      assert.equal(
+        indexOf(calls, (l) => l.includes(" root")),
+        -1,
+        "reuse must not run adb root",
+      );
+      assert.equal(
+        indexOf(calls, (l) => l.includes(" push ")),
+        -1,
+        "reuse must not push the server",
+      );
+      assert.equal(
+        indexOf(calls, (l) => l.includes("nohup")),
+        -1,
+        "reuse must not start a server",
+      );
+      assert.equal(
+        indexOf(calls, (l) => l.includes("kill")),
+        -1,
+        "reuse must not kill anything",
+      );
+      assert.equal(
+        indexOf(calls, (l) => l.includes("pkill") || l.includes("killall")),
+        -1,
+        "the ensure path must never use a broad process-name kill",
+      );
+    },
+  );
 
-// --- Missing server: ordered provisioning ----------------------------------
-await withFixture(
-  {
-    PS_EXIT: "1",
-    SERVER_PID: "",
-    SERVER_VERSION: VERSION,
-  },
-  async (fixture) => {
-    const result = await ensureServer("emulator-5554", fixture.root);
-    assert.equal(result.reused, false);
-    assert.equal(result.serial, "emulator-5554");
-    const calls = lines(fixture.record);
-    const rootAt = indexOf(calls, (l) => l.endsWith("-s emulator-5554 root"));
-    const pushAt = indexOf(calls, (l) => l.includes("-s emulator-5554 push "));
-    const startAt = indexOf(calls, (l) => l.includes("nohup"));
-    assert.ok(rootAt >= 0, "missing server must run adb root");
-    assert.ok(pushAt > rootAt, "push must follow root");
-    assert.ok(startAt > pushAt, "start must follow push");
-    assert.equal(
-      indexOf(calls, (l) => l.includes("pkill")),
-      -1,
-      "provisioning must not use pkill",
-    );
-    assert.ok(
-      lines(fixture.psRecord).length >= 2,
-      "readiness must be polled through frida-ps after starting",
-    );
-  },
-);
+  // --- Missing server: ordered provisioning ----------------------------------
+  await withFixture(
+    {
+      PS_EXIT: "1",
+      SERVER_PID: "",
+      SERVER_VERSION: VERSION,
+    },
+    async (fixture) => {
+      const result = await ensureServer("emulator-5554", fixture.root);
+      assert.equal(result.reused, false);
+      assert.equal(result.serial, "emulator-5554");
+      const calls = lines(fixture.record);
+      const rootAt = indexOf(calls, (l) => l.endsWith("-s emulator-5554 root"));
+      const pushAt = indexOf(calls, (l) => l.includes("-s emulator-5554 push "));
+      const startAt = indexOf(calls, (l) => l.includes("nohup"));
+      assert.ok(rootAt >= 0, "missing server must run adb root");
+      assert.ok(pushAt > rootAt, "push must follow root");
+      assert.ok(startAt > pushAt, "start must follow push");
+      assert.equal(
+        indexOf(calls, (l) => l.includes("pkill")),
+        -1,
+        "provisioning must not use pkill",
+      );
+      assert.ok(
+        lines(fixture.psRecord).length >= 2,
+        "readiness must be polled through frida-ps after starting",
+      );
+    },
+  );
 
-// --- Version mismatch on a managed server: exact-PID replacement -----------
-await withFixture(
-  {
-    PS_EXIT: "1",
-    PS_ALWAYS_FAIL: "0",
-    SERVER_PID: "4242",
-    PROC_CMDLINE: SERVER,
-    SERVER_VERSION: "16.0.0",
-  },
-  async (fixture) => {
-    // The fixture's PS stub only succeeds when a marker exists; seed it so the
-    // probe reports the old managed server as healthy before the version check.
-    writeFileSync(join(process.env.MARKER_DIR, "emulator-5554.started"), "");
-    const result = await ensureServer("emulator-5554", fixture.root);
-    assert.equal(result.reused, false, "an incompatible version must be replaced");
-    assert.equal(result.version, VERSION);
-    const kills = lines(join(fixture.work, "kills.txt"));
-    assert.deepEqual(kills, ["kill:4242"], "only the exact managed PID may be killed");
-    assert.equal(
-      lines(fixture.record).some((l) => l.includes("pkill")),
-      false,
-      "replacement must not use a broad process-name kill",
-    );
-  },
-);
+  // --- Version mismatch on a managed server: exact-PID replacement -----------
+  await withFixture(
+    {
+      PS_EXIT: "1",
+      PS_ALWAYS_FAIL: "0",
+      SERVER_PID: "4242",
+      PROC_CMDLINE: SERVER,
+      SERVER_VERSION: "16.0.0",
+    },
+    async (fixture) => {
+      // The fixture's PS stub only succeeds when a marker exists; seed it so the
+      // probe reports the old managed server as healthy before the version check.
+      writeFileSync(join(process.env.MARKER_DIR, "emulator-5554.started"), "");
+      const result = await ensureServer("emulator-5554", fixture.root);
+      assert.equal(result.reused, false, "an incompatible version must be replaced");
+      assert.equal(result.version, VERSION);
+      const kills = lines(join(fixture.work, "kills.txt"));
+      assert.deepEqual(kills, ["kill:4242"], "only the exact managed PID may be killed");
+      assert.equal(
+        lines(fixture.record).some((l) => l.includes("pkill")),
+        false,
+        "replacement must not use a broad process-name kill",
+      );
+    },
+  );
 
-// --- Unresponsive unmanaged server: refuse, do not kill --------------------
-await withFixture(
-  {
-    PS_EXIT: "1",
-    SERVER_PID: "9999",
-    PROC_CMDLINE: "/data/local/tmp/other-frida",
-  },
-  async (fixture) => {
-    await assert.rejects(
-      ensureServer("emulator-5554", fixture.root),
-      /unmanaged|not owned|refusing/i,
-    );
-    assert.equal(
-      lines(fixture.record).some((l) => l.includes("push") || l.includes("nohup")),
-      false,
-      "an unmanaged process must not be replaced",
-    );
-    assert.equal(existsSync(join(fixture.work, "kills.txt")), false);
-  },
-);
+  // --- Unresponsive unmanaged server: refuse, do not kill --------------------
+  await withFixture(
+    {
+      PS_EXIT: "1",
+      SERVER_PID: "9999",
+      PROC_CMDLINE: "/data/local/tmp/other-frida",
+    },
+    async (fixture) => {
+      await assert.rejects(
+        ensureServer("emulator-5554", fixture.root),
+        /unmanaged|not owned|refusing/i,
+      );
+      assert.equal(
+        lines(fixture.record).some((l) => l.includes("push") || l.includes("nohup")),
+        false,
+        "an unmanaged process must not be replaced",
+      );
+      assert.equal(existsSync(join(fixture.work, "kills.txt")), false);
+    },
+  );
 
-// --- Concurrent calls for the same serial provision once -------------------
-await withFixture(
-  {
-    PS_EXIT: "1",
-    SERVER_PID: "",
-  },
-  async (fixture) => {
-    const [a, b] = await Promise.all([
-      ensureServer("emulator-5554", fixture.root),
-      ensureServer("emulator-5554", fixture.root),
-    ]);
-    assert.equal(a.serial, "emulator-5554");
-    assert.equal(b.serial, "emulator-5554");
-    const pushes = lines(fixture.record).filter((l) => l.includes("push "));
-    assert.equal(pushes.length, 1, "the per-serial lock must allow one provisioning sequence");
-    assert.equal([a.reused, b.reused].filter(Boolean).length, 1, "one call must reuse the server");
-  },
-);
+  // --- Concurrent calls for the same serial provision once -------------------
+  await withFixture(
+    {
+      PS_EXIT: "1",
+      SERVER_PID: "",
+    },
+    async (fixture) => {
+      const [a, b] = await Promise.all([
+        ensureServer("emulator-5554", fixture.root),
+        ensureServer("emulator-5554", fixture.root),
+      ]);
+      assert.equal(a.serial, "emulator-5554");
+      assert.equal(b.serial, "emulator-5554");
+      const pushes = lines(fixture.record).filter((l) => l.includes("push "));
+      assert.equal(pushes.length, 1, "the per-serial lock must allow one provisioning sequence");
+      assert.equal(
+        [a.reused, b.reused].filter(Boolean).length,
+        1,
+        "one call must reuse the server",
+      );
+    },
+  );
 
-// --- Different serials provision independently -----------------------------
-await withFixture(
-  {
-    PS_EXIT: "1",
-    SERVER_PID: "",
-  },
-  async (fixture) => {
-    const [a, b] = await Promise.all([
-      ensureServer("emulator-5554", fixture.root),
-      ensureServer("emulator-5556", fixture.root),
-    ]);
-    assert.equal(a.serial, "emulator-5554");
-    assert.equal(b.serial, "emulator-5556");
-    const calls = lines(fixture.record);
-    assert.ok(calls.some((l) => l.includes("-s emulator-5554 push ")));
-    assert.ok(calls.some((l) => l.includes("-s emulator-5556 push ")));
-    assert.equal(a.reused, false);
-    assert.equal(b.reused, false);
-  },
-);
+  // --- Different serials provision independently -----------------------------
+  await withFixture(
+    {
+      PS_EXIT: "1",
+      SERVER_PID: "",
+    },
+    async (fixture) => {
+      const [a, b] = await Promise.all([
+        ensureServer("emulator-5554", fixture.root),
+        ensureServer("emulator-5556", fixture.root),
+      ]);
+      assert.equal(a.serial, "emulator-5554");
+      assert.equal(b.serial, "emulator-5556");
+      const calls = lines(fixture.record);
+      assert.ok(calls.some((l) => l.includes("-s emulator-5554 push ")));
+      assert.ok(calls.some((l) => l.includes("-s emulator-5556 push ")));
+      assert.equal(a.reused, false);
+      assert.equal(b.reused, false);
+    },
+  );
 
-console.log("frida server ensure/reuse tests passed");
+  console.log("frida server ensure/reuse tests passed");
+});

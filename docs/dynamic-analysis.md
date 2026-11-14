@@ -53,6 +53,33 @@ fails with an explicit error before the hook runs.
 ### net_capture
 `{ action: start|stop, deviceId?, port? (default 8080), durationSec? (default 30, max 86400) }`
 
+A capture is a durable, device-bound session. Start resolves the exact ADB
+serial (even when `deviceId` is omitted), reads the current
+`settings get global http_proxy`, and persists a versioned record under
+`$XDG_STATE_HOME/android-mcp/net-capture.json` (mode `0600` in a `0700`
+directory; `ANDROID_MCP_STATE_DIR`/`ANDROID_MCP_PIDFILE` override it for tests).
+The record contains the session id, serial, original proxy (`unset` vs an exact
+value), applied proxy, mitmdump PID/start identity, port, HAR/log paths and an
+absolute expiry.
+
+Stop is bound to the recorded serial: passing a different `deviceId` is
+rejected without changing either device. The previous proxy value is restored
+exactly — an unset proxy is deleted, not rewritten as `:0`. A PID is signalled
+only after its command line (unique HAR path, mitmdump, port) and recorded start
+identity match; an unrelated process is never killed.
+
+Expiry also works after the MCP process exits: the next `net_capture start`,
+`net_capture stop`, or MCP server startup calls recovery. An expired session is
+stopped, its owned mitmdump is terminated, and the recorded device proxy is
+restored if the device is reachable. If restore fails, the state record is kept
+with recovery details and the tool prints the exact manual command
+(`adb -s <serial> shell settings put global http_proxy <value>` or
+`... settings delete global http_proxy`). Keep that record until the command
+succeeds. An uncatchable host crash or power loss leaves the same recovery
+record; if the host never restarts the MCP server, run that manual command and
+remove the state file. Legacy pidfiles and unreadable state are never guessed
+at: the tool reports recovery-required instead of touching a device.
+
 ### HTTPS interception caveat (API 34+)
 
 `net_capture` tries to install the mitmproxy CA into the system store via

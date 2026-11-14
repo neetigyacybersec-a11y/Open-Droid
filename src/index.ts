@@ -424,6 +424,17 @@ server.registerTool(
 );
 
 async function main() {
+  // A persisted capture may have outlived the previous MCP process. Reconcile
+  // it in the background: an unexpired session is re-armed, an expired one is
+  // stopped and its exact device proxy is restored. Capture starts take the
+  // same lock, so they cannot race this.
+  void H.recoverCaptureSession()
+    .then((result) => {
+      if (result.status !== "none") {
+        console.error(`[android-mcp] net_capture recovery: ${result.status}`);
+      }
+    })
+    .catch((e) => console.error("[android-mcp] net_capture recovery failed:", e));
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }

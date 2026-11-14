@@ -1,6 +1,6 @@
 import { constants } from "node:fs";
 import { access, readFile, readdir, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { run, which } from "./util.js";
@@ -13,10 +13,21 @@ const TIMEOUT = 60_000;
 export const DEVICE_SERVER_PATH = "/data/local/tmp/frida-server";
 
 /**
- * pidfile for the single-session mitmproxy capture (Task 7). The env override
+ * Private, application-specific state directory. Capture state records the
+ * original device proxy and the owned mitmdump identity, so it must not live in
+ * a shared predictable temp path.
+ */
+export const STATE_DIR =
+  process.env.ANDROID_MCP_STATE_DIR ??
+  (process.platform === "win32"
+    ? join(process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"), "android-mcp")
+    : join(process.env.XDG_STATE_HOME ?? join(homedir(), ".local", "state"), "android-mcp"));
+
+/**
+ * Versioned session record for the single mitmproxy capture. The env override
  * keeps tests and parallel harnesses off the production path.
  */
-export const PIDFILE = process.env.ANDROID_MCP_PIDFILE ?? join(tmpdir(), "android-mcp-mitm.pid");
+export const PIDFILE = process.env.ANDROID_MCP_PIDFILE ?? join(STATE_DIR, "net-capture.json");
 
 /** Repo root as seen from src/ (tsx) or dist/ (compiled) — one level up. */
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -92,6 +103,9 @@ export function resolveFridaCli(root: string): Promise<string | null> {
 }
 
 export function resolveMitmDump(root: string): Promise<string | null> {
+  // Tests and custom installations can point at a specific stub or binary.
+  const override = process.env.ANDROID_MCP_MITMDUMP;
+  if (override) return Promise.resolve(override);
   return resolveCli(root, "mitmdump");
 }
 
@@ -195,7 +209,7 @@ function withDeviceLock<T>(serial: string, fn: () => Promise<T>): Promise<T> {
   });
 }
 
-async function resolveDeviceSerial(deviceId?: string): Promise<string> {
+export async function resolveDeviceSerial(deviceId?: string): Promise<string> {
   if (deviceId) return deviceId;
   const r = await run("adb", ["get-serialno"], { timeout: TIMEOUT });
   const serial = r.stdout.trim();
@@ -259,6 +273,32 @@ async function startManagedServer(serial: string): Promise<string | null> {
   return pid ?? null;
 }
 
+/**
+ * Root the selected device for system CA-store work. This is the shared root
+ * path used by both Frida provisioning and net_capture, so capture startup does
+ * not need to provision a Frida server just to become root.
+ */
+export async function ensureRoot(deviceId?: string): Promise<void> {
+  const buildType = await deviceBuildType(deviceId);
+  if (parseBuildType(buildType) === "nonrootable") {
+    throw new Error(
+      `device image '${buildType}' cannot adb root (google_apis images required; ` +
+        `default fallback images are not rootable — re-run make setup)`,
+    );
+  }
+
+  const rooted = await run("adb", [...adbArgs(deviceId), "root"], { timeout: TIMEOUT });
+  if (rooted.code !== 0) {
+    const detail = (rooted.stderr || rooted.stdout).trim() || "no output";
+    throw new Error(
+      `adb root failed on ${deviceId ?? "default device"}: ${detail} — ` +
+        `use a google_apis system image (re-run make setup)`,
+    );
+  }
+  const rootWaitMs = Number(process.env.ANDROID_MCP_ROOT_WAIT_MS ?? 2000);
+  if (Number.isFinite(rootWaitMs) && rootWaitMs > 0) await sleep(rootWaitMs);
+}
+
 export async function ensureServer(deviceId?: string, root?: string): Promise<EnsureServerResult> {
   const base = root ?? REPO_ROOT;
   const serial = await resolveDeviceSerial(deviceId);
@@ -306,23 +346,7 @@ export async function ensureServer(deviceId?: string, root?: string): Promise<En
       await sleep(500);
     }
 
-    const buildType = await deviceBuildType(serial);
-    if (parseBuildType(buildType) === "nonrootable") {
-      throw new Error(
-        `device image '${buildType}' cannot adb root (google_apis images required; ` +
-          `default fallback images are not rootable — re-run make setup)`,
-      );
-    }
-
-    const rooted = await run("adb", [...adbArgs(serial), "root"], { timeout: TIMEOUT });
-    if (rooted.code !== 0) {
-      const detail = (rooted.stderr || rooted.stdout).trim() || "no output";
-      throw new Error(
-        `adb root failed on ${serial}: ${detail} — use a google_apis system image (re-run make setup)`,
-      );
-    }
-    const rootWaitMs = Number(process.env.ANDROID_MCP_ROOT_WAIT_MS ?? 2000);
-    if (Number.isFinite(rootWaitMs) && rootWaitMs > 0) await sleep(rootWaitMs);
+    await ensureRoot(serial);
 
     const serverFile = await resolveServerFile(base, asset);
     const pushed = await run("adb", [...adbArgs(serial), "push", serverFile, DEVICE_SERVER_PATH], {

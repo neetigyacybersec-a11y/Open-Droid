@@ -67,7 +67,8 @@ Use a CI runner with KVM, or run the Android app on a physical device
 | `frida-server ... missing` / ABI mismatch | Server ABI ≠ AVD ABI | `make setup` vendors both arches; `mapAbiToAsset` errors name the offending ABI |
 | `frida CLI not found` | Venv not created | `make setup` (requires python3 + python3-venv) |
 | `net_capture busy` | A capture is already running | `net_capture stop`, then retry |
-| Proxy stuck after capture | `stop` not called / server exited | `adb shell settings put global http_proxy :0` |
+| Proxy stuck after capture | `stop` not called / server exited | Call `net_capture stop`; it restores the persisted serial and original proxy. If that reports `recovery-required`, run the printed `adb -s <serial> ...` command and remove `$XDG_STATE_HOME/android-mcp/net-capture.json` |
+| `net_capture stop` reports a different device | The session is bound to the serial selected at start | Omit `deviceId` or pass the serial printed in the error; no device was changed |
 | CA not installed | System image read-only | Use a rootable image; on API 34+ pushing to the system store is often blocked, so plan for an APEX/Magisk CA overlay or an unpinning hook |
 | HTTPS bodies missing from HAR | API 34+ ignores runtime CA additions, and `targetSdk >= 24` apps do not trust user CAs by default | Do not rely on a user cert; use an APEX/Magisk system-CA module or `frida-scripts/ssl-unpin.js` |
 | `could not hash mitmproxy CA with openssl` | `openssl` not on `PATH` | `sudo apt install -y openssl` |

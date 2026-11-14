@@ -311,7 +311,7 @@ Expected final lines: `BUILD OK`, `TESTS OK`, `SMOKE OK`, all doctor checks `OK`
 | `frida CLI not found` at runtime | Venv absent | `make setup` |
 | `device image 'release-keys' cannot adb root` | Non-rootable image | Re-run setup on a KVM host; ensure `google_apis` image |
 | `net_capture busy` | Capture already running | `net_capture stop`, then retry |
-| Proxy stuck after capture | `stop` not called | `adb shell settings put global http_proxy :0` |
+| Proxy stuck after capture | `stop` not called / MCP exited | `net_capture stop` restores the persisted original value; follow any `recovery-required` command it prints |
 | Global skills deleted unexpectedly | Old register.sh (pre-manifest) | Update to latest; manifest now protects user skills |
 
 See `docs/troubleshooting.md` for the full host-install checklist.
