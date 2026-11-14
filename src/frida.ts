@@ -168,87 +168,212 @@ async function fridaPsCommand(root: string): Promise<string> {
 }
 
 /**
- * Make frida-server usable on the selected device: root the (google_apis)
- * image, push the ABI-matched server, start it, and confirm with frida-ps.
- * Idempotent per boot: stale servers are killed before the restart.
+ * Issue 77: ensure/reuse semantics. A healthy server on the selected device is
+ * reused without root, push, kill or relaunch. Provisioning runs only when no
+ * server responds, or when a managed server's version does not match the
+ * bundled one. Calls are serialized per device serial; emulator A never blocks
+ * or alters emulator B. Unmanaged processes are never killed.
  */
-export async function ensureServer(
-  deviceId?: string,
-  root?: string,
-): Promise<{ server: string; abi: string }> {
+export interface EnsureServerResult {
+  server: string;
+  abi: string;
+  serial: string;
+  reused: boolean;
+  managed: boolean;
+  pid: string | null;
+  version: string | null;
+}
+
+const deviceLocks = new Map<string, Promise<unknown>>();
+
+function withDeviceLock<T>(serial: string, fn: () => Promise<T>): Promise<T> {
+  const previous = deviceLocks.get(serial) ?? Promise.resolve();
+  const current = previous.catch(() => undefined).then(fn);
+  deviceLocks.set(serial, current);
+  return current.finally(() => {
+    if (deviceLocks.get(serial) === current) deviceLocks.delete(serial);
+  });
+}
+
+async function resolveDeviceSerial(deviceId?: string): Promise<string> {
+  if (deviceId) return deviceId;
+  const r = await run("adb", ["get-serialno"], { timeout: TIMEOUT });
+  const serial = r.stdout.trim();
+  if (r.code !== 0 || !serial || serial === "unknown" || /error/i.test(serial)) {
+    throw new Error(
+      `could not resolve the selected ADB serial: ${(r.stderr || r.stdout).trim() || "adb get-serialno failed"} — ` +
+        `pass deviceId explicitly when more than one device is attached`,
+    );
+  }
+  return serial;
+}
+
+async function fridaProbe(ps: string, serial: string): Promise<boolean> {
+  const check = await run(ps, ["-D", serial], { timeout: 5_000 });
+  return check.code === 0;
+}
+
+async function serverPid(serial: string): Promise<string | null> {
+  const r = await run("adb", [...adbArgs(serial), "shell", "pidof", "frida-server"], {
+    timeout: TIMEOUT,
+  });
+  if (r.code !== 0) return null;
+  const pid = r.stdout.trim().split(/\s+/)[0] ?? "";
+  return /^\d+$/.test(pid) ? pid : null;
+}
+
+async function serverCommandLine(serial: string, pid: string): Promise<string | null> {
+  const r = await run("adb", [...adbArgs(serial), "shell", "cat", `/proc/${pid}/cmdline`], {
+    timeout: TIMEOUT,
+  });
+  return r.code === 0 ? r.stdout.replaceAll("\u0000", " ").trim() || null : null;
+}
+
+async function deployedServerVersion(serial: string): Promise<string | null> {
+  const r = await run("adb", [...adbArgs(serial), "shell", `${DEVICE_SERVER_PATH} --version`], {
+    timeout: TIMEOUT,
+  });
+  if (r.code !== 0) return null;
+  const version = r.stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .find(Boolean);
+  return version ?? null;
+}
+
+async function killExactPid(serial: string, pid: string): Promise<void> {
+  await run("adb", [...adbArgs(serial), "shell", "kill", pid], { timeout: TIMEOUT });
+}
+
+async function startManagedServer(serial: string): Promise<string | null> {
+  const started = await run(
+    "adb",
+    [...adbArgs(serial), "shell", `nohup ${DEVICE_SERVER_PATH} >/dev/null 2>&1 & echo $!`],
+    { timeout: TIMEOUT },
+  );
+  const pid = started.stdout
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => /^\d+$/.test(token))
+    .pop();
+  return pid ?? null;
+}
+
+export async function ensureServer(deviceId?: string, root?: string): Promise<EnsureServerResult> {
   const base = root ?? REPO_ROOT;
+  const serial = await resolveDeviceSerial(deviceId);
 
-  const buildType = await deviceBuildType(deviceId);
-  if (parseBuildType(buildType) === "nonrootable") {
-    throw new Error(
-      `device image '${buildType}' cannot adb root (google_apis images required; ` +
-        `default fallback images are not rootable — re-run make setup)`,
+  return withDeviceLock(serial, async () => {
+    const expectedVersion = await fridaVersion(base);
+    const abi = await deviceAbi(serial);
+    const asset = mapAbiToAsset(abi);
+    const ps = await fridaPsCommand(base);
+
+    const healthy = await fridaProbe(ps, serial);
+    const pid = await serverPid(serial);
+    const commandLine = pid ? await serverCommandLine(serial, pid) : null;
+    const managed = Boolean(commandLine && commandLine.includes(DEVICE_SERVER_PATH));
+    const version = managed ? await deployedServerVersion(serial) : null;
+    const versionMismatch = Boolean(
+      healthy && expectedVersion && version && version !== expectedVersion,
     );
-  }
 
-  const rooted = await run("adb", [...adbArgs(deviceId), "root"], { timeout: TIMEOUT });
-  if (rooted.code !== 0) {
-    const detail = (rooted.stderr || rooted.stdout).trim() || "no output";
-    throw new Error(
-      `adb root failed on ${deviceId ?? "default device"}: ${detail} — ` +
-        `use a google_apis system image (re-run make setup)`,
+    if (healthy && !versionMismatch) {
+      return {
+        server: DEVICE_SERVER_PATH,
+        abi,
+        serial,
+        reused: true,
+        managed,
+        pid,
+        version,
+      };
+    }
+
+    if (versionMismatch && pid) {
+      // Only the process whose command line is our deployed binary may be
+      // replaced; the version check already proved it is ours.
+      await killExactPid(serial, pid);
+      await sleep(500);
+    } else if (!healthy && pid) {
+      if (!managed) {
+        throw new Error(
+          `unmanaged frida-server process ${pid} on ${serial} is not responding and does not ` +
+            `match ${DEVICE_SERVER_PATH}; refusing to kill it — stop it manually or use a clean device`,
+        );
+      }
+      await killExactPid(serial, pid);
+      await sleep(500);
+    }
+
+    const buildType = await deviceBuildType(serial);
+    if (parseBuildType(buildType) === "nonrootable") {
+      throw new Error(
+        `device image '${buildType}' cannot adb root (google_apis images required; ` +
+          `default fallback images are not rootable — re-run make setup)`,
+      );
+    }
+
+    const rooted = await run("adb", [...adbArgs(serial), "root"], { timeout: TIMEOUT });
+    if (rooted.code !== 0) {
+      const detail = (rooted.stderr || rooted.stdout).trim() || "no output";
+      throw new Error(
+        `adb root failed on ${serial}: ${detail} — use a google_apis system image (re-run make setup)`,
+      );
+    }
+    const rootWaitMs = Number(process.env.ANDROID_MCP_ROOT_WAIT_MS ?? 2000);
+    if (Number.isFinite(rootWaitMs) && rootWaitMs > 0) await sleep(rootWaitMs);
+
+    const serverFile = await resolveServerFile(base, asset);
+    const pushed = await run("adb", [...adbArgs(serial), "push", serverFile, DEVICE_SERVER_PATH], {
+      timeout: TIMEOUT,
+    });
+    if (pushed.code !== 0) {
+      const detail = (pushed.stderr || pushed.stdout).trim() || "no output";
+      throw new Error(
+        `failed to push ${serverFile} to ${DEVICE_SERVER_PATH}: ${detail} — ` +
+          `check 'adb devices' and free space on /data/local/tmp`,
+      );
+    }
+
+    const chmod = await run(
+      "adb",
+      [...adbArgs(serial), "shell", "chmod", "755", DEVICE_SERVER_PATH],
+      { timeout: TIMEOUT },
     );
-  }
-  // adbd restarts and briefly drops the transport after `adb root`.
-  await sleep(2000);
+    if (chmod.code !== 0) {
+      const detail = (chmod.stderr || chmod.stdout).trim() || "no output";
+      throw new Error(`chmod 755 ${DEVICE_SERVER_PATH} failed: ${detail}`);
+    }
 
-  const abi = await deviceAbi(deviceId);
-  const asset = mapAbiToAsset(abi);
-  const serverFile = await resolveServerFile(base, asset);
+    const newPid = await startManagedServer(serial);
+    const deadline = Date.now() + 15_000;
+    let last = "";
+    for (;;) {
+      const check = await run(ps, ["-D", serial], { timeout: 5_000 });
+      if (check.code === 0) {
+        return {
+          server: DEVICE_SERVER_PATH,
+          abi,
+          serial,
+          reused: false,
+          managed: true,
+          pid: newPid,
+          version: expectedVersion,
+        };
+      }
+      last = (check.stderr || check.stdout).trim();
+      if (Date.now() >= deadline) break;
+      await sleep(1000);
+    }
 
-  const pushed = await run("adb", [...adbArgs(deviceId), "push", serverFile, DEVICE_SERVER_PATH], {
-    timeout: TIMEOUT,
+    throw new Error(
+      `frida-server is running at ${DEVICE_SERVER_PATH} (${asset}) but 'frida-ps -D ${serial}' ` +
+        `cannot reach it: ${last || "no output"} — check the device is unlocked, the ` +
+        `ABI matches (${abi}), and selinux did not deny the binary` +
+        (newPid ? ` (started pid ${newPid})` : ""),
+    );
   });
-  if (pushed.code !== 0) {
-    const detail = (pushed.stderr || pushed.stdout).trim() || "no output";
-    throw new Error(
-      `failed to push ${serverFile} to ${DEVICE_SERVER_PATH}: ${detail} — ` +
-        `check 'adb devices' and free space on /data/local/tmp`,
-    );
-  }
-
-  const chmod = await run(
-    "adb",
-    [...adbArgs(deviceId), "shell", "chmod", "755", DEVICE_SERVER_PATH],
-    { timeout: TIMEOUT },
-  );
-  if (chmod.code !== 0) {
-    const detail = (chmod.stderr || chmod.stdout).trim() || "no output";
-    throw new Error(`chmod 755 ${DEVICE_SERVER_PATH} failed: ${detail}`);
-  }
-
-  // Kill a stale server from a previous boot/run, then start detached.
-  await run("adb", [...adbArgs(deviceId), "shell", "pkill -f frida-server || true"], {
-    timeout: TIMEOUT,
-  });
-  await run(
-    "adb",
-    [...adbArgs(deviceId), "shell", `nohup ${DEVICE_SERVER_PATH} >/dev/null 2>&1 &`],
-    { timeout: TIMEOUT },
-  );
-
-  const fridaPs = await fridaPsCommand(base);
-  const deadline = Date.now() + 15_000;
-  let last = "";
-  for (;;) {
-    const psArgs = deviceId ? ["-D", deviceId] : ["-U"];
-    const check = await run(fridaPs, psArgs, { timeout: 5_000 });
-    if (check.code === 0) return { server: DEVICE_SERVER_PATH, abi };
-    last = (check.stderr || check.stdout).trim();
-    if (Date.now() >= deadline) break;
-    await sleep(1000);
-  }
-
-  throw new Error(
-    `frida-server is running at ${DEVICE_SERVER_PATH} (${asset}) but 'frida-ps -U' ` +
-      `cannot reach it: ${last || "no output"} — check the device is unlocked, the ` +
-      `ABI matches (${abi}), and selinux did not deny the binary`,
-  );
 }
 
 /** True when `pid` is a live process (EPERM means alive but not ours). */
