@@ -58,6 +58,21 @@ export const ToolSchemas = {
     avdName: z.string(),
     headless: z.boolean().optional().default(true),
     gpu: z.string().optional().default("swiftshader_indirect"),
+    scale: z
+      .number()
+      .min(0.1)
+      .max(3)
+      .optional()
+      .describe("Emulator window scale (0.1-3.0) passed as -scale; use it on small/high-DPI hosts"),
+    windowSize: z
+      .string()
+      .regex(/^\d{3,5}x\d{3,5}$/, "expected WIDTHxHEIGHT, e.g. 900x600")
+      .refine((value) => {
+        const [w, h] = value.split("x").map(Number);
+        return w >= 200 && w <= 10000 && h >= 200 && h <= 10000;
+      }, "windowSize must be between 200x200 and 10000x10000")
+      .optional()
+      .describe("Override the window/display geometry as WIDTHxHEIGHT (passed as -skin)"),
     timeoutSec: z
       .number()
       .int()
@@ -543,11 +558,16 @@ export async function handleEmulatorBoot(args: z.infer<typeof ToolSchemas.emulat
   const deadline = Date.now() + timeoutSec * 1000;
   const { spawn: sp } = await import("node:child_process");
   const gpu = args.gpu ?? "swiftshader_indirect";
-  const child = sp(
-    "emulator",
-    ["-avd", args.avdName, ...(args.headless ? ["-no-window", "-no-audio"] : []), "-gpu", gpu],
-    { detached: true, stdio: "ignore" },
-  );
+  const launchArgs = [
+    "-avd",
+    args.avdName,
+    ...(args.headless ? ["-no-window", "-no-audio"] : []),
+    "-gpu",
+    gpu,
+    ...(args.scale !== undefined ? ["-scale", String(args.scale)] : []),
+    ...(args.windowSize ? ["-skin", args.windowSize] : []),
+  ];
+  const child = sp("emulator", launchArgs, { detached: true, stdio: "ignore" });
   let spawnError: Error | null = null;
   let exited = false;
   child.once("error", (err) => {

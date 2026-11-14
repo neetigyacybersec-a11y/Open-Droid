@@ -63,6 +63,7 @@ Use a CI runner with KVM, or run the Android app on a physical device
 ## Dynamic analysis
 | Symptom | Root cause | Fix |
 |---|---|---|
+| Emulator window cropped on a high-DPI display | Tall AVD (e.g. 1080x2424) at 125% scaling needs more host pixels than the display height | Boot with `emulator_boot` `scale` (e.g. `0.5`) or `windowSize` (`900x600`); run `node scripts/avd-geometry.mjs --suggest`; last resort is `templates/avd/high-dpi-small-host.config.ini` |
 | `device image 'release-keys' cannot adb root` | `default` (non-rootable) system image installed | Re-run `make setup` on a host with KVM; ensure `google_apis` image selected |
 | `frida-server ... missing` / ABI mismatch | Server ABI ≠ AVD ABI | `make setup` vendors both arches; `mapAbiToAsset` errors name the offending ABI |
 | `frida CLI not found` | Venv not created | `make setup` (requires python3 + python3-venv) |

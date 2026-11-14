@@ -78,6 +78,16 @@ else
   warn "No AVDs found (run: make setup, or avdmanager create avd ...)"
 fi
 
+# AVD window geometry (ISSUE-12): a tall AVD on a small/high-DPI host opens a
+# cropped window. Warning only: the host display may be shared or remote.
+if command -v node >/dev/null 2>&1; then
+  if ! node "$ROOT/scripts/avd-geometry.mjs" --check; then
+    warn "AVD window may be cropped; boot with emulator_boot scale/windowSize, or apply templates/avd/high-dpi-small-host.config.ini"
+  fi
+else
+  warn "AVD geometry check skipped (node unavailable)"
+fi
+
 # offline build readiness (FR-D2: proof, not a hunch)
 if [ ! -d "$TOOLCHAIN/gradle-home/caches" ]; then
   warn "Gradle cache not warmed yet; run scripts/warm-cache.sh once online"
