@@ -140,7 +140,7 @@ Refresh registration any time with `make register`.
 | `examples/hello-compose/` | Finished example app |
 | `skills/` | 30 OpenCode skills |
 | `docker/` | Dockerfile + entrypoint |
-| `docs/` | Quickstart, architecture, offline contract, publishing, lifecycle coverage, troubleshooting |
+| `docs/` | Quickstart, architecture, offline contract, publishing, lifecycle coverage, compose previews, troubleshooting |
 | `manifest/` | Lifecycle stages, capability status, and CI gate allowlist (FR-R22) |
 | `.github/workflows/` | CI + release pipelines |
 | `Makefile` | Common tasks |
@@ -218,6 +218,15 @@ make build-app APP_DIR=my-app
 make emulator          # boot AVD (requires KVM)
 make screenshot        # -> screenshots/screen.png
 ```
+
+Headless Compose previews (no emulator):
+
+```bash
+compose-preview show --project templates/compose-starter --json
+```
+
+The `compose_preview_render` MCP tool wraps that command, verifies the PNGs and
+returns them inline. See [docs/compose-preview.md](docs/compose-preview.md).
 
 ---
 

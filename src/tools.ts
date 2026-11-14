@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { constants, readFileSync, unlinkSync } from "node:fs";
 import { access, mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   run,
@@ -93,7 +93,24 @@ export const ToolSchemas = {
   }),
   composePreviewRender: z.object({
     projectPath: z.string(),
-    previewFqn: z.string().optional().describe("Fully qualified @Preview composable"),
+    previewFqn: z.string().optional().describe("Fully qualified @Preview composable id"),
+    module: z
+      .string()
+      .optional()
+      .describe("Gradle module to scan, e.g. app or :feature:home (default: all modules)"),
+    inlineImages: z
+      .boolean()
+      .optional()
+      .default(true)
+      .describe("Embed rendered PNGs in the response (capped at 6 images)"),
+    timeoutSec: z
+      .number()
+      .int()
+      .min(1)
+      .max(3600)
+      .optional()
+      .default(600)
+      .describe("Upper bound for the headless Gradle render"),
   }),
   skillsList: z.object({}),
   skillsSearch: z.object({ query: z.string() }),
@@ -667,6 +684,14 @@ export async function handleMaestroRun(args: z.infer<typeof ToolSchemas.maestroR
   };
 }
 
+const PREVIEW_INLINE_LIMIT = 6;
+const PREVIEW_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
+
+function tailText(text: string, limit = 4000): string {
+  const trimmed = text.trim();
+  return trimmed.length > limit ? `…${trimmed.slice(-limit)}` : trimmed;
+}
+
 export async function handleComposePreviewRender(
   args: z.infer<typeof ToolSchemas.composePreviewRender>,
 ) {
@@ -676,18 +701,142 @@ export async function handleComposePreviewRender(
       content: [
         {
           type: "text" as const,
-          text: "compose-preview CLI not found. Install compose-ai-tools first (see report).",
+          text:
+            "compose-preview CLI not found. Run `make setup` to install compose-ai-tools, " +
+            "then retry. Manual install: https://github.com/yschimke/compose-ai-tools",
         },
       ],
       isError: true,
     };
   }
-  const argsArr = ["render", "--project", args.projectPath];
-  if (args.previewFqn) argsArr.push("--preview", args.previewFqn);
-  const r = await run(cli, argsArr, { cwd: args.projectPath, timeout: 600_000 });
+
+  const project = resolve(args.projectPath);
+  const argv = ["show", "--project", project, "--json"];
+  if (args.module) argv.push("--module", args.module);
+  if (args.previewFqn) argv.push("--id", args.previewFqn);
+
+  const started = Date.now();
+  const r = await run(cli, argv, {
+    cwd: project,
+    timeout: (args.timeoutSec ?? 600) * 1000,
+  });
+  const elapsed = ((Date.now() - started) / 1000).toFixed(1);
+
+  if (r.code !== 0) {
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: `compose-preview show failed (exit ${r.code}):\n${tailText(r.stderr || r.stdout)}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  let manifest: any;
+  try {
+    manifest = JSON.parse(r.stdout);
+  } catch {
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: `compose-preview returned invalid JSON:\n${tailText(r.stdout)}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  const previews: any[] = Array.isArray(manifest?.previews) ? manifest.previews : [];
+  if (previews.length === 0) {
+    const selection = [
+      args.module ? `--module ${args.module}` : "",
+      args.previewFqn ? `previewFqn ${args.previewFqn}` : "",
+    ]
+      .filter(Boolean)
+      .join(", ");
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text:
+            `compose-preview reported no previews for ${project}` +
+            (selection ? ` (${selection})` : "") +
+            ". Add an @Preview composable, pass `module` to pick a Gradle module, " +
+            "or check `previewFqn`." +
+            (r.stderr.trim() ? `\n${tailText(r.stderr)}` : ""),
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  const lines = [
+    `rendered ${previews.length} preview(s) in ${elapsed}s via compose-preview show`,
+    `project: ${project}`,
+  ];
+  const images: Array<{ type: "image"; data: string; mimeType: string }> = [];
+  let rendered = 0;
+  let capReached = false;
+  const missing: string[] = [];
+
+  for (const preview of previews) {
+    const id = typeof preview?.id === "string" ? preview.id : "(unknown preview)";
+    const module = typeof preview?.module === "string" ? preview.module : "?";
+    const sha = typeof preview?.sha256 === "string" ? preview.sha256.slice(0, 12) : "unavailable";
+    lines.push(`- ${id} (module: ${module}, sha256: ${sha})`);
+
+    const pngPath = typeof preview?.pngPath === "string" ? resolve(project, preview.pngPath) : "";
+    if (!pngPath || !pngPath.toLowerCase().endsWith(".png")) {
+      lines.push("  png: MISSING (the manifest has no .png path)");
+      missing.push(id);
+      continue;
+    }
+    let size: number;
+    try {
+      size = (await stat(pngPath)).size;
+    } catch {
+      lines.push(`  png: MISSING ${pngPath}`);
+      missing.push(id);
+      continue;
+    }
+    lines.push(`  png: ${pngPath} (${size} bytes)`);
+    rendered += 1;
+
+    if (args.inlineImages === false) continue;
+    if (images.length >= PREVIEW_INLINE_LIMIT) {
+      capReached = true;
+      continue;
+    }
+    if (size > PREVIEW_IMAGE_MAX_BYTES) {
+      lines.push(`  inline: skipped (larger than ${PREVIEW_IMAGE_MAX_BYTES} bytes)`);
+      continue;
+    }
+    images.push({
+      type: "image" as const,
+      data: await readBase64(pngPath),
+      mimeType: "image/png",
+    });
+  }
+
+  if (args.inlineImages === false) {
+    lines.push("inline images disabled (inlineImages=false)");
+  } else if (capReached) {
+    lines.push(`inline images capped at ${PREVIEW_INLINE_LIMIT} of ${rendered} rendered previews`);
+  }
+  if (missing.length) lines.push(`missing PNGs: ${missing.join(", ")}`);
+  if (rendered === 0) {
+    lines.push(
+      "no preview PNG was produced; compose-preview reported paths but the files are absent. " +
+        "Check the module's build output and re-run.",
+    );
+  }
+
   return {
-    content: [{ type: "text" as const, text: (r.stdout + "\n" + r.stderr).slice(-12000) }],
-    isError: r.code !== 0,
+    content: [{ type: "text" as const, text: lines.join("\n") }, ...images],
+    isError: rendered === 0,
   };
 }
 

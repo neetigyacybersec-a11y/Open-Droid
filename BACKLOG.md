@@ -76,7 +76,7 @@ Severity is about user impact, not effort. Each issue has reproduction evidence.
 | ISSUE-13 | **`scripts/new-app.sh` never writes `local.properties`.** First build after scaffolding fails with `SDK location not found`. | Fresh `make new-app demo` → `./gradlew :app:assembleDebug` → `SDK location not found`. | 🔴 P0 | ✅ **Shipped** (e57cde4): scaffold writes `sdk.dir=$ANDROID_HOME`, fails loudly when unset; 2 tests | Done — see FR-B1. |
 | ISSUE-14 | **`--offline` is advertised but unusable for a fresh app.** The warm cache does not include the AGP plugin marker. | `gradle :app:assembleDebug --offline` → `Could not resolve plugin artifact 'com.android.application:com.android.application.gradle.plugin:8.7.2'`. | 🔴 P0 | ✅ **Shipped** (4b819d4 + f2da251): `offline-proof.sh` proves a fresh offline build; `doctor` gates on it. Cache-warm run itself needs a provisioned toolchain | Run `make setup`/`make warm-cache` on a provisioned host; offline proof then executes for real. See FR-R1 for the full pack matrix. |
 | ISSUE-17 | **Offline cache cannot build a multi-screen product.** Missing: `androidx.navigation`, `room`, `datastore`, `hilt`, `work`, `paging`, `androidx.test.espresso`, `androidx.test.ext`, `retrofit2`, `okhttp3`, `coil`, `robolectric`. | Enumerated from `~/.gradle/caches/modules-2/files-2.1`. Present: `androidx.compose.*`, most `androidx.lifecycle.*`, coroutines, dagger core (no Hilt Android). `dl.google.com` and `repo1.maven.org` are reachable from the audited host; the required artifacts have not been populated in the vendored cache. | 🔴 P0 | Open; cache population is the task, not network access | Ship dependency packs (`make setup PACKS=app,data,net,di,test`). See FR-R1. |
-| ISSUE-15 | **`compose_preview_render` is registered but cannot run.** Its binary is missing, so previews need a 40 s emulator boot. | `android_env_check` → `compose-preview: MISSING`. | 🔴 P0 | Open | Vendor the preview renderer in `setup.sh`, or add a `:app:renderPreviews` Gradle task (Roborazzi/Paparazzi fallback). See FR-A1. |
+| ISSUE-15 | **`compose_preview_render` is registered but cannot run.** Its binary is missing, so previews need a 40 s emulator boot. | `android_env_check` → `compose-preview: MISSING`. | ✅ **Shipped** (FR-A1) | `compose_preview_render` now uses `compose-preview show --json`, verifies rendered PNGs, reports paths/hashes/timing, and inlines images. `make setup` already installs the CLI best-effort. Verified on `templates/compose-starter`: 2 previews, 10.7 s after warm-up and 3.4 s on repeat. See `docs/compose-preview.md`. |
 | ISSUE-16 | **`android` CLI missing** although capability docs imply it exists. | `android_env_check` → `android CLI: MISSING`. | 🟡 P2 | Open | Install it in `setup.sh` or mark it explicitly optional in `android_env_check` output. See FR-D3. |
 | ISSUE-20 | **No signing config.** `assembleRelease` produces an unsigned release artifact. | `hello-app` and `templates/compose-starter` have no `signingConfigs`; no keystore exists on this host. | 🔴 P0 | ✅ **Scaffold shipped** (b3ed00e): template signs from gitignored `keystore.properties`, release fails closed without a key, `versionCode` from `git rev-list --count HEAD` | Signed *artifact* additionally requires a maintainer-provisioned keystore. FR-R7 validates the resulting release configuration. |
 
@@ -180,7 +180,7 @@ the maintainer's pre-existing Gradle cache.
 
 | ID | Request | Priority | Status | Notes |
 |---|---|---|---|---|
-| FR-A1 | Make `compose_preview_render` real (headless preview → PNG) | P0 | 🔴 Open | Also ISSUE-15. Target: <15 s cold, <3 s warm, renders every `@Preview` in a module. |
+| FR-A1 | Make `compose_preview_render` real (headless preview → PNG) | P0 | ✅ **Shipped** | Wraps `compose-preview show --json`, verifies PNGs, reports id/module/path/sha256/elapsed, inlines up to 6 images (8 MiB cap). Measured 10.7 s after toolchain warm-up, 3.4 s on repeat (warm <3 s is host-dependent). See `docs/compose-preview.md`. |
 | FR-A2 | `screenshot_diff` with golden baselines | P0 | ✅ **Shipped** | Actual API uses `baselinePath` + `ignoreRegions`; see `docs/visual-qa-tools.md`. |
 | FR-A3 | `design_qa_matrix` (light/dark/XL/landscape contact sheet) | P0 | ✅ **Shipped** | 5 variants, focus verification, settings restoration, animation freeze. |
 | FR-A4 | `a11y_audit` (contrast, tap targets, semantics) | P1 | ✅ **Shipped** | 4 rules; blocking/warning severities; JSON report. |
@@ -573,7 +573,7 @@ platform, release) and the template that makes "well tested" true by default.
 | Diagnose bugs | ✅ | logcat, crash, ANR, perfetto, memory, Frida, mitmproxy | — |
 | Measure UI quality | ✅ | `design_qa_matrix`, `a11y_audit`, `screenshot_diff`; verified 0 blocking findings, 5 variants, deterministic diffs | — |
 | Design method | 🟡 | Skills: critique, tokens, UX research, usability, WCAG, microcopy, Figma | Nothing mechanical behind them |
-| Design velocity | 🔴 | — | Preview renderer broken (ISSUE-15), no reference boards, no token codegen (FR-C1), no asset pipeline (ISSUE-27) |
+| Design velocity | 🟡 | `compose_preview_render` renders previews headlessly (FR-A1) | No reference boards (FR-R9), no token codegen (FR-C1), no asset pipeline (ISSUE-27) |
 | Navigation and state | 🔴 | — | `androidx.navigation` not cached; no ViewModel/nav in the template |
 | Data and offline | 🔴 | — | Room, DataStore, Work, Paging absent; no DB inspection (ISSUE-25) |
 | Networking | 🔴 | `net_capture` | Retrofit/OkHttp/serialization absent; no mock server or contract tests (ISSUE-30) |
@@ -1175,7 +1175,7 @@ be assessed per product: a capability can be `not_applicable` without being a re
 | Environment | SDK, JDK, Gradle, emulator, env check | `android_env_check`, `sdkmanager_install`, `emulator_*`, `adb_*` | vendored `.toolchain/` | yes (verified on the audited Windows host; cross-host coverage remains limited) |
 | Scaffold | New project from a starter | — | `new-app.sh` + 4-file starter | partial (source-only copy, `local.properties`, signing scaffold since e57cde4/b3ed00e; wrapper strategy open with FR-R1) |
 | Build | Compile, install, launch, logcat | `gradle_task`, `adb_install`, `adb_launch`, `adb_logcat` | `hello-app` builds and runs | partial (ISSUE-13/14 fixed; fresh offline build proven by `offline-proof.sh`, real warm run pending a provisioned toolchain) |
-| UI authoring | Compose screens, previews | `compose_preview_render` (registered, unavailable) | `hello-app` | partial (screen authoring works; headless preview rendering is unavailable, FR-A1) |
+| UI authoring | Compose screens, previews | `compose_preview_render` (headless PNG) | `hello-app` | partial (screen authoring works; previews render headlessly, real-device fidelity still needs the emulator, FR-A1) |
 | Design tokens | Colour/type/shape/spacing source of truth | — | hardcoded values | no (FR-C1) |
 | Visual QA | Screenshot diff, design matrix | `screenshot_diff`, `design_qa_matrix` | — | partial (tools produce repeatable evidence; CI regression gates and committed goldens are missing) |
 | Accessibility | Static rules + contrast | `a11y_audit` | semantics only in `hello-app` | partial (issues 01/02, 31) |

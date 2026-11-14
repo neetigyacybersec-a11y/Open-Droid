@@ -84,7 +84,7 @@ server.registerTool(
   "compose_preview_render",
   {
     description:
-      "Render Compose @Preview composables to PNG via compose-preview CLI (if installed).",
+      "Render Compose @Preview composables to PNG headlessly via compose-preview; returns paths, hashes and inline images.",
     inputSchema: ToolSchemas.composePreviewRender,
   },
   logged("compose_preview_render", async (a: any) => H.handleComposePreviewRender(a)),
