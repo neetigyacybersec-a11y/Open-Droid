@@ -102,6 +102,10 @@ Wire into OpenCode (`~/.config/opencode/opencode.jsonc`):
 > `scripts/setup.sh` supports Linux, macOS, and Windows (Git Bash/MSYS) hosts;
 > platform gaps (e.g. optional Android CLI binaries) degrade to warnings, and
 > the core JDK/SDK/npm bootstrap completes on all three.
+>
+> **Windows / restricted PowerShell:** use `node scripts/build.mjs`,
+> `node scripts/test.mjs` and `node scripts/doctor.mjs`; `make` and the `.sh`
+> entry points require Git Bash or WSL2. See [docs/windows.md](docs/windows.md).
 
 ```bash
 git clone https://github.com/neetigyacybersec-a11y/Open-Droid.git

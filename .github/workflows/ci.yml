@@ -39,9 +39,9 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
-      - run: npm ci
-      - run: npm run build
-      - run: npm test
+      - run: npm.cmd ci
+      - run: node scripts/build.mjs
+      - run: node scripts/test.mjs
       - run: bash scripts/check-readme.sh
 
   # FR-B6 / ISSUE-22: CI builds and tests every app the repo ships, not just one.
