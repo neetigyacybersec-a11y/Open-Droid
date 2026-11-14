@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { constants, readFileSync, unlinkSync } from "node:fs";
 import { access, mkdir, readFile, stat, writeFile } from "node:fs/promises";
-
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -20,6 +19,12 @@ import {
   serveStatePath,
 } from "./util.js";
 import { ensureServer, resolveFridaCli } from "./frida.js";
+import {
+  SERVER_STARTED_AT,
+  STARTUP_BUILD,
+  checkRestartRequired,
+  readBuildIdentity,
+} from "./buildInfo.js";
 import { renderPrivacyReport, scanPrivacyProject } from "./privacy.js";
 import { auditProjectManifest } from "./manifestAudit.js";
 import { scanProjectSecrets } from "./secretScan.js";
@@ -401,6 +406,18 @@ export async function handleEnvCheck() {
     `ANDROID_HOME: ${process.env.ANDROID_HOME ?? process.env.ANDROID_SDK_ROOT ?? "unset"}`,
     `JAVA_HOME: ${process.env.JAVA_HOME ?? "unset"}`,
   ];
+  // ISSUE-24: clients cache tools/list, so report the build this process loaded
+  // and whether the on-disk build has moved since startup.
+  const currentBuild = readBuildIdentity();
+  const restart = checkRestartRequired(STARTUP_BUILD, currentBuild);
+  lines.push(
+    `server: ${STARTUP_BUILD.name} ${STARTUP_BUILD.version} (pid ${process.pid}, started ${SERVER_STARTED_AT})`,
+    `server build: ${STARTUP_BUILD.fingerprint.slice(0, 12)} (newest module ${STARTUP_BUILD.builtAt})`,
+    `on-disk build: ${currentBuild.fingerprint.slice(0, 12)} (version ${currentBuild.version})`,
+    restart.required
+      ? `restart required: YES — ${restart.reasons.join("; ")}. ${restart.instruction}`
+      : "restart required: no (tools/list is current for this server build; clients still cache it until restart)",
+  );
   return { content: [{ type: "text" as const, text: lines.join("\n") }] };
 }
 

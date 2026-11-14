@@ -9,7 +9,7 @@ has an expected output.
 - Repository: `https://github.com/<owner>/android-mcp.git` (local path assumed below: `$REPO`)
 - MCP server name (registered): `android-mcp`
 - Transport: stdio (local) or Docker (`ghcr.io/.../open-droid`)
-- Tool count contract: exactly **63 tools** (see `test/smoke.test.mjs`)
+- Tool count contract: exactly **66 tools** (see `test/smoke.test.mjs`)
 
 ---
 
@@ -112,10 +112,10 @@ Expected (abridged):
 
 ```bash
 npm run build
-npm test            # smoke test (63 tools) + tools + frida-scripts + frida helper
+npm test            # smoke test (66 tools) + tools + frida-scripts + frida helper
 ```
 
-Expected: `smoke test passed: 63 tools` and `frida helper test passed`.
+Expected: `smoke test passed: 66 tools` and `frida helper test passed`.
 
 ---
 
@@ -219,8 +219,14 @@ git pull --ff-only origin main
 ```bash
 npm ci                      # or `npm install` if lockfile changed
 npm run build
-npm test                    # must pass: smoke 63 tools + ...
+npm test                    # must pass: smoke 66 tools + ...
 ```
+
+Restart the MCP client after rebuilding. Clients cache `tools/list` for the
+lifetime of the session; the running server keeps the code it loaded at startup.
+`android_env_check` prints `server:`, `server build:`, `on-disk build:` and
+`restart required: YES|no`, so an agent can detect a stale process without
+guessing.
 
 ### 3.3 Refresh toolchain (only if `versions.env` or `scripts/setup.sh` changed)
 
@@ -240,7 +246,7 @@ make register               # copies latest skills, prunes removed ones, verifie
 ```bash
 opencode mcp list           # android-mcp present
 make doctor                 # all OK
-npm test                    # 63 tools
+npm test                    # 66 tools
 ```
 
 ### 3.6 If you are on a feature branch / worktree
@@ -294,7 +300,7 @@ node -e "const {spawn}=require('child_process');const p=spawn('node',['dist/inde
 ```
 
 Expected final lines: `BUILD OK`, `TESTS OK`, `SMOKE OK`, all doctor checks `OK`,
-`MCP OK`, skills count `30`, tools `63`, `has net_capture: true`.
+`MCP OK`, skills count `30`, tools `66`, `has net_capture: true`.
 
 ---
 
@@ -302,7 +308,8 @@ Expected final lines: `BUILD OK`, `TESTS OK`, `SMOKE OK`, all doctor checks `OK`
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `npm test` fails at smoke (tool count ≠ 63) | Tool registration drift | Check `src/index.ts` registers all 63; rebuild |
+| `npm test` fails at smoke (tool count ≠ 66) | Tool registration drift | Check `src/index.ts` registers all 66; rebuild |
+| A new/renamed tool is missing after pulling or rebuilding | MCP clients cache `tools/list`; the running server still has the old build | Call `android_env_check`: `restart required: YES` means the on-disk build changed after startup — restart the MCP client/server. If it says `no` but the client still shows old tools, restart the client anyway |
 | `make doctor` reports `frida` missing | Venv not created | `sudo apt install -y python3 python3-venv && make setup` |
 | `make doctor` reports frida-server missing | Download failed | Check network; re-run `make setup` |
 | `opencode mcp list` lacks android-mcp | Not registered globally | `make register` or `opencode mcp add android-mcp --global -- bash $REPO/scripts/run-mcp.sh` |

@@ -57,6 +57,12 @@ Both are installed by `make setup` when possible and are safe to install later.
 | `opencode mcp list` doesn't show android-mcp | Registration only happened in project config (`.opencode/opencode.jsonc`), which is only read when OpenCode starts inside the repo | `make setup`/`make register` adds it **globally** via `opencode mcp add android-mcp --global`; works from any directory |
 | Skills don't appear in the `skill` tool | Skills lived only in the repo; discovery depends on CWD | `make register` copies all skills into `~/.config/opencode/skills/` (always loaded globally); re-run to refresh |
 
+## MCP server / tools
+| Symptom | Root cause | Fix |
+|---|---|---|
+| A new or renamed tool does not appear in the client | MCP clients cache `tools/list`; the server process is still running the build it loaded at startup | Rebuild, then restart the client/server. `android_env_check` reports `restart required: YES` when the on-disk version or module fingerprint differs from the loaded build |
+| `restart required: no` but the client still lists old tools | The client cache outlived the server restart | Restart the MCP client; the server side is already current |
+
 ## Emulator alternative on hosts without KVM
 Use a CI runner with KVM, or run the Android app on a physical device
 (`adb devices` after enabling USB debugging).

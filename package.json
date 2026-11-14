@@ -13,7 +13,7 @@
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node --test test/smoke.test.mjs test/tools.test.mjs test/frida-scripts.test.mjs test/frida.test.mjs test/frida-server.test.mjs test/net-capture.test.mjs test/avd-geometry.test.mjs test/windows-entrypoints.test.mjs test/lifecycle-matrix.test.mjs test/privacy.test.mjs test/secret-scan.test.mjs test/manifest-audit.test.mjs test/policy-preflight.test.mjs test/new-app.test.mjs test/offline-proof.test.mjs test/signing.test.mjs test/packs.test.mjs test/template-tests.test.mjs test/ci.test.mjs test/skills-motion.test.mjs test/security-hardening.test.mjs",
+    "test": "node --test test/smoke.test.mjs test/tools.test.mjs test/frida-scripts.test.mjs test/frida.test.mjs test/frida-server.test.mjs test/build-info.test.mjs test/net-capture.test.mjs test/avd-geometry.test.mjs test/windows-entrypoints.test.mjs test/lifecycle-matrix.test.mjs test/privacy.test.mjs test/secret-scan.test.mjs test/manifest-audit.test.mjs test/policy-preflight.test.mjs test/new-app.test.mjs test/offline-proof.test.mjs test/signing.test.mjs test/packs.test.mjs test/template-tests.test.mjs test/ci.test.mjs test/skills-motion.test.mjs test/security-hardening.test.mjs",
     "lint": "eslint src",
     "format": "prettier --write src",
     "format:check": "prettier --check src"

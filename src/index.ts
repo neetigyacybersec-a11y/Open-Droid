@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { STARTUP_BUILD } from "./buildInfo.js";
 import { ToolSchemas } from "./tools.js";
 import * as H from "./tools.js";
 
 const server = new McpServer(
-  { name: "android-mcp", version: "0.1.0" },
+  { name: STARTUP_BUILD.name, version: STARTUP_BUILD.version },
   { capabilities: { tools: {} } },
 );
 
