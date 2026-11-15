@@ -99,6 +99,13 @@ else
   else
     echo "MISS offline-proof: cached template does NOT resolve offline (run scripts/warm-cache.sh online)"; fail=1
   fi
+  # FR-R1 / ISSUE-17: the template proof does not cover the dependency packs;
+  # a real consumer project must compile, test and compile its androidTest offline.
+  if bash "$ROOT/scripts/packs-proof.sh" >/dev/null 2>&1; then
+    echo "OK   packs-proof: reference project resolves every pack offline"
+  else
+    echo "MISS packs-proof: reference project does NOT resolve every pack offline (run scripts/pack-warm.sh online)"; fail=1
+  fi
 fi
 
 # dependency-pack coverage (FR-R1 / ISSUE-17): informational matrix of which

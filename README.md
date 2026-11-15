@@ -135,9 +135,10 @@ Refresh registration any time with `make register`.
 |---|---|
 | `src/` | TypeScript MCP server (stdio) |
 | `dist/` | Compiled server (generated) |
-| `scripts/` | `setup.sh`, `register.sh`, `doctor.sh`, `new-app.sh`, `run-mcp.sh`, `warm-cache.sh`, `repo-hygiene.sh` |
+| `scripts/` | `setup.sh`, `register.sh`, `doctor.sh`, `new-app.sh`, `run-mcp.sh`, `warm-cache.sh`, `pack-warm.sh`, `packs-proof.sh`, `repo-hygiene.sh` |
 | `templates/compose-starter/` | Material 3 Compose starter app (AGP 8.7.2, Java 17, launcher icons) |
 | `examples/hello-compose/` | Finished example app |
+| `examples/packs-reference/` | Reference consumer that builds every dependency pack offline (FR-R1) |
 | `skills/` | 30 OpenCode skills |
 | `docker/` | Dockerfile + entrypoint |
 | `docs/` | Quickstart, architecture, offline contract, publishing, lifecycle coverage, compose previews, troubleshooting |
