@@ -23,17 +23,35 @@ const status = (coordinate) => {
   return existsSync(path.join(filesRoot, group, artifact)) ? 'resolved' : 'missing';
 };
 
-const packs = Object.entries(manifest.packs).map(([id, { artifacts }]) => {
-  const rows = (artifacts ?? []).map((coordinate) => ({ coordinate, status: status(coordinate) }));
-  return { id, resolved: rows.filter((r) => r.status === 'resolved').length, artifacts: rows };
+const pluginStatus = (plugin) => {
+  // ISSUE-17: plugin markers live at <plugin-id>/<plugin-id>.gradle.plugin/<version>,
+  // not under the library coordinate, so they need their own lookup.
+  const [id, version] = plugin.split(':');
+  if (!id || !version) return 'missing';
+  return existsSync(path.join(filesRoot, id, `${id}.gradle.plugin`, version))
+    ? 'resolved'
+    : 'missing';
+};
+
+const packs = Object.entries(manifest.packs).map(([id, { artifacts = [], plugins = [] }]) => {
+  const rows = artifacts.map((coordinate) => ({ coordinate, status: status(coordinate) }));
+  const pluginRows = plugins.map((coordinate) => ({ coordinate, status: pluginStatus(coordinate) }));
+  const all = [...rows, ...pluginRows];
+  return {
+    id,
+    resolved: all.filter((r) => r.status === 'resolved').length,
+    artifacts: rows,
+    plugins: pluginRows,
+  };
 });
 
 if (process.argv.includes('--summary')) {
   for (const p of packs) {
-    const missingArtifacts = p.artifacts.filter((r) => r.status === 'missing');
-    const line = p.resolved === p.artifacts.length
-      ? `OK   pack ${p.id}: ${p.resolved}/${p.artifacts.length} artifacts cached`
-      : `MISS pack ${p.id}: ${p.resolved}/${p.artifacts.length} artifacts cached (${missingArtifacts.map((m) => m.coordinate.split(':')[1]).join(', ')})`;
+    const all = [...p.artifacts, ...p.plugins];
+    const missingArtifacts = all.filter((r) => r.status === 'missing');
+    const line = missingArtifacts.length === 0
+      ? `OK   pack ${p.id}: ${p.resolved}/${all.length} artifacts cached`
+      : `MISS pack ${p.id}: ${p.resolved}/${all.length} artifacts cached (${missingArtifacts.map((m) => m.coordinate.split(':')[1]).join(', ')})`;
     console.log(line);
   }
   process.exit(0);
@@ -41,6 +59,6 @@ if (process.argv.includes('--summary')) {
 
 console.log(JSON.stringify({
   cacheRoot: filesRoot,
-  missing: packs.reduce((n, p) => n + p.artifacts.filter((r) => r.status === 'missing').length, 0),
+  missing: packs.reduce((n, p) => n + [...p.artifacts, ...p.plugins].filter((r) => r.status === 'missing').length, 0),
   packs,
 }, null, 2));

@@ -29,6 +29,7 @@ const path = require('path');
 const [warm, root, ...ids] = process.argv.slice(2);
 const packs = JSON.parse(fs.readFileSync(path.join(root, 'manifest', 'packs.json'), 'utf8')).packs;
 const coords = [];
+const pluginIds = [];
 for (const id of ids) {
   const artifacts = packs[id].artifacts ?? [];
   for (const c of artifacts) {
@@ -39,7 +40,23 @@ for (const id of ids) {
   if (artifacts.some((c) => c.split(':').length === 2)) {
     coords.unshift('implementation(platform("androidx.compose:compose-bom:2024.11.00"))');
   }
+  for (const plugin of packs[id].plugins ?? []) pluginIds.push(plugin);
 }
+// ISSUE-17: libraries are not enough — a plugin marker (e.g. Hilt) is resolved
+// separately and must also be in the offline cache. Hilt needs Kotlin + kapt
+// applied before it.
+const hasHilt = pluginIds.some((p) => p.startsWith('com.google.dagger.hilt.android:'));
+const pluginLines = ['id("com.android.application") version "8.7.2"'];
+if (hasHilt) {
+  pluginLines.push('id("org.jetbrains.kotlin.android") version "2.0.21"');
+  pluginLines.push('id("org.jetbrains.kotlin.kapt") version "2.0.21"');
+}
+for (const plugin of pluginIds) {
+  const [pluginId, version] = plugin.split(':');
+  if (!pluginId || !version) throw new Error(`plugin ${plugin} must be id:version`);
+  pluginLines.push(`id("${pluginId}") version "${version}"`);
+}
+const pluginBlock = pluginLines.join('\n    ');
 const depBlock = coords.length ? coords.join('\n') : '// nothing in this pack';
 fs.writeFileSync(path.join(warm, 'settings.gradle.kts'), `pluginManagement {
     repositories { google(); mavenCentral(); gradlePluginPortal() }
@@ -49,8 +66,10 @@ dependencyResolutionManagement {
 }
 rootProject.name = "pack-warm"
 `);
-fs.writeFileSync(path.join(warm, 'gradle.properties'), 'android.useAndroidX=true\n');
-fs.writeFileSync(path.join(warm, 'build.gradle.kts'), `plugins { id("com.android.application") version "8.7.2" }
+fs.writeFileSync(path.join(warm, 'gradle.properties'), 'android.useAndroidX=true\nkapt.use.k2=true\n');
+fs.writeFileSync(path.join(warm, 'build.gradle.kts'), `plugins {
+    ${pluginBlock}
+}
 android {
     namespace = "warm.pack"
     compileSdk = 35

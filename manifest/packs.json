@@ -23,6 +23,7 @@
         "androidx.room:room-runtime:2.6.1",
         "androidx.room:room-compiler:2.6.1",
         "androidx.room:room-ktx:2.6.1",
+        "androidx.room:room-paging:2.6.1",
         "androidx.datastore:datastore-preferences:1.1.1",
         "androidx.work:work-runtime-ktx:2.10.0",
         "androidx.paging:paging-runtime-ktx:3.3.5"
@@ -39,6 +40,7 @@
       ]
     },
     "di": {
+      "plugins": ["com.google.dagger.hilt.android:2.52"],
       "artifacts": [
         "com.google.dagger:hilt-android:2.52",
         "com.google.dagger:hilt-compiler:2.52",

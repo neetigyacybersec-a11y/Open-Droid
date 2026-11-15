@@ -69,6 +69,48 @@ test("pack-matrix reports resolved/missing per artifact from the cache", () => {
   }
 });
 
+test("pack manifest declares plugin markers and pack-warm resolves them (ISSUE-17)", () => {
+  assert.deepEqual(manifest.packs.di.plugins, ["com.google.dagger.hilt.android:2.52"]);
+  const script = readFileSync(path.join(REPO, "scripts/pack-warm.sh"), "utf8");
+  assert.match(script, /packs\[id\]\.plugins/, "warmer must read per-pack plugin markers");
+  assert.match(script, /id\("\$\{pluginId\}"\) version/, "warmer must apply plugin markers");
+  assert.match(
+    script,
+    /org\.jetbrains\.kotlin\.kapt/,
+    "Hilt needs kapt applied in the warm project",
+  );
+});
+
+test("pack-matrix reports plugin markers from the same cache", () => {
+  const tmp = mkdtempSync(path.join(tmpdir(), "packmatrixplugin-"));
+  const plugin = manifest.packs.di.plugins[0];
+  const [id, version] = plugin.split(":");
+  const files = path.join(tmp, "caches/modules-2/files-2.1");
+  try {
+    const before = JSON.parse(
+      execFileSync("node", ["scripts/pack-matrix.mjs"], {
+        cwd: REPO,
+        env: { ...process.env, GRADLE_USER_HOME: tmp },
+        encoding: "utf8",
+      }),
+    );
+    assert.equal(before.packs.find((p) => p.id === "di").plugins[0].status, "missing");
+
+    // Plugin markers live at <plugin-id>/<plugin-id>.gradle.plugin/<version>.
+    mkdirSync(path.join(files, id, `${id}.gradle.plugin`, version), { recursive: true });
+    const after = JSON.parse(
+      execFileSync("node", ["scripts/pack-matrix.mjs"], {
+        cwd: REPO,
+        env: { ...process.env, GRADLE_USER_HOME: tmp },
+        encoding: "utf8",
+      }),
+    );
+    assert.equal(after.packs.find((p) => p.id === "di").plugins[0].status, "resolved");
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test("doctor surfaces the pack matrix when the cache exists", () => {
   const doctor = readFileSync(path.join(REPO, "scripts/doctor.sh"), "utf8");
   assert.ok(
