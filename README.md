@@ -347,6 +347,17 @@ truthful outcome (`success`, `failed`, `blocked`, `unavailable`, `timeout`,
 arguments, scripts and full tool output are not logged. The same correlation ID
 is returned in `_meta.correlationId` for cross-referencing.
 
+### Dependency and build-system review
+
+`scripts/dependency-review.mjs` inspects npm manifests, lockfiles, Gradle
+build/settings/catalog/wrapper/verification files and npm configuration changes.
+It reports new or changed dependencies, plugins, repositories, overrides,
+toolchains and lockfile-only edits with a risk level, and CI fails on high-risk
+changes. The checker is read-only and never installs dependencies. CODEOWNERS
+routes the protected files to review, but branch protection is required to make
+that approval mandatory. Policy, risk table and limitations:
+[docs/dependency-review.md](docs/dependency-review.md).
+
 ---
 
 ## License

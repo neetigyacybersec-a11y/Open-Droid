@@ -1,0 +1,62 @@
+# CODEOWNERS for the Open-Droid repository.
+#
+# The default owner reviews ordinary changes. Dependency, build-system,
+# wrapper and CI changes additionally require this owner because they can
+# execute code or redirect artifacts outside normal source review.
+#
+# GitHub only enforces CODEOWNERS when branch protection (or a ruleset)
+# requires code-owner review. Without that setting this file is documentation.
+
+* @neetigyacybersec-a11y
+
+# npm manifests, lockfiles and registry configuration.
+package.json
+**/package.json
+package-lock.json
+**/package-lock.json
+npm-shrinkwrap.json
+**/npm-shrinkwrap.json
+yarn.lock
+**/yarn.lock
+pnpm-lock.yaml
+**/pnpm-lock.yaml
+.npmrc
+**/.npmrc
+.yarnrc
+**/.yarnrc
+.yarnrc.yml
+**/.yarnrc.yml
+
+# Gradle build, settings, catalog, properties and lockfiles.
+build.gradle
+**/build.gradle
+build.gradle.kts
+**/build.gradle.kts
+settings.gradle
+**/settings.gradle
+settings.gradle.kts
+**/settings.gradle.kts
+gradle.properties
+**/gradle.properties
+gradle/*.versions.toml
+**/gradle/*.versions.toml
+gradle.lockfile
+**/gradle.lockfile
+**/*.lockfile
+
+# Gradle wrapper and dependency verification.
+gradle/wrapper/gradle-wrapper.properties
+**/gradle/wrapper/gradle-wrapper.properties
+gradle/wrapper/gradle-wrapper.jar
+**/gradle/wrapper/gradle-wrapper.jar
+gradle/verification-metadata.xml
+**/gradle/verification-metadata.xml
+
+# Maven builds are reviewed for the same supply-chain reasons.
+pom.xml
+**/pom.xml
+
+# CI and release workflows can change what ships; protect them too.
+.github/workflows/*.yml
+.github/workflows/*.yaml
+.github/CODEOWNERS

@@ -46,3 +46,21 @@ diagnostics are single, bounded, control-character-free lines. Secrets,
 authorization headers, tokens, private keys, signing values and raw arguments,
 scripts or full command output are not logged by default. Correlation IDs are
 also returned in `_meta.correlationId`. Telemetry stays local and offline.
+
+## Dependency and build-system changes
+
+CI runs `scripts/dependency-review.mjs` over committed changes. It reports npm
+and Gradle dependency, plugin, repository, override, toolchain, wrapper and
+lockfile edits with a risk level; high-risk changes fail the build and the
+report is written to the job summary. The checker is read-only: it never
+installs or resolves dependencies, and it reads committed git objects rather
+than the worktree.
+
+Licenses are `unknown` unless local `package.json` metadata is available, and
+advisories are `unavailable` unless `--audit` succeeds; neither state is a pass.
+`.github/CODEOWNERS` routes protected files to an owner, but GitHub only
+requires that review when branch protection or a repository ruleset enforces
+code owners. The checker parses Gradle files line-by-line rather than through a
+Gradle model, so generated or heavily dynamic build logic can be missed. See
+`docs/dependency-review.md` for the risk table, SBOM and audit options, and the
+full limitation list.

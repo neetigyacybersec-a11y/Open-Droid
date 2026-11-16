@@ -126,3 +126,48 @@ test('publishing is gated on a validate job and uses npm provenance (issue 72)',
   assert.match(rel.slice(rel.indexOf('docker:')), /environment:/, 'docker publish must run in a named environment (approval gate target)');
   assert.match(npmJob, /environment:/, 'npm publish must run in a named environment (approval gate target)');
 });
+
+// ---------------------------------------------------------------------------
+// Issue 107 [supply-chain]: dependency and build-system changes must be
+// visible in CI, fail on high risk, and route protected files to review.
+// ---------------------------------------------------------------------------
+
+test('dependency-review job inspects full history and publishes a summary (issue 107)', () => {
+  assert.ok(ci.includes('dependency-review:'), 'ci.yml must define a dependency-review job');
+  const job = ci.slice(ci.indexOf('dependency-review:'), ci.indexOf('mcp-windows:'));
+  assert.match(job, /fetch-depth:\s*0/, 'the job needs full history to resolve a push base');
+  assert.match(job, /scripts\/dependency-review\.mjs/, 'the job must run the shipped checker');
+  assert.match(job, /--format markdown/, 'the job must render a human-readable report');
+  assert.match(job, /--fail-on high/, 'the job must block high-risk changes');
+  assert.match(job, /github\.event\.pull_request\.base\.sha/, 'pull requests must diff against the PR base');
+  assert.match(job, /github\.event\.before/, 'pushes must diff against the previous commit');
+  assert.match(job, /\^0\+\$/, 'new branches must fall back when the before SHA is all zeroes');
+  assert.match(job, /git fetch/, 'a missing base commit must be fetched');
+  assert.match(job, /GITHUB_STEP_SUMMARY/, 'the report must be published to the job summary');
+  assert.match(job, /exit "\$status"/, 'the checker exit status must still fail the job');
+});
+
+test('CODEOWNERS protects dependency, build, wrapper and CI files (issue 107)', () => {
+  const ownersPath = path.join(REPO, '.github/CODEOWNERS');
+  assert.ok(existsSync(ownersPath), '.github/CODEOWNERS must exist');
+  const owners = readFileSync(ownersPath, 'utf8');
+  for (const pattern of [
+    'package.json',
+    '**/package.json',
+    'package-lock.json',
+    'build.gradle.kts',
+    '**/build.gradle.kts',
+    'settings.gradle.kts',
+    '**/settings.gradle.kts',
+    'gradle/*.versions.toml',
+    'gradle/wrapper/gradle-wrapper.properties',
+    'gradle/wrapper/gradle-wrapper.jar',
+    'gradle/verification-metadata.xml',
+    '.npmrc',
+    'pom.xml',
+    '.github/workflows/*.yml',
+  ]) {
+    assert.ok(owners.includes(pattern), `CODEOWNERS must cover ${pattern}`);
+  }
+  assert.match(owners, /@[A-Za-z0-9-]+/, 'CODEOWNERS must name a real owner');
+});

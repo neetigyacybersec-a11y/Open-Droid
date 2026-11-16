@@ -30,6 +30,55 @@ jobs:
       - run: bash scripts/repo-hygiene.sh
       - run: node scripts/lifecycle-matrix.mjs --check
 
+  # ISSUE-107: dependency and build-system edits are reviewed in the same
+  # pipeline as source. The job needs full history to resolve the push base,
+  # and publishes a human-readable summary even when it fails the build.
+  dependency-review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - name: Resolve diff base
+        id: base
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            base="$PR_BASE_SHA"
+          else
+            base="$PUSH_BEFORE_SHA"
+          fi
+          if [ -z "$base" ] || [[ "$base" =~ ^0+$ ]]; then
+            base="$(git rev-list --max-parents=0 HEAD | tail -n1)"
+          elif ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            git fetch --no-tags origin "$base"
+          fi
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+      - name: Review dependency and build-system changes
+        shell: bash
+        run: |
+          set +e
+          node scripts/dependency-review.mjs \
+            --base "${{ steps.base.outputs.base }}" \
+            --format markdown \
+            --fail-on high > dependency-review.md 2> dependency-review.err
+          status=$?
+          set -e
+          cat dependency-review.err >&2 || true
+          if [ -f dependency-review.md ]; then
+            cat dependency-review.md
+            cat dependency-review.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$status"
+
   # Windows equivalent: the MCP server (build + tests that are not POSIX-stub
   # based) must stay green on Windows hosts, where most users hit broken paths.
   mcp-windows:
