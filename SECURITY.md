@@ -36,3 +36,13 @@ reduce prompt-injection and log-forging risk; they do not prove that a model
 will ignore hostile text, and they do not replace least privilege, approval
 gates or an OS/container sandbox. This server cannot constrain an external
 coding agent that edits files on its own.
+
+## Diagnostic logs
+
+Every invocation logs a start and end record to stderr with a unique
+correlation ID and a truthful outcome. `isError` results and policy blocks are
+never recorded as success; `partial` is not reported as total success. Logged
+diagnostics are single, bounded, control-character-free lines. Secrets,
+authorization headers, tokens, private keys, signing values and raw arguments,
+scripts or full command output are not logged by default. Correlation IDs are
+also returned in `_meta.correlationId`. Telemetry stays local and offline.

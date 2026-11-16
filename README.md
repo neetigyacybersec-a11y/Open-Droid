@@ -340,6 +340,13 @@ are one defense layer, not a guarantee against prompt injection, and this
 workspace policy is not an OS or container sandbox. It does not constrain an
 external coding agent editing files on its own. See [SECURITY.md](SECURITY.md).
 
+Each invocation emits one `event=tool.start` and one `event=tool.end` record to
+stderr with a unique correlation ID, tool, duration, source category and a
+truthful outcome (`success`, `failed`, `blocked`, `unavailable`, `timeout`,
+`partial`, `cancelled`). Diagnostics are one redacted, bounded line; raw
+arguments, scripts and full tool output are not logged. The same correlation ID
+is returned in `_meta.correlationId` for cross-referencing.
+
 ---
 
 ## License

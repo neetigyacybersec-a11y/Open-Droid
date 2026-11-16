@@ -4,6 +4,7 @@
 // tagged with provenance and framed as untrusted data.
 
 import { existsSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 
 import {
   TOOL_PATH_SPECS,
@@ -70,6 +71,7 @@ export function blockedResult(
         trust: "mcp-policy",
         untrusted: false,
         reason,
+        decisionId: randomUUID(),
         target: details.path ?? null,
         timestamp: now.toISOString(),
       },

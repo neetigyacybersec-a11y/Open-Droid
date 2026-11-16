@@ -4,7 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { STARTUP_BUILD } from "./buildInfo.js";
 import { ToolSchemas } from "./tools.js";
 import * as H from "./tools.js";
-import { runWithBoundary } from "./boundary.js";
+import { runInstrumentedTool } from "./outcome.js";
 import { createWorkspacePolicy } from "./workspace.js";
 
 const server = new McpServer(
@@ -14,19 +14,10 @@ const server = new McpServer(
 
 function logged(name: string, fn: (args: any) => Promise<any>) {
   return async (args: any) => {
-    const t0 = Date.now();
-    console.error(`[android-mcp] ${name} start`);
-    try {
-      // ISSUE-102: build a fresh immutable policy per request. No workspace
-      // state is shared between concurrent calls.
-      const policy = createWorkspacePolicy({ env: process.env });
-      const res = await runWithBoundary(name, args, fn, { policy });
-      console.error(`[android-mcp] ${name} ok (${Date.now() - t0}ms)`);
-      return res;
-    } catch (e) {
-      console.error(`[android-mcp] ${name} error (${Date.now() - t0}ms):`, e);
-      throw e;
-    }
+    // ISSUE-102: a fresh immutable workspace policy per request. ISSUE-105:
+    // correlation, truthful outcome and sanitized diagnostics per invocation.
+    const policy = createWorkspacePolicy({ env: process.env });
+    return runInstrumentedTool({ name, args, handler: fn, policy });
   };
 }
 

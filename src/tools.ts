@@ -2383,7 +2383,11 @@ export async function handleStartupTime(a: z.infer<typeof ToolSchemas.startupTim
   }
   const summary = failures === 0 ? "ok" : measured > 0 ? "partial" : "failed";
   lines.push(`summary=${summary}`);
-  return { content: [{ type: "text" as const, text: lines.join("\n") }], isError: failures > 0 };
+  return {
+    content: [{ type: "text" as const, text: lines.join("\n") }],
+    isError: failures > 0,
+    _meta: { outcome: failures === 0 ? "success" : measured > 0 ? "partial" : "failed" },
+  };
 }
 // Multi-device
 export async function handleAdbParallel(a: z.infer<typeof ToolSchemas.adbParallel>) {
@@ -2401,10 +2405,26 @@ export async function handleAdbParallel(a: z.infer<typeof ToolSchemas.adbParalle
   const results = await Promise.all(
     devices.map(async (d) => {
       const r = await run("adb", ["-s", d, "shell", a.command], { timeout: 60_000 });
-      return `=== ${d} (exit ${r.code}) ===\n${(r.stdout + r.stderr).slice(0, 4000)}`;
+      return {
+        code: r.code,
+        text: `=== ${d} (exit ${r.code}) ===\n${(r.stdout + r.stderr).slice(0, 4000)}`,
+      };
     }),
   );
-  return { content: [{ type: "text" as const, text: results.join("\n\n") }] };
+  const failures = results.filter((result) => result.code !== 0).length;
+  const successes = results.length - failures;
+  if (results.length === 0) {
+    return {
+      content: [{ type: "text" as const, text: "No devices found." }],
+      isError: true,
+      _meta: { outcome: "unavailable" },
+    };
+  }
+  return {
+    content: [{ type: "text" as const, text: results.map((result) => result.text).join("\n\n") }],
+    isError: failures > 0,
+    _meta: { outcome: failures === 0 ? "success" : successes > 0 ? "partial" : "failed" },
+  };
 }
 // APK serving: by default python http.server binds to loopback only.
 // Issues 65/66: discovery is pure Node fs traversal (no shell), the server
