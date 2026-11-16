@@ -4,8 +4,16 @@
 // the same boundary CI uses.
 import { strict as assert } from "node:assert";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
-import { devNull, tmpdir } from "node:os";
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+  existsSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -13,14 +21,33 @@ import { fileURLToPath } from "node:url";
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPT = join(REPO, "scripts", "dependency-review.mjs");
 
+// Use a real empty config file for isolation. Windows git cannot open
+// os.devNull ("//./nul") as a config file, which broke every fixture there.
+const CONFIG_DIR = mkdtempSync(join(tmpdir(), "android-mcp-git-config-"));
+const EMPTY_CONFIG = join(CONFIG_DIR, "empty.gitconfig");
+writeFileSync(EMPTY_CONFIG, "");
+process.on("exit", () => rmSync(CONFIG_DIR, { recursive: true, force: true }));
+
 function gitEnv() {
   return {
     ...process.env,
-    GIT_CONFIG_GLOBAL: devNull,
-    GIT_CONFIG_SYSTEM: devNull,
+    GIT_CONFIG_GLOBAL: EMPTY_CONFIG,
+    GIT_CONFIG_SYSTEM: EMPTY_CONFIG,
     GIT_TERMINAL_PROMPT: "0",
   };
 }
+
+// Regression: Windows git cannot read os.devNull ("//./nul") as a config file,
+// and /dev/null is not a regular file. The isolation paths must be a real empty
+// file on every platform.
+test("git fixtures point at a readable, empty, regular config file", () => {
+  const env = gitEnv();
+  for (const key of ["GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"]) {
+    assert.ok(env[key], `${key} must be set`);
+    assert.ok(statSync(env[key]).isFile(), `${key} must be a regular file`);
+    assert.equal(readFileSync(env[key], "utf8"), "", `${key} must be empty`);
+  }
+});
 
 function git(dir, ...args) {
   return execFileSync("git", args, {
