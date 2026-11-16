@@ -110,6 +110,7 @@ Wire into OpenCode (`~/.config/opencode/opencode.jsonc`):
 ```bash
 git clone https://github.com/neetigyacybersec-a11y/Open-Droid.git
 cd Open-Droid
+export ANDROID_MCP_WORKSPACE="$PWD"   # required: MCP path tools fail closed without it
 
 make setup          # one-time ~3 GB download + auto-registers with OpenCode
 source .toolchain/env.sh
@@ -319,6 +320,25 @@ See `CONTRIBUTING.md`. PRs welcome. Run `npm run build && npm test` and
 
 See `SECURITY.md`. Never commit secrets; `.env` is gitignored. The MCP server
 executes local shell commands — run only on trusted projects.
+
+### Workspace and tool-output policy
+
+Every filesystem argument is checked in the execution layer before a handler
+runs. The server fails closed: set `ANDROID_MCP_WORKSPACE` to the project root,
+or `ANDROID_MCP_WORKSPACE_ROOTS` to a `path.delimiter`-separated list of
+approved additional roots, before using project, APK, flow, report or output
+tools. The OS temp directory is approved for tool-owned output. Paths outside
+those roots are blocked unless the caller supplies a request-scoped grant, and
+`overwrite: true` is required to replace an existing file.
+
+Tool output from projects, Gradle, adb/logcat, APKs, Frida and network capture
+is framed as untrusted data and returned with `_meta.provenance`; MCP policy
+decisions are structurally separate. ANSI/C0/C1 controls are stripped, obvious
+credentials are redacted, and large output is truncated with an explicit
+marker (`ANDROID_MCP_MAX_OUTPUT_CHARS` raises the default bound). These labels
+are one defense layer, not a guarantee against prompt injection, and this
+workspace policy is not an OS or container sandbox. It does not constrain an
+external coding agent editing files on its own. See [SECURITY.md](SECURITY.md).
 
 ---
 

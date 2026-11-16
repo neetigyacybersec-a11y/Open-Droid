@@ -4,6 +4,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { STARTUP_BUILD } from "./buildInfo.js";
 import { ToolSchemas } from "./tools.js";
 import * as H from "./tools.js";
+import { runWithBoundary } from "./boundary.js";
+import { createWorkspacePolicy } from "./workspace.js";
 
 const server = new McpServer(
   { name: STARTUP_BUILD.name, version: STARTUP_BUILD.version },
@@ -15,7 +17,10 @@ function logged(name: string, fn: (args: any) => Promise<any>) {
     const t0 = Date.now();
     console.error(`[android-mcp] ${name} start`);
     try {
-      const res = await fn(args);
+      // ISSUE-102: build a fresh immutable policy per request. No workspace
+      // state is shared between concurrent calls.
+      const policy = createWorkspacePolicy({ env: process.env });
+      const res = await runWithBoundary(name, args, fn, { policy });
       console.error(`[android-mcp] ${name} ok (${Date.now() - t0}ms)`);
       return res;
     } catch (e) {

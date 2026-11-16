@@ -50,6 +50,10 @@ export const ToolSchemas = {
   adbScreenshot: z.object({
     deviceId: z.string().optional(),
     outputPath: z.string().optional().describe("Where to save PNG; defaults to temp"),
+    overwrite: z
+      .boolean()
+      .optional()
+      .describe("Allow replacing an existing outputPath (workspace policy denies by default)"),
   }),
   adbInstall: z.object({
     apkPath: z.string(),
@@ -220,6 +224,10 @@ export const ToolSchemas = {
     deviceId: z.string().optional(),
     remotePath: z.string(),
     localPath: z.string().optional(),
+    overwrite: z
+      .boolean()
+      .optional()
+      .describe("Allow replacing an existing local file at localPath"),
   }),
   adbRm: z.object({ deviceId: z.string().optional(), remotePath: z.string() }),
   adbUninstall: z.object({ deviceId: z.string().optional(), packageName: z.string() }),
@@ -230,6 +238,7 @@ export const ToolSchemas = {
     deviceId: z.string().optional(),
     durationSec: z.number().optional().default(10),
     outputPath: z.string().optional(),
+    overwrite: z.boolean().optional().describe("Allow replacing an existing recording file"),
   }),
   adbInput: z.object({
     deviceId: z.string().optional(),
@@ -272,7 +281,11 @@ export const ToolSchemas = {
     deviceId: z.string().optional(),
     durationSec: z.number().optional().default(10),
   }),
-  uiDump: z.object({ deviceId: z.string().optional(), outputPath: z.string().optional() }),
+  uiDump: z.object({
+    deviceId: z.string().optional(),
+    outputPath: z.string().optional(),
+    overwrite: z.boolean().optional().describe("Allow replacing an existing XML dump"),
+  }),
   composeRecomposition: z.object({
     deviceId: z.string().optional(),
     packageName: z.string().optional(),
@@ -315,6 +328,10 @@ export const ToolSchemas = {
       .optional()
       .describe("Path to privacy/data-safety.json; defaults to <project>/privacy/data-safety.json"),
     reportPath: z.string().optional().describe("Write the Markdown inventory to this file"),
+    overwrite: z
+      .boolean()
+      .optional()
+      .describe("Allow replacing an existing reportPath (denied by default)"),
     strict: z
       .boolean()
       .optional()
@@ -329,10 +346,18 @@ export const ToolSchemas = {
       .default("low")
       .describe("Only report findings at or above this severity"),
     reportPath: z.string().optional().describe("Write the Markdown report to this file"),
+    overwrite: z
+      .boolean()
+      .optional()
+      .describe("Allow replacing an existing reportPath (denied by default)"),
   }),
   securityAudit: z.object({
     projectPath: z.string().describe("Absolute path to the Android project root"),
     reportPath: z.string().optional().describe("Write the Markdown report to this file"),
+    overwrite: z
+      .boolean()
+      .optional()
+      .describe("Allow replacing an existing reportPath (denied by default)"),
   }),
   policyPreflight: z.object({
     projectPath: z.string().describe("Absolute path to the Android project root"),
@@ -342,6 +367,10 @@ export const ToolSchemas = {
       .default(false)
       .describe("Return an error when any engineering check fails"),
     reportPath: z.string().optional().describe("Write the Markdown report to this file"),
+    overwrite: z
+      .boolean()
+      .optional()
+      .describe("Allow replacing an existing reportPath (denied by default)"),
   }),
   nativeLibs: z.object({ apkPath: z.string() }),
   dexStrings: z.object({ apkPath: z.string(), pattern: z.string().optional() }),
@@ -366,6 +395,7 @@ export const ToolSchemas = {
     deviceId: z.string().optional(),
     durationSec: z.number().optional().default(10),
     outputPath: z.string().optional(),
+    overwrite: z.boolean().optional().describe("Allow replacing an existing trace file"),
   }),
   memoryProfile: z.object({ deviceId: z.string().optional(), packageName: z.string() }),
   startupTime: z.object({
@@ -1304,7 +1334,10 @@ export async function handleAdbPush(a: z.infer<typeof ToolSchemas.adbPush>) {
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
 }
 export async function handleAdbPull(a: z.infer<typeof ToolSchemas.adbPull>) {
-  const local = a.localPath ?? a.remotePath.split("/").pop() ?? "pulled";
+  // ISSUE-102: an omitted destination must not land in the server's current
+  // working directory. Keep tool-owned artifacts under the managed temp root.
+  const local =
+    a.localPath ?? join(await tmpDir("android-mcp-pull-"), basename(a.remotePath) || "pulled");
   const r = await run("adb", [...adb(a.deviceId), "pull", a.remotePath, local], {
     timeout: 300_000,
   });
