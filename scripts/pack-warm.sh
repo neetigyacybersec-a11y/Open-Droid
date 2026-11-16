@@ -13,13 +13,16 @@ if ! command -v gradle >/dev/null 2>&1; then
 fi
 PACK_IDS=("$@")
 if [ "${#PACK_IDS[@]}" -eq 0 ]; then
-  # ISSUE-64: no args = every pack declared in the manifest (documented contract).
-  mapfile -t PACK_IDS < <(node -e "console.log(Object.keys(JSON.parse(require('fs').readFileSync('$ROOT/manifest/packs.json','utf8')).packs).join('\n'))")
+  # ISSUE-64/79: no args = every pack declared in the manifest. The helper is a
+  # fixed program; ROOT arrives as argv, never interpolated into JS source.
+  mapfile -t PACK_IDS < <(node "$ROOT/scripts/pack-ids.mjs" list "$ROOT")
+  if [ "${#PACK_IDS[@]}" -eq 0 ]; then
+    echo "[pack-warm] ERROR: manifest/packs.json missing, unreadable, or declares no packs" >&2
+    exit 1
+  fi
 fi
-for id in "${PACK_IDS[@]}"; do
-  node -e "const p=JSON.parse(require('fs').readFileSync('$ROOT/manifest/packs.json','utf8')).packs; process.exit(p['$id'] ? 0 : 1)" \
-    || { echo "[pack-warm] ERROR: unknown pack '$id'" >&2; exit 1; }
-done
+# ISSUE-79: validate every caller-supplied id as data before any Gradle work.
+node "$ROOT/scripts/pack-ids.mjs" check "$ROOT" "${PACK_IDS[@]}" || exit 1
 
 WARM="$(mktemp -d)"
 trap 'rm -rf "$WARM"' EXIT

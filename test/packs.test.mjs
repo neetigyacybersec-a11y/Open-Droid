@@ -9,6 +9,7 @@ import {
   writeFileSync,
   copyFileSync,
   chmodSync,
+  existsSync,
   mkdirSync,
   rmSync,
   mkdtempSync,
@@ -162,9 +163,10 @@ test("pack-warm.sh with no args warms every pack in the manifest (ISSUE #64)", (
   );
   assert.match(
     emptyArgsBranch,
-    /mapfile -t PACK_IDS < <\(node -e/,
+    /mapfile -t PACK_IDS < <\(node "\$ROOT\/scripts\/pack-ids\.mjs" list "\$ROOT"\)/,
     "no-args must populate PACK_IDS from the manifest enumeration",
   );
+  assert.doesNotMatch(script, /node -e/, "IDs and roots must not be interpolated into JS source");
   for (const id of Object.keys(manifest.packs)) {
     assert.ok(
       emptyArgsBranch.includes("manifest/packs.json"),
@@ -230,6 +232,106 @@ test("pack-warm.sh rejects unknown pack ids", () => {
     (e) => e.status !== 0 && /pack/i.test(String(e.stderr)),
     "unknown pack must exit non-zero naming the invalid pack",
   );
+});
+
+// ISSUE-79: the script must pass the repository root and pack IDs as argv data,
+// never as JavaScript source. This fixture runs the real script with a stub
+// gradle and its own manifest, so the assertions cover the actual shell path.
+function packWarmFixture(rootName = "packwarm-") {
+  const parent = mkdtempSync(path.join(tmpdir(), rootName));
+  const root = path.join(parent, "repo ' x");
+  mkdirSync(path.join(root, "scripts"), { recursive: true });
+  mkdirSync(path.join(root, "manifest"), { recursive: true });
+  mkdirSync(path.join(root, "bin"), { recursive: true });
+  copyFileSync(path.join(REPO, "scripts/pack-warm.sh"), path.join(root, "scripts/pack-warm.sh"));
+  copyFileSync(path.join(REPO, "scripts/pack-ids.mjs"), path.join(root, "scripts/pack-ids.mjs"));
+  copyFileSync(
+    path.join(REPO, "scripts/pack-matrix.mjs"),
+    path.join(root, "scripts/pack-matrix.mjs"),
+  );
+  writeFileSync(
+    path.join(root, "manifest/packs.json"),
+    JSON.stringify({
+      packs: {
+        app: { artifacts: ["androidx.app:widget:1.0.0"] },
+        di: { plugins: ["example.plugin:1.0.0"], artifacts: ["example:lib:1.0.0"] },
+      },
+    }),
+  );
+  const gradle = path.join(root, "bin/gradle");
+  writeFileSync(gradle, '#!/bin/sh\nprintf \'%s\\n\' "$@" >> "$RECORD"\nexit 0\n');
+  chmodSync(gradle, 0o755);
+  return root;
+}
+
+function runPackWarm(root, args, record, extraEnv = {}) {
+  return execFileSync("bash", [path.join(root, "scripts/pack-warm.sh"), ...args], {
+    cwd: tmpdir(),
+    env: {
+      ...process.env,
+      PATH: `${path.join(root, "bin")}${path.delimiter}${process.env.PATH}`,
+      RECORD: record,
+      ...extraEnv,
+    },
+    encoding: "utf8",
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+}
+
+test("pack-warm.sh treats pack ids and roots with shell/JS punctuation as data (ISSUE-79)", () => {
+  const root = packWarmFixture();
+  const record = path.join(root, "gradle-record");
+  try {
+    assert.doesNotThrow(() => runPackWarm(root, ["app"], record));
+    const calls = readFileSync(record, "utf8");
+    assert.match(calls, /resolvePack/, "the declared pack must still resolve");
+    assert.match(calls, /--offline/, "the offline re-proof must still run");
+  } finally {
+    rmSync(path.dirname(root), { recursive: true, force: true });
+  }
+});
+
+test("pack-warm.sh rejects malicious pack ids before gradle runs (ISSUE-79)", () => {
+  const root = packWarmFixture();
+  const record = path.join(root, "gradle-record");
+  const marker = path.join(root, "marker");
+  const payloads = [
+    "app'; require('fs').writeFileSync(process.env.MARKER, 'x'); //",
+    'app" ] ; require("fs").writeFileSync(process.env.MARKER, "x"); //',
+    "app`touch " + marker + "`",
+    "$(touch " + marker + ")",
+    "app]; require('fs').writeFileSync('" + marker + "', 'x'); //",
+    "app\nrequire('fs').writeFileSync('" + marker + "', 'x')",
+    "../app",
+    "app ",
+  ];
+  try {
+    for (const payload of payloads) {
+      assert.throws(
+        () => runPackWarm(root, [payload], record, { MARKER: marker }),
+        (e) => e.status !== 0,
+        `payload must be rejected: ${JSON.stringify(payload)}`,
+      );
+    }
+    assert.equal(existsSync(marker), false, "a pack id executed code");
+    assert.equal(existsSync(record), false, "gradle ran before rejecting an invalid id");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("pack-warm.sh reads the manifest from its own root, not the cwd (ISSUE-79)", () => {
+  const root = packWarmFixture();
+  const record = path.join(root, "gradle-record");
+  try {
+    assert.doesNotThrow(() => runPackWarm(root, ["app"], record));
+    assert.throws(
+      () => runPackWarm(root, ["bogus"], record),
+      (e) => e.status !== 0 && /unknown pack 'bogus'/.test(String(e.stderr)),
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 function warmCacheFixture() {
