@@ -192,7 +192,7 @@ registration, and verification.
 | Testing | 3 | `instrumented_test`, `test_coverage`, `macrobenchmark` |
 | Profiling | 3 | `perfetto_trace`, `memory_profile`, `startup_time` |
 | Multi-device | 1 | `adb_parallel` |
-| APK serving (localhost) | 1 | `apk_serve` (python http.server in the APK output dir; binds 127.0.0.1, `expose:true` opts into 0.0.0.0) |
+| APK serving (localhost) | 1 | `apk_serve` (serves only staged copies of regular `.apk` files found under the chosen dir; binds 127.0.0.1, `expose:true` opts into 0.0.0.0) |
 | Skills / SDK | 4 | `android_skills_list`, `android_skills_search`, `sdkmanager_install`, `compose_preview_render` |
 | Privacy / compliance | 1 | `privacy_scan` (permissions, SDKs, endpoints, storage, account flows, PII logs, declaration diff) |
 | Security audit | 3 | `secret_scan` (redacted credentials), `security_audit` (manifest/components), `policy_preflight` (sourced Play policy checks) |

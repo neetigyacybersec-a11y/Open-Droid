@@ -110,3 +110,24 @@ export function validateComponent(c: string): boolean {
   // Full component form: package/class, both segments non-empty.
   return /^[a-zA-Z][a-zA-Z0-9_.$]*\/[a-zA-Z][a-zA-Z0-9_.$]*$/.test(c);
 }
+
+// ISSUE-82: an activity may be shorthand (".Secondary"), a simple class
+// ("Secondary"), or fully qualified inside the requested package. Resolve it to
+// one canonical package/class component; anything else is rejected as data
+// before it can reach the device shell.
+const JAVA_CLASS = "[A-Za-z_$][A-Za-z0-9_$]*";
+const JAVA_QUALIFIED = `${JAVA_CLASS}(?:\\.${JAVA_CLASS})*`;
+const ACTIVITY_RELATIVE_RE = new RegExp(`^\\.${JAVA_QUALIFIED}$`);
+const ACTIVITY_QUALIFIED_RE = new RegExp(`^${JAVA_QUALIFIED}$`);
+
+export function resolveActivityComponent(pkg: string, activity: string): string | null {
+  // Return a flattened ComponentName ("package/class"). `am start -n` parses
+  // this with ComponentName.unflattenFromString, which rejects values without
+  // a slash, so a bare "package.Class" would fail on the device.
+  if (activity.startsWith(".")) {
+    return ACTIVITY_RELATIVE_RE.test(activity) ? `${pkg}/${pkg}${activity}` : null;
+  }
+  if (!ACTIVITY_QUALIFIED_RE.test(activity)) return null;
+  if (!activity.includes(".")) return `${pkg}/${pkg}.${activity}`;
+  return activity.startsWith(`${pkg}.`) ? `${pkg}/${activity}` : null;
+}

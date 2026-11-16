@@ -3,14 +3,17 @@
 // covers the emitted tool text rather than only the helper.
 import { strict as assert } from "node:assert";
 import { test, skip } from "node:test";
-import { mkdtemp, writeFile, chmod, rm, readFile, mkdir } from "node:fs/promises";
+import { mkdtemp, writeFile, chmod, rm, readFile, mkdir, readdir, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { existsSync } from "node:fs";
+import http from "node:http";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import net from "node:net";
 import {
   capOutput,
   handleAdbShell,
+  handleAdbLaunch,
   handleRuntimeDump,
   handleApkServe,
   handleApkDecompile,
@@ -157,22 +160,29 @@ async function httpServerStub(work) {
   const js = join(work, "http.server.js");
   await writeFile(
     js,
-    'const http=require("http");const [port,bind]=process.argv.slice(2);' +
-      'http.createServer((req,res)=>{res.statusCode=200;res.end("ok");}).listen(Number(port),bind);',
+    'const http=require("http"),fs=require("fs"),path=require("path");' +
+      "const [port,bind,root]=process.argv.slice(2);const base=path.resolve(root);" +
+      "http.createServer((req,res)=>{" +
+      'const rel=path.normalize(decodeURIComponent((req.url||"/").split("?")[0]));' +
+      "const file=path.resolve(path.join(base,rel));" +
+      'if(file!==base&&!file.startsWith(base+path.sep)){res.statusCode=403;res.end("forbidden");return;}' +
+      'fs.readFile(file,(err,data)=>{if(err){res.statusCode=404;res.end("not found");}' +
+      "else{res.statusCode=200;res.end(data);}});" +
+      "}).listen(Number(port),bind);",
   );
   return [
     'printf \'%s\\n\' "$@" >> "$RECORD"',
-    'port=""; bind="127.0.0.1"',
+    'port=""; bind="127.0.0.1"; directory=""',
     "while [ $# -gt 0 ]; do",
     '  case "$1" in',
     "    -m) shift ;;",
     "    http.server) shift ;;",
-    "    --directory) shift 2 ;;",
+    '    --directory) directory="$2"; shift 2 ;;',
     '    --bind) bind="$2"; shift 2 ;;',
     '    *) port="$1"; shift ;;',
     "  esac",
     "done",
-    `exec node "${js}" "$port" "$bind"`,
+    `exec node "${js}" "$port" "$bind" "$directory"`,
   ].join("\n");
 }
 
@@ -201,6 +211,136 @@ async function portResponds(port, timeoutMs = 500) {
   });
 }
 
+async function httpGet(port, urlPath) {
+  return await new Promise((resolve) => {
+    const req = http.get({ host: "127.0.0.1", port, path: urlPath, timeout: 1500 }, (res) => {
+      let body = "";
+      res.setEncoding("utf8");
+      res.on("data", (chunk) => (body += chunk));
+      res.on("end", () => resolve({ status: res.statusCode, body }));
+    });
+    req.on("timeout", () => {
+      req.destroy();
+      resolve({ status: 0, body: "timeout" });
+    });
+    req.on("error", (error) => resolve({ status: 0, body: String(error) }));
+  });
+}
+
+// ---------------------------------------------------------------------------
+// ISSUE-82: adb_launch must honor an explicit activity on the first path and
+// validate/quote it before the device shell runs anything.
+// ---------------------------------------------------------------------------
+
+async function launchArgs(body, args) {
+  const record = RECORD();
+  process.env.RECORD = record;
+  try {
+    return await withStubs({ adb: body }, async () => {
+      const result = await handleAdbLaunch(args);
+      const argv = await readRecord(record);
+      return { result, argv };
+    });
+  } finally {
+    delete process.env.RECORD;
+  }
+}
+
+stubbedTests("adb_launch uses am start directly for an explicit activity (issue 82)", async () => {
+  const { result, argv } = await launchArgs(APPEND_ARGS, {
+    packageName: "com.example.app",
+    activity: ".SecondaryActivity",
+  });
+  assert.equal(result.isError, false, text(result));
+  assert.deepEqual(
+    argv,
+    ["shell", "am", "start", "-n", "'com.example.app/com.example.app.SecondaryActivity'"],
+    "explicit activity must be one quoted remote argument on the am start path",
+  );
+  assert.ok(!argv.includes("monkey"), "Monkey must not run when an activity was requested");
+});
+
+stubbedTests("adb_launch keeps Monkey for the default launcher path (issue 82)", async () => {
+  const { result, argv } = await launchArgs(APPEND_ARGS, { packageName: "com.example.app" });
+  assert.equal(result.isError, false, text(result));
+  assert.ok(argv.includes("monkey"), "no activity must keep the Monkey default path");
+  assert.ok(!argv.includes("am"), "the default path must not invent an explicit component");
+});
+
+stubbedTests(
+  "adb_launch accepts a fully qualified activity in the package (issue 82)",
+  async () => {
+    const { result, argv } = await launchArgs(APPEND_ARGS, {
+      packageName: "com.example.app",
+      activity: "com.example.app.SecondaryActivity",
+    });
+    assert.equal(result.isError, false, text(result));
+    assert.ok(argv.includes("'com.example.app/com.example.app.SecondaryActivity'"));
+  },
+);
+
+stubbedTests("adb_launch rejects unsafe or foreign activity components (issue 82)", async () => {
+  const invalid = [
+    "com.other.app.Secondary",
+    "com.example.app/.Bad;id",
+    "../Evil",
+    " .Secondary",
+    "com.example.app/Secondary",
+    ".Bad$(touch /tmp/x)",
+    ".Bad`id`",
+    ".Bad\n.Secondary",
+    "",
+  ];
+  const { argv } = await launchArgs(APPEND_ARGS, {
+    packageName: "com.example.app",
+    activity: invalid[0],
+  });
+  assert.equal(argv.length, 0, "invalid activity reached adb");
+  for (const activity of invalid) {
+    const result = await launchArgs(APPEND_ARGS, { packageName: "com.example.app", activity });
+    assert.equal(result.result.isError, true, `must reject ${JSON.stringify(activity)}`);
+    assert.equal(
+      result.argv.length,
+      0,
+      `invalid activity reached adb: ${JSON.stringify(activity)}`,
+    );
+  }
+});
+
+stubbedTests(
+  "adb_launch reports a failing explicit activity with exit and stderr (issue 82)",
+  async () => {
+    const { result, argv } = await launchArgs(`${APPEND_ARGS}\nprintf boom >&2\nexit 7`, {
+      packageName: "com.example.app",
+      activity: ".SecondaryActivity",
+    });
+    assert.equal(result.isError, true);
+    assert.match(text(result), /boom/);
+    assert.match(text(result), /exit=7/);
+    assert.deepEqual(argv, [
+      "shell",
+      "am",
+      "start",
+      "-n",
+      "'com.example.app/com.example.app.SecondaryActivity'",
+    ]);
+  },
+);
+
+stubbedTests("adb_launch preserves the device serial on both paths (issue 82)", async () => {
+  const explicit = await launchArgs(APPEND_ARGS, {
+    packageName: "com.example.app",
+    activity: ".SecondaryActivity",
+    deviceId: "emulator-5554",
+  });
+  assert.deepEqual(explicit.argv.slice(0, 2), ["-s", "emulator-5554"]);
+  const fallback = await launchArgs(APPEND_ARGS, {
+    packageName: "com.example.app",
+    deviceId: "emulator-5554",
+  });
+  assert.deepEqual(fallback.argv.slice(0, 2), ["-s", "emulator-5554"]);
+});
+
 stubbedTests(
   "apk_serve start: localhost bind by default, no shell in APK discovery (issues 65, 66)",
   async () => {
@@ -212,6 +352,7 @@ stubbedTests(
     const payloadDir = `${work}/x"; touch ${marker}; #`;
     const realDir = join(work, "serve");
     await mkdir(realDir, { recursive: true });
+    await writeFile(join(realDir, "app.apk"), "PK");
     process.env.RECORD = record;
     process.env.MARKER = marker;
     process.env.ANDROID_MCP_SERVE_STATE = state;
@@ -251,6 +392,7 @@ stubbedTests("apk_serve start: LAN exposure requires explicit opt-in (issue 66)"
   const work = await mkdtemp(join(tmpdir(), "android-mcp-serve-work-"));
   const record = RECORD();
   const port = await freePort();
+  await writeFile(join(work, "app.apk"), "PK");
   process.env.RECORD = record;
   process.env.ANDROID_MCP_SERVE_STATE = join(work, "serve-state.json");
   try {
@@ -275,6 +417,7 @@ stubbedTests("apk_serve start twice stops the first listener (issue 66)", async 
   const work = await mkdtemp(join(tmpdir(), "android-mcp-serve-work-"));
   const record = RECORD();
   const port = await freePort();
+  await writeFile(join(work, "app.apk"), "PK");
   process.env.RECORD = record;
   process.env.ANDROID_MCP_SERVE_STATE = join(work, "serve-state.json");
   try {
@@ -294,6 +437,88 @@ stubbedTests("apk_serve start twice stops the first listener (issue 66)", async 
     });
   } finally {
     await handleApkServe({ action: "stop" }).catch(() => {});
+    delete process.env.RECORD;
+    delete process.env.ANDROID_MCP_SERVE_STATE;
+    await rm(work, { recursive: true, force: true });
+  }
+});
+
+// ISSUE-91: LAN exposure publishes selected APK artifacts, never the caller's
+// whole directory. The server root is a private staging dir containing copies of
+// regular .apk files only.
+stubbedTests("apk_serve exposes only staged APK artifacts on LAN (issue 91)", async () => {
+  const work = await mkdtemp(join(tmpdir(), "android-mcp-serve-work-"));
+  const outside = await mkdtemp(join(tmpdir(), "android-mcp-serve-outside-"));
+  const record = RECORD();
+  const port = await freePort();
+  const statePath = join(work, "serve-state.json");
+  await writeFile(join(work, "app.apk"), "APK-CONTENT");
+  await writeFile(join(work, "mapping.txt"), "SECRET-MAPPING");
+  await writeFile(join(work, ".env"), "TOKEN=secret");
+  await mkdir(join(work, "reports"), { recursive: true });
+  await writeFile(join(work, "reports/report.json"), '{"secret":true}');
+  await writeFile(join(outside, "outside.apk"), "OUTSIDE");
+  await symlink(join(outside, "outside.apk"), join(work, "evil.apk"));
+  process.env.RECORD = record;
+  process.env.ANDROID_MCP_SERVE_STATE = statePath;
+  try {
+    await withStubs({ python3: await httpServerStub(work) }, async () => {
+      const started = await handleApkServe({ action: "start", dir: work, port, expose: true });
+      assert.equal(started.isError, false, text(started));
+      const state = JSON.parse(await readFile(statePath, "utf8"));
+      assert.notEqual(state.dir, work, "the server root must not be the caller's directory");
+      assert.equal(state.sourceDir, work, "state must retain the caller's source directory");
+      assert.deepEqual(
+        (await readdir(state.dir)).sort(),
+        ["app.apk"],
+        "only the regular APK may be staged; symlinks and siblings must not",
+      );
+      assert.equal(existsSync(join(state.dir, "mapping.txt")), false);
+      assert.equal(existsSync(join(state.dir, ".env")), false);
+
+      const apk = await httpGet(port, "/app.apk");
+      assert.deepEqual(apk, { status: 200, body: "APK-CONTENT" });
+      for (const path of [
+        "/mapping.txt",
+        "/.env",
+        "/reports/report.json",
+        "/../mapping.txt",
+        "/%2e%2e/mapping.txt",
+        "/evil.apk",
+      ]) {
+        const response = await httpGet(port, path);
+        assert.equal(response.status, 404, `${path} must not be reachable`);
+      }
+
+      const stopped = await handleApkServe({ action: "stop" });
+      assert.equal(stopped.isError, false, text(stopped));
+      assert.equal(existsSync(state.dir), false, "stop must remove the staging directory");
+    });
+  } finally {
+    await handleApkServe({ action: "stop" }).catch(() => {});
+    delete process.env.RECORD;
+    delete process.env.ANDROID_MCP_SERVE_STATE;
+    await rm(work, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  }
+});
+
+stubbedTests("apk_serve refuses a directory with no APK before starting (issue 91)", async () => {
+  const work = await mkdtemp(join(tmpdir(), "android-mcp-serve-work-"));
+  const record = RECORD();
+  const statePath = join(work, "serve-state.json");
+  await writeFile(join(work, "mapping.txt"), "SECRET-MAPPING");
+  process.env.RECORD = record;
+  process.env.ANDROID_MCP_SERVE_STATE = statePath;
+  try {
+    await withStubs({ python3: await httpServerStub(work) }, async () => {
+      const started = await handleApkServe({ action: "start", dir: work, port: await freePort() });
+      assert.equal(started.isError, true, "a directory without an APK must fail clearly");
+      assert.match(text(started), /no.apk/i);
+      assert.equal((await readRecord(record)).length, 0, "the server must not start");
+      assert.equal(existsSync(statePath), false, "a failed start must not leave state");
+    });
+  } finally {
     delete process.env.RECORD;
     delete process.env.ANDROID_MCP_SERVE_STATE;
     await rm(work, { recursive: true, force: true });
@@ -1051,6 +1276,7 @@ stubbedTests("apk_serve reports a missing python3 and writes no state (issue 81)
   await mkdir(empty);
   const statePath = join(work, "serve-state.json");
   const oldPath = process.env.PATH;
+  await writeFile(join(work, "app.apk"), "PK");
   process.env.ANDROID_MCP_SERVE_STATE = statePath;
   process.env.PATH = empty;
   try {
@@ -1077,6 +1303,7 @@ stubbedTests(
     const work = await mkdtemp(join(tmpdir(), "android-mcp-serve-work-"));
     const record = RECORD();
     const statePath = join(work, "serve-state.json");
+    await writeFile(join(work, "app.apk"), "PK");
     process.env.RECORD = record;
     process.env.ANDROID_MCP_SERVE_STATE = statePath;
     try {
@@ -1133,6 +1360,7 @@ stubbedTests(
     const work = await mkdtemp(join(tmpdir(), "android-mcp-serve-work-"));
     const pidFile = join(work, "serve.pid");
     const statePath = join(work, "serve-state.json");
+    await writeFile(join(work, "app.apk"), "PK");
     process.env.SERVE_PID_FILE = pidFile;
     process.env.ANDROID_MCP_SERVE_STATE = statePath;
     try {
@@ -1198,6 +1426,7 @@ stubbedTests("apk_serve stop confirms the verified listener is gone (issue 81)",
   const record = RECORD();
   const statePath = join(work, "serve-state.json");
   const port = await freePort();
+  await writeFile(join(work, "app.apk"), "PK");
   process.env.RECORD = record;
   process.env.ANDROID_MCP_SERVE_STATE = statePath;
   try {

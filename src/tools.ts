@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { constants, readFileSync, unlinkSync } from "node:fs";
 import { access, mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, basename, sep } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import {
   run,
@@ -16,6 +17,7 @@ import {
   notOptionLike,
   validateIntentAction,
   validateComponent,
+  resolveActivityComponent,
   serveStatePath,
 } from "./util.js";
 import { ensureServer, resolveFridaCli } from "./frida.js";
@@ -525,8 +527,31 @@ export async function handleAdbLaunch(args: z.infer<typeof ToolSchemas.adbLaunch
   if (!validatePackageName(args.packageName)) {
     return { content: [{ type: "text" as const, text: "Invalid package name." }], isError: true };
   }
+  // ISSUE-82: an explicit component is validated and honored first. Monkey is
+  // only for the default-launcher behavior; it silently ignored `activity`.
+  const explicit =
+    args.activity === undefined ? null : resolveActivityComponent(args.packageName, args.activity);
+  if (args.activity !== undefined && !explicit) {
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: `Invalid activity: ${args.activity} (expected .Class, Class, or ${args.packageName}.Class)`,
+        },
+      ],
+      isError: true,
+    };
+  }
   const base = await adbBase(args.deviceId);
-  const target = args.activity ? `${args.packageName}/${args.activity}` : args.packageName;
+  if (explicit) {
+    // One quoted remote-shell argument, like the other component paths (issue 67).
+    const r = await run("adb", [...base, "shell", "am", "start", "-n", shquote(explicit)]);
+    const out = [r.stdout, r.stderr].filter((s) => s !== "").join("\n");
+    return {
+      content: [{ type: "text" as const, text: `exit=${r.code}${out ? `\n${out}` : ""}` }],
+      isError: r.code !== 0,
+    };
+  }
   const r = await run("adb", [
     ...base,
     "shell",
@@ -540,11 +565,11 @@ export async function handleAdbLaunch(args: z.infer<typeof ToolSchemas.adbLaunch
   // fallback: am start
   let out = r.stdout + r.stderr;
   if (r.code !== 0) {
-    const r2 = await run("adb", [...base, "shell", "am", "start", "-n", target]);
+    const r2 = await run("adb", [...base, "shell", "am", "start", "-n", args.packageName]);
     out += "\n" + r2.stdout + r2.stderr;
     return { content: [{ type: "text" as const, text: out }], isError: r2.code !== 0 };
   }
-  return { content: [{ type: "text" as const, text: out }] };
+  return { content: [{ type: "text" as const, text: out }], isError: false };
 }
 
 export async function handleEmulatorList() {
@@ -2348,15 +2373,19 @@ export async function handleAdbParallel(a: z.infer<typeof ToolSchemas.adbParalle
   );
   return { content: [{ type: "text" as const, text: results.join("\n\n") }] };
 }
-// APK serving (localhost by default, python http.server in the APK output dir)
+// APK serving: by default python http.server binds to loopback only.
 // Issues 65/66: discovery is pure Node fs traversal (no shell), the server
 // binds to loopback unless the caller explicitly opts into LAN exposure, the
 // default served dir is a fresh private mkdtemp, and repeated starts kill the
-// previous listener instead of orphaning it. State path (serveStatePath() from
-// util.js) is env-overridable for tests via ANDROID_MCP_SERVE_STATE.
-async function findFirstApk(root: string, maxFiles = 500, maxDepth = 4): Promise<string> {
+// previous listener instead of orphaning it. Issue 91: the server root is not
+// the caller's directory but a private staging dir holding copies of regular
+// .apk files only. State path (serveStatePath() from util.js) is
+// env-overridable for tests via ANDROID_MCP_SERVE_STATE.
+async function findApks(root: string, maxFiles = 500, maxDepth = 4): Promise<string[]> {
   const fs = await import("node:fs");
-  const stack: Array<[string, number]> = [[root, 0]];
+  const rootReal = fs.realpathSync(root);
+  const found: string[] = [];
+  const stack: Array<[string, number]> = [[rootReal, 0]];
   let scanned = 0;
   while (stack.length && scanned < maxFiles) {
     const [dir, depth] = stack.pop()!;
@@ -2369,17 +2398,82 @@ async function findFirstApk(root: string, maxFiles = 500, maxDepth = 4): Promise
     for (const e of entries) {
       if (scanned >= maxFiles) break;
       scanned++;
-      const full = `${dir}/${e.name}`;
-      if (e.isFile() && e.name.endsWith(".apk")) return full;
-      if (e.isDirectory() && depth < maxDepth) stack.push([full, depth + 1]);
+      const full = join(dir, e.name);
+      // Dirent.isFile() is false for symlinks, so a link cannot pull an APK in
+      // from outside the requested tree; realpath is a second containment check.
+      if (e.isFile() && e.name.toLowerCase().endsWith(".apk")) {
+        try {
+          const real = fs.realpathSync(full);
+          if (real === rootReal || real.startsWith(`${rootReal}${sep}`)) found.push(real);
+        } catch {
+          /* unreadable file: skip */
+        }
+      } else if (e.isDirectory() && depth < maxDepth) {
+        stack.push([full, depth + 1]);
+      }
     }
   }
-  return "";
+  return found;
 }
+
+function apkStagingName(source: string, index: number, used: Set<string>): string {
+  let name = basename(source).replace(/[^A-Za-z0-9._-]/g, "_");
+  if (!name.toLowerCase().endsWith(".apk") || name.length <= 4 || name.startsWith(".")) {
+    name = `artifact-${index + 1}.apk`;
+  }
+  let candidate = name;
+  let n = 2;
+  while (used.has(candidate.toLowerCase())) {
+    candidate = name.replace(/\.apk$/i, `-${n++}.apk`);
+  }
+  used.add(candidate.toLowerCase());
+  return candidate;
+}
+
+async function stageApkArtifacts(
+  sourceDir: string,
+): Promise<{ staging: string; staged: Array<{ name: string; source: string }> }> {
+  const fs = await import("node:fs");
+  const apks = await findApks(sourceDir);
+  if (apks.length === 0) return { staging: "", staged: [] };
+  const staging = await tmpDir("android-mcp-apk-serve-");
+  const used = new Set<string>();
+  const staged: Array<{ name: string; source: string }> = [];
+  try {
+    for (const [i, source] of apks.entries()) {
+      const name = apkStagingName(source, i, used);
+      fs.copyFileSync(source, join(staging, name), fs.constants.COPYFILE_EXCL);
+      staged.push({ name, source });
+    }
+  } catch (error) {
+    await cleanup(staging);
+    throw error;
+  }
+  return { staging, staged };
+}
+
+// Only remove a directory this module created: direct child of the temp root,
+// with the managed prefix. A stale or tampered state file cannot aim cleanup
+// at an arbitrary path.
+function isManagedStaging(dir?: string): boolean {
+  if (!dir) return false;
+  const resolved = resolve(dir);
+  return (
+    dirname(resolved) === resolve(tmpdir()) &&
+    basename(resolved).startsWith("android-mcp-apk-serve-")
+  );
+}
+
+async function cleanupServeStaging(state: ServeState): Promise<void> {
+  if (isManagedStaging(state.dir)) await cleanup(state.dir!);
+}
+
 interface ServeState {
   pid?: number;
   port?: number;
   dir?: string;
+  sourceDir?: string;
+  staged?: string[];
   bind?: string;
   startedAt?: string;
 }
@@ -2495,6 +2589,7 @@ export async function handleApkServe(a: z.infer<typeof ToolSchemas.apkServe>) {
       };
     }
     const result = await terminateServeState(state);
+    if (result.ok) await cleanupServeStaging(state);
     removeServeState();
     if (!result.ok) {
       const reason = result.unowned
@@ -2509,7 +2604,7 @@ export async function handleApkServe(a: z.infer<typeof ToolSchemas.apkServe>) {
       content: [
         {
           type: "text" as const,
-          text: `status=stopped\nserver=${result.detail}\nport=${state.port ?? "unknown"}\ndir=${state.dir ?? "unknown"}`,
+          text: `status=stopped\nserver=${result.detail}\nport=${state.port ?? "unknown"}\ndir=${state.sourceDir ?? state.dir ?? "unknown"}`,
         },
       ],
       isError: false,
@@ -2536,13 +2631,18 @@ export async function handleApkServe(a: z.infer<typeof ToolSchemas.apkServe>) {
   // Issue 66: loopback-only unless the caller explicitly opts into LAN exposure.
   const bind = a.expose ? "0.0.0.0" : "127.0.0.1";
   const probeHost = bind === "0.0.0.0" ? "127.0.0.1" : bind;
+  let stagingDir: string | undefined;
   const failStart = async (status: string, reason: string) => {
+    if (stagingDir) {
+      await cleanup(stagingDir);
+      stagingDir = undefined;
+    }
     if (createdDir) await cleanup(dir);
     return {
       content: [
         {
           type: "text" as const,
-          text: `status=${status}\ndir=${dir}\nport=${port}\nreason=${reason}`,
+          text: `status=${status}\nsource=${dir}\nport=${port}\nreason=${reason}`,
         },
       ],
       isError: true,
@@ -2560,13 +2660,29 @@ export async function handleApkServe(a: z.infer<typeof ToolSchemas.apkServe>) {
         "previous-server-not-stopped",
         `${result.detail}: state pid ${previous.pid} did not exit; refusing to start another server`,
       );
+    if (result.ok) await cleanupServeStaging(previous);
     removeServeState();
+  }
+
+  // Issue 91: never serve the caller's tree. Stage copies of regular APKs into
+  // a private dir; siblings, nested reports and symlinks cannot be reached.
+  let staged: Array<{ name: string; source: string }> = [];
+  let servingDir: string;
+  try {
+    const result = await stageApkArtifacts(dir);
+    if (!result.staging) return failStart("no-apk", `no regular .apk files under ${dir}`);
+    stagingDir = result.staging;
+    servingDir = result.staging;
+    staged = result.staged;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return failStart("stage-failed", message);
   }
 
   const { spawn } = await import("node:child_process");
   const child = spawn(
     "python3",
-    ["-m", "http.server", String(port), "--directory", dir, "--bind", bind],
+    ["-m", "http.server", String(port), "--directory", servingDir, "--bind", bind],
     { detached: true, stdio: "ignore" },
   );
   let spawnError: Error | null = null;
@@ -2624,7 +2740,9 @@ export async function handleApkServe(a: z.infer<typeof ToolSchemas.apkServe>) {
       JSON.stringify({
         pid: child.pid,
         port,
-        dir,
+        dir: servingDir,
+        sourceDir: dir,
+        staged: staged.map((s) => s.name),
         bind,
         startedAt: new Date().toISOString(),
       }),
@@ -2642,15 +2760,16 @@ export async function handleApkServe(a: z.infer<typeof ToolSchemas.apkServe>) {
   }
 
   // Issue 65: no execSync/find — pure fs traversal for a reportable apk path.
-  const apk = await findFirstApk(dir);
+  // Issue 91: report only what was staged, not the caller's directory contents.
   return {
     content: [
       {
         type: "text" as const,
         text:
-          `status=ready\npid=${child.pid}\nserving ${dir} on http://${bind}:${port}/` +
+          `status=ready\npid=${child.pid}\nserving ${staged.length} apk(s) from ${dir} on http://${bind}:${port}/` +
           `${a.expose ? " (all interfaces — explicit expose opt-in)" : " (localhost only)"}\n` +
-          `${apk ? "apk: " + apk : "no .apk found in dir"}\nstop with apk_serve action=stop`,
+          `apk: ${staged.map((s) => s.name).join(", ")}\n` +
+          `stop with apk_serve action=stop`,
       },
     ],
     isError: false,
