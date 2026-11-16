@@ -278,20 +278,23 @@ function runPackWarm(root, args, record, extraEnv = {}) {
   });
 }
 
-test("pack-warm.sh treats pack ids and roots with shell/JS punctuation as data (ISSUE-79)", () => {
-  const root = packWarmFixture();
-  const record = path.join(root, "gradle-record");
-  try {
-    assert.doesNotThrow(() => runPackWarm(root, ["app"], record));
-    const calls = readFileSync(record, "utf8");
-    assert.match(calls, /resolvePack/, "the declared pack must still resolve");
-    assert.match(calls, /--offline/, "the offline re-proof must still run");
-  } finally {
-    rmSync(path.dirname(root), { recursive: true, force: true });
-  }
-});
+posixTest(
+  "pack-warm.sh treats pack ids and roots with shell/JS punctuation as data (ISSUE-79)",
+  () => {
+    const root = packWarmFixture();
+    const record = path.join(root, "gradle-record");
+    try {
+      assert.doesNotThrow(() => runPackWarm(root, ["app"], record));
+      const calls = readFileSync(record, "utf8");
+      assert.match(calls, /resolvePack/, "the declared pack must still resolve");
+      assert.match(calls, /--offline/, "the offline re-proof must still run");
+    } finally {
+      rmSync(path.dirname(root), { recursive: true, force: true });
+    }
+  },
+);
 
-test("pack-warm.sh rejects malicious pack ids before gradle runs (ISSUE-79)", () => {
+posixTest("pack-warm.sh rejects malicious pack ids before gradle runs (ISSUE-79)", () => {
   const root = packWarmFixture();
   const record = path.join(root, "gradle-record");
   const marker = path.join(root, "marker");
@@ -320,7 +323,7 @@ test("pack-warm.sh rejects malicious pack ids before gradle runs (ISSUE-79)", ()
   }
 });
 
-test("pack-warm.sh reads the manifest from its own root, not the cwd (ISSUE-79)", () => {
+posixTest("pack-warm.sh reads the manifest from its own root, not the cwd (ISSUE-79)", () => {
   const root = packWarmFixture();
   const record = path.join(root, "gradle-record");
   try {
