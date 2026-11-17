@@ -1,7 +1,8 @@
-// ISSUE-102 / ISSUE-106: execution-layer boundary for every MCP tool.
-// Path arguments are checked against an immutable workspace policy before the
-// handler runs; unclassified tools fail closed. Successful tool payloads are
-// tagged with provenance and framed as untrusted data.
+// ISSUE-102 / ISSUE-106 / ISSUE-50: execution-layer boundary for every MCP tool.
+// Path arguments are checked against an immutable workspace policy, then the
+// execution policy decides whether the operation may run, needs a bound
+// approval, or is refused. Unclassified tools fail closed. Successful payloads
+// are tagged with provenance and framed as untrusted data.
 
 import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -13,11 +14,22 @@ import {
   type PathOperation,
   type WorkspacePolicy,
 } from "./workspace.js";
-import { TOOL_PATH_SPECS, TOOL_SOURCES } from "./registry.js";
+import { TOOL_ENTRIES, TOOL_PATH_SPECS, TOOL_SOURCES } from "./registry.js";
 import { presentResult, type SourceCategory } from "./provenance.js";
+import {
+  APPROVAL_TOKEN_FIELD,
+  encodeApprovalRequest,
+  evaluateToolPolicy,
+  type ApprovalLedger,
+  type ApprovalRequest,
+  type ExecutionPolicy,
+  type PolicyDecisionMeta,
+} from "./executionPolicy.js";
 
 export interface BoundaryOptions {
   policy: WorkspacePolicy;
+  execution: ExecutionPolicy;
+  approvals: ApprovalLedger;
   now?: () => Date;
   grants?: readonly PathGrant[];
   requestId?: string;
@@ -33,33 +45,61 @@ export interface BoundaryBlock {
   workspace?: string | null;
 }
 
+export interface BlockedResultOptions {
+  guidance?: readonly string[];
+  policy?: PolicyDecisionMeta;
+  approval?: ApprovalRequest;
+  preview?: string;
+}
+
 function detail(value: unknown): string {
   const text = String(value);
   return /[\s\p{Cc}]/u.test(text) ? JSON.stringify(text) : text;
 }
+
+const WORKSPACE_GUIDANCE = [
+  "This decision is MCP-owned. Path arguments must resolve inside an approved",
+  "workspace root. Set ANDROID_MCP_WORKSPACE to the project root or",
+  "ANDROID_MCP_WORKSPACE_ROOTS to approved additional roots. Paths outside the",
+  "workspace require a request-scoped grant.",
+];
 
 export function blockedResult(
   tool: string,
   reason: string,
   details: Omit<BoundaryBlock, "tool" | "reason">,
   now: Date,
+  options: BlockedResultOptions = {},
 ): any {
+  const encodedApproval = options.approval ? encodeApprovalRequest(options.approval) : undefined;
   const lines = [
     "status=blocked",
     `tool=${detail(tool)}`,
     `reason=${detail(reason)}`,
+    ...(options.policy
+      ? [
+          `mode=${detail(options.policy.mode)}`,
+          `impact=${detail(options.policy.impact)}`,
+          ...(options.policy.target ? [`target=${detail(options.policy.target)}`] : []),
+        ]
+      : []),
     ...(details.field ? [`field=${detail(details.field)}`] : []),
     ...(details.operation ? [`operation=${detail(details.operation)}`] : []),
     ...(details.path ? [`path=${detail(details.path)}`] : []),
     ...(details.workspace !== undefined && details.workspace !== null
       ? [`workspace=${detail(details.workspace)}`]
       : []),
+    ...(options.preview ? [`preview=${detail(options.preview)}`] : []),
+    ...(options.approval && encodedApproval
+      ? [
+          `approval-request=${encodedApproval}`,
+          `approval-fingerprint=${options.approval.fingerprint}`,
+          `approval-expires=${options.approval.expiresAt}`,
+        ]
+      : []),
     `timestamp=${now.toISOString()}`,
     "",
-    "This decision is MCP-owned. Path arguments must resolve inside an approved",
-    "workspace root. Set ANDROID_MCP_WORKSPACE to the project root or",
-    "ANDROID_MCP_WORKSPACE_ROOTS to approved additional roots. Paths outside the",
-    "workspace require a request-scoped grant.",
+    ...(options.guidance ?? WORKSPACE_GUIDANCE),
   ];
   return {
     content: [{ type: "text" as const, text: lines.join("\n") }],
@@ -72,9 +112,21 @@ export function blockedResult(
         untrusted: false,
         reason,
         decisionId: randomUUID(),
-        target: details.path ?? null,
+        target: details.path ?? options.policy?.target ?? null,
         timestamp: now.toISOString(),
       },
+      ...(options.policy ? { policy: options.policy } : {}),
+      ...(options.approval && encodedApproval
+        ? {
+            approval: {
+              required: true,
+              request: encodedApproval,
+              ...options.approval,
+              passAs: APPROVAL_TOKEN_FIELD,
+              approveCommand: `ANDROID_MCP_APPROVAL_SECRET=<secret> npm run approve -- '${encodedApproval}'`,
+            },
+          }
+        : {}),
     },
   };
 }
@@ -87,9 +139,9 @@ function configuredMaxChars(env: NodeJS.ProcessEnv): number | undefined {
 }
 
 /**
- * Run a tool handler behind the workspace boundary. Returns an MCP result in
- * every case; an outside path or an unclassified tool never reaches the
- * handler.
+ * Run a tool handler behind the workspace and execution boundaries. Returns an
+ * MCP result in every case; an outside path, an unclassified tool or a policy
+ * refusal never reaches the handler.
  */
 export async function runWithBoundary(
   name: string,
@@ -170,11 +222,53 @@ export async function runWithBoundary(
     }
   }
 
-  const result = await handler(args);
-  return presentResult(name, result, {
+  const entry = TOOL_ENTRIES[name];
+  if (!entry) {
+    return blockedResult(name, "unclassified-tool", {}, now);
+  }
+  const decision = evaluateToolPolicy({
+    entry,
+    args,
+    policy: options.execution,
+    ledger: options.approvals,
+    now,
+  });
+  if (!decision.allowed) {
+    return blockedResult(name, decision.reason, {}, now, {
+      guidance: decision.guidance,
+      policy: decision.meta,
+      ...(decision.approval ? { approval: decision.approval } : {}),
+      ...(decision.preview ? { preview: decision.preview } : {}),
+    });
+  }
+
+  const handlerArgs = { ...(args ?? {}) };
+  delete handlerArgs[APPROVAL_TOKEN_FIELD];
+  const result = await handler(handlerArgs);
+  const presented = presentResult(name, result, {
     target: primaryTarget,
     source: TOOL_SOURCES[name] ?? "mixed",
     now,
     maxChars: options.maxChars ?? configuredMaxChars(process.env),
   });
+
+  const content =
+    decision.meta.warnings.length > 0 && Array.isArray(presented.content)
+      ? [
+          {
+            type: "text" as const,
+            text: `[android-mcp:policy] ${decision.meta.warnings.join("; ")}`,
+          },
+          ...presented.content,
+        ]
+      : presented.content;
+
+  return {
+    ...presented,
+    content,
+    _meta: {
+      ...(presented._meta ?? {}),
+      policy: decision.meta,
+    },
+  };
 }

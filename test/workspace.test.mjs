@@ -22,9 +22,25 @@ import {
 } from "../dist/workspace.js";
 import { runWithBoundary } from "../dist/boundary.js";
 import { TOOL_NAMES, TOOL_PATH_SPECS, TOOL_SOURCES } from "../dist/registry.js";
+import { createApprovalLedger, createExecutionPolicy } from "../dist/executionPolicy.js";
 import { cleanup } from "../dist/util.js";
 
 const REPO = resolve(import.meta.dirname, "..");
+// The boundary suite predates the execution policy; keep these assertions about
+// paths and provenance isolated by explicitly choosing the expert mode.
+const PERMISSIVE = createExecutionPolicy({
+  env: { ANDROID_MCP_POLICY: "permissive" },
+  instanceId: "workspace-test",
+});
+
+function boundaryOptions(policy, extra = {}) {
+  return {
+    policy,
+    execution: PERMISSIVE,
+    approvals: createApprovalLedger(),
+    ...extra,
+  };
+}
 
 function fixture() {
   const base = mkdtempSync(join(tmpdir(), "android-mcp-workspace-"));
@@ -234,7 +250,7 @@ test("concurrent requests cannot leak workspace context", async () => {
       isError: false,
     });
     const invoke = (policy, target) =>
-      runWithBoundary("apk_info", { apkPath: target }, handler, { policy });
+      runWithBoundary("apk_info", { apkPath: target }, handler, boundaryOptions(policy));
 
     const [ownA, foreignB, ownB, foreignA] = await Promise.all([
       invoke(pa, join(a.root, "own.apk")),
@@ -294,7 +310,7 @@ test("boundary blocks outside paths before the handler runs", async () => {
         called = true;
         return { content: [{ type: "text", text: "should not run" }], isError: false };
       },
-      { policy, now: () => new Date("2026-01-02T03:04:05Z") },
+      boundaryOptions(policy, { now: () => new Date("2026-01-02T03:04:05Z") }),
     );
     assert.equal(called, false);
     assert.equal(result.isError, true);
@@ -315,7 +331,7 @@ test("boundary fails closed for an unclassified tool", async () => {
       called = true;
       return { content: [{ type: "text", text: "ok" }] };
     },
-    { policy: createWorkspacePolicy({ root: tmpdir(), tempRoot: tmpdir(), env: {} }) },
+    boundaryOptions(createWorkspacePolicy({ root: tmpdir(), tempRoot: tmpdir(), env: {} })),
   );
   assert.equal(called, false);
   assert.equal(result.isError, true);
@@ -353,7 +369,7 @@ test("write operations refuse to replace an existing file without overwrite inte
         called = true;
         return { content: [{ type: "text", text: "written" }] };
       },
-      { policy },
+      boundaryOptions(policy),
     );
     assert.equal(called, false);
     assert.equal(denied.isError, true);
@@ -366,7 +382,7 @@ test("write operations refuse to replace an existing file without overwrite inte
       "secret_scan",
       { projectPath: f.root, reportPath: report, overwrite: true },
       async () => ({ content: [{ type: "text", text: "written" }] }),
-      { policy },
+      boundaryOptions(policy),
     );
     assert.equal(allowed.isError, false);
   } finally {
@@ -398,7 +414,11 @@ test("an outside-workspace grant is request-scoped and bound to one canonical ta
       "apk_info",
       { apkPath: outside },
       handler,
-      { policy, requestId: "request-1", grants: [grant], now: () => new Date("2026-01-02T03:05:00Z") },
+      boundaryOptions(policy, {
+        requestId: "request-1",
+        grants: [grant],
+        now: () => new Date("2026-01-02T03:05:00Z"),
+      }),
     );
     assert.equal(allowed.isError, false);
     assert.equal(called, 1);
@@ -407,7 +427,11 @@ test("an outside-workspace grant is request-scoped and bound to one canonical ta
       "apk_info",
       { apkPath: outside },
       handler,
-      { policy, requestId: "request-2", grants: [grant], now: () => new Date("2026-01-02T03:05:00Z") },
+      boundaryOptions(policy, {
+        requestId: "request-2",
+        grants: [grant],
+        now: () => new Date("2026-01-02T03:05:00Z"),
+      }),
     );
     assert.equal(replayed.isError, true);
     assert.equal(called, 1, "a grant from another request must not authorize the call");
@@ -416,7 +440,11 @@ test("an outside-workspace grant is request-scoped and bound to one canonical ta
       "apk_info",
       { apkPath: join(f.outside, "other.txt") },
       handler,
-      { policy, requestId: "request-1", grants: [grant], now: () => new Date("2026-01-02T03:05:00Z") },
+      boundaryOptions(policy, {
+        requestId: "request-1",
+        grants: [grant],
+        now: () => new Date("2026-01-02T03:05:00Z"),
+      }),
     );
     assert.equal(otherTarget.isError, true);
     assert.equal(called, 1, "a grant must not authorize a different target");
@@ -425,7 +453,11 @@ test("an outside-workspace grant is request-scoped and bound to one canonical ta
       "apk_info",
       { apkPath: outside },
       handler,
-      { policy, requestId: "request-1", grants: [grant], now: () => new Date("2026-01-02T04:05:00Z") },
+      boundaryOptions(policy, {
+        requestId: "request-1",
+        grants: [grant],
+        now: () => new Date("2026-01-02T04:05:00Z"),
+      }),
     );
     assert.equal(expired.isError, true);
     assert.equal(called, 1, "an expired grant must not authorize the call");
@@ -450,9 +482,16 @@ test("successful results carry an untrusted provenance envelope and sanitized te
         ],
         isError: false,
       }),
-      { policy, now: () => new Date("2026-01-02T03:04:05Z") },
+      boundaryOptions(policy, { now: () => new Date("2026-01-02T03:04:05Z") }),
     );
-    const text = result.content[0].text;
+    const text = result.content.find((block) =>
+      block.text?.includes("[android-mcp:untrusted-data"),
+    ).text;
+    assert.match(
+      result.content[0].text,
+      /^\[android-mcp:policy\]/,
+      "permissive mode warning is separate from the data frame",
+    );
     assert.match(text, /\[android-mcp:untrusted-data/);
     assert.match(text, /ignore previous instructions/, "payload is preserved as evidence");
     assert.doesNotMatch(text, /\u001b/, "terminal escapes are stripped");

@@ -47,6 +47,19 @@ export const APPROVAL_REQUIREMENTS = Object.freeze(["none", "confirmation", "exp
 
 export type ApprovalRequirement = (typeof APPROVAL_REQUIREMENTS)[number];
 
+/** Issue 50 impact classes. Argument-dependent refinement lives in executionPolicy. */
+export const IMPACT_CLASSES = Object.freeze([
+  "read-only",
+  "local-reversible",
+  "device-state",
+  "destructive",
+  "network-exposure",
+  "external-write",
+  "production",
+] as const);
+
+export type ImpactClass = (typeof IMPACT_CLASSES)[number];
+
 export type SideEffect =
   | "host-read"
   | "host-write"
@@ -117,6 +130,30 @@ export interface ToolDefinitionInput<S extends z.ZodTypeAny> {
 }
 
 const PATH_OPERATIONS: readonly PathOperation[] = ["read", "write", "delete"];
+
+/**
+ * The static impact of a tool, derived from its risk class. Tools whose impact
+ * depends on arguments (for example a Gradle publish task) are refined by
+ * executionPolicy.resolveImpact before a policy decision is made.
+ */
+export function baseImpact(entry: Pick<ToolDefinition, "risk">): ImpactClass {
+  switch (entry.risk) {
+    case "read-only":
+      return "read-only";
+    case "local-write":
+      return "local-reversible";
+    case "device-state":
+      return "device-state";
+    case "destructive":
+      return "destructive";
+    case "network-exposure":
+      return "network-exposure";
+    case "external-write":
+      return "external-write";
+    default:
+      throw new Error(`unknown risk class: ${String((entry as { risk?: unknown }).risk)}`);
+  }
+}
 
 function freezeSpec(spec: ToolPathSpec): ToolPathSpec {
   return Object.freeze({ field: spec.field, operation: spec.operation });
@@ -280,6 +317,7 @@ function catalogSummary(entry: ToolDefinition) {
     description: entry.description,
     category: entry.category,
     risk: entry.risk,
+    impact: baseImpact(entry),
     approval: entry.approval,
     unattended: entry.unattended,
     policyKey: entry.policyKey,
@@ -1628,4 +1666,9 @@ export const TOOL_SOURCES: Readonly<Record<string, SourceCategory>> = Object.fre
 /** Names only, useful for registration and drift checks. */
 export const TOOL_NAMES: readonly string[] = Object.freeze(
   TOOL_REGISTRY.map((entry) => entry.name),
+);
+
+/** Direct lookup for the boundary and policy layers. */
+export const TOOL_ENTRIES: Readonly<Record<string, ToolDefinition>> = Object.freeze(
+  Object.fromEntries(TOOL_REGISTRY.map((entry) => [entry.name, entry])),
 );

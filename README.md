@@ -355,6 +355,21 @@ references. `tool_catalog` returns that metadata and can filter to the
 starting point. That view is advisory: the execution boundary still enforces
 the workspace policy for every call.
 
+### Execution policy and approvals
+
+A separate execution policy decides whether a tool may run, needs a bound
+approval, or is refused. The default is `balanced`: approval-free inspection
+runs, while destructive, device-state, network-exposure, external-write and
+publish-like operations need a single-use HMAC token. `restricted` limits work
+to read-only tools plus an explicit `ANDROID_MCP_ALLOW` list; `permissive` keeps
+the expert escape hatch with explicit warnings. A blocked call returns a
+preview and an encoded request that a human can sign out of band with
+`npm run approve -- '<request>'`; no confirmation UI is claimed.
+
+Configuration, the impact table, the approval workflow, audit fields and the
+limits of this guardrail are documented in
+[docs/execution-policy.md](docs/execution-policy.md).
+
 ### Dependency and build-system review
 
 `scripts/dependency-review.mjs` inspects npm manifests, lockfiles, Gradle

@@ -9,6 +9,7 @@ import { STARTUP_BUILD } from "./buildInfo.js";
 import { runWithBoundary, type BoundaryOptions } from "./boundary.js";
 import { TOOL_SOURCES } from "./registry.js";
 import { sanitizeUntrusted } from "./provenance.js";
+import type { ApprovalLedger, ExecutionPolicy } from "./executionPolicy.js";
 import type { WorkspacePolicy } from "./workspace.js";
 
 export const OUTCOMES = Object.freeze([
@@ -144,16 +145,18 @@ export interface InstrumentedToolOptions {
   args: any;
   handler: (args: any) => Promise<any>;
   policy: WorkspacePolicy;
+  execution: ExecutionPolicy;
+  approvals: ApprovalLedger;
   correlationId?: string;
   logger?: (line: string) => void;
   now?: () => number;
-  boundary?: Omit<BoundaryOptions, "policy">;
+  boundary?: Omit<BoundaryOptions, "policy" | "execution" | "approvals">;
 }
 
 /**
- * Execute a tool behind the workspace boundary and emit stable start/end
- * records. The MCP result is returned with `_meta.correlationId`; correlation
- * IDs are unique per invocation.
+ * Execute a tool behind the workspace and execution boundaries and emit stable
+ * start/end records. The MCP result is returned with `_meta.correlationId`;
+ * correlation IDs are unique per invocation.
  */
 export async function runInstrumentedTool(options: InstrumentedToolOptions): Promise<any> {
   const correlationId = options.correlationId ?? randomUUID();
@@ -176,9 +179,12 @@ export async function runInstrumentedTool(options: InstrumentedToolOptions): Pro
     const result = await runWithBoundary(options.name, options.args, options.handler, {
       ...options.boundary,
       policy: options.policy,
+      execution: options.execution,
+      approvals: options.approvals,
     });
     const outcome = classifyResult(result);
     const durationMs = Math.max(0, clock() - started);
+    const policyMeta = result?._meta?.policy;
     const meta = {
       ...(result?._meta ?? {}),
       correlationId,
@@ -194,6 +200,13 @@ export async function runInstrumentedTool(options: InstrumentedToolOptions): Pro
         ["source", source],
         ["exit_code", result?._meta?.exitCode],
         ["signal", result?._meta?.signal],
+        ["policy", policyMeta?.mode],
+        ["impact", policyMeta?.impact],
+        ["decision", policyMeta?.decision],
+        ["target", policyMeta?.target],
+        ["policy_reason", policyMeta?.reason],
+        ["approval_id", policyMeta?.approvalId ?? policyMeta?.approvalRequestId],
+        ["policy_warnings", policyMeta?.warnings?.length],
         ["policy_decision", result?._meta?.provenance?.decisionId],
         ["diagnostic", outcome === "success" ? undefined : resultDiagnostic(result)],
         ["timestamp", new Date(started + durationMs).toISOString()],

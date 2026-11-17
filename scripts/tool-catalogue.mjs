@@ -13,7 +13,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { RISK_CLASSES, TOOL_CATEGORIES, TOOL_REGISTRY } from "../dist/registry.js";
+import { RISK_CLASSES, TOOL_CATEGORIES, TOOL_REGISTRY, baseImpact } from "../dist/registry.js";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DOC_PATH = join(REPO, "docs", "tool-catalogue.md");
@@ -56,12 +56,12 @@ function renderMarkdown() {
     if (entries.length === 0) continue;
     lines.push("", `## ${category} (${entries.length})`, "");
     lines.push(
-      "| Tool | Risk | Approval | Unattended | Source |",
-      "|---|---|---|---|---|",
+      "| Tool | Impact | Risk | Approval | Unattended | Source |",
+      "|---|---|---|---|---|---|",
     );
     for (const entry of entries) {
       lines.push(
-        `| \`${entry.name}\` | \`${entry.risk}\` | ${approvalLabel(entry)} | ${
+        `| \`${entry.name}\` | \`${baseImpact(entry)}\` | \`${entry.risk}\` | ${approvalLabel(entry)} | ${
           entry.unattended ? "yes" : "no"
         } | \`${entry.source}\` |`,
       );
@@ -69,6 +69,7 @@ function renderMarkdown() {
     lines.push("");
     for (const entry of entries) {
       lines.push(`### \`${entry.name}\``, "", entry.description, "");
+      lines.push(`- Impact: \`${baseImpact(entry)}\``);
       if (entry.policyKey) {
         lines.push(`- Policy key: \`${entry.policyKey}\``);
       }

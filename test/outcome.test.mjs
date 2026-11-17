@@ -12,6 +12,12 @@ import {
   sanitizeDiagnostic,
 } from "../dist/outcome.js";
 import { createWorkspacePolicy } from "../dist/workspace.js";
+import { createApprovalLedger, createExecutionPolicy } from "../dist/executionPolicy.js";
+
+const PERMISSIVE = createExecutionPolicy({
+  env: { ANDROID_MCP_POLICY: "permissive" },
+  instanceId: "outcome-test",
+});
 
 function fixture() {
   const base = mkdtempSync(join(tmpdir(), "android-mcp-outcome-"));
@@ -34,6 +40,8 @@ function run(options = {}) {
         args,
         handler,
         policy: options.policy,
+        execution: options.execution ?? PERMISSIVE,
+        approvals: options.approvals ?? createApprovalLedger(),
         logger: (line) => lines.push(line),
         now: () => (clock += 10),
         ...extra,

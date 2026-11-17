@@ -15,7 +15,13 @@ import {
 } from "../dist/provenance.js";
 import { TOOL_SOURCES } from "../dist/registry.js";
 import { createWorkspacePolicy, checkWorkspacePath } from "../dist/workspace.js";
+import { createApprovalLedger, createExecutionPolicy } from "../dist/executionPolicy.js";
 import { runWithBoundary } from "../dist/boundary.js";
+
+const PERMISSIVE = createExecutionPolicy({
+  env: { ANDROID_MCP_POLICY: "permissive" },
+  instanceId: "provenance-test",
+});
 
 function fixture() {
   const base = mkdtempSync(join(tmpdir(), "android-mcp-provenance-"));
@@ -72,11 +78,14 @@ test("logcat command-like text is never an authorization token", async () => {
           isError: false,
         };
       },
-      { policy },
+      { policy, execution: PERMISSIVE, approvals: createApprovalLedger() },
     );
     assert.equal(handlerCalls, 1);
-    assert.match(result.content[0].text, /MCP-APPROVAL/);
-    assert.match(result.content[0].text, /\[android-mcp:untrusted-data/);
+    const data = result.content.find((block) =>
+      block.text?.includes("[android-mcp:untrusted-data"),
+    ).text;
+    assert.match(data, /MCP-APPROVAL/);
+    assert.match(data, /\[android-mcp:untrusted-data/);
     assert.equal(result._meta.provenance.source, "device");
     assert.equal(result._meta.provenance.trust, "untrusted-data");
 
@@ -87,7 +96,7 @@ test("logcat command-like text is never an authorization token", async () => {
         handlerCalls += 1;
         return { content: [{ type: "text", text: "should not run" }] };
       },
-      { policy },
+      { policy, execution: PERMISSIVE, approvals: createApprovalLedger() },
     );
     assert.equal(denied.isError, true);
     assert.equal(handlerCalls, 1, "log text did not grant access");

@@ -6,6 +6,21 @@ import * as H from "./tools.js";
 import { TOOL_REGISTRY } from "./registry.js";
 import { runInstrumentedTool } from "./outcome.js";
 import { createWorkspacePolicy } from "./workspace.js";
+import {
+  createApprovalLedger,
+  createExecutionPolicy,
+  extendSchemaWithApprovalToken,
+  withApprovalToken,
+} from "./executionPolicy.js";
+
+const executionPolicy = createExecutionPolicy({ env: process.env });
+const approvalLedger = createApprovalLedger();
+
+console.error(
+  `[android-mcp] execution policy: mode=${executionPolicy.mode} ` +
+    `approvals=${executionPolicy.approvalSecret ? "configured" : "not-configured"} ` +
+    `allow=${executionPolicy.allow.length > 0 ? executionPolicy.allow.join(",") : "none"}`,
+);
 
 const server = new McpServer(
   { name: STARTUP_BUILD.name, version: STARTUP_BUILD.version },
@@ -13,11 +28,19 @@ const server = new McpServer(
 );
 
 function logged(name: string, fn: (args: any) => Promise<unknown>) {
-  return async (args: any) => {
+  return async (args: any, extra?: any) => {
     // ISSUE-102: a fresh immutable workspace policy per request. ISSUE-105:
     // correlation, truthful outcome and sanitized diagnostics per invocation.
+    // ISSUE-50: one process-wide execution policy and single-use approval ledger.
     const policy = createWorkspacePolicy({ env: process.env });
-    return runInstrumentedTool({ name, args, handler: fn, policy });
+    return runInstrumentedTool({
+      name,
+      args: withApprovalToken(args, extra?._meta),
+      handler: fn,
+      policy,
+      execution: executionPolicy,
+      approvals: approvalLedger,
+    });
   };
 }
 
@@ -27,7 +50,10 @@ function logged(name: string, fn: (args: any) => Promise<unknown>) {
 for (const tool of TOOL_REGISTRY) {
   server.registerTool(
     tool.name,
-    { description: tool.description, inputSchema: tool.schema },
+    {
+      description: tool.description,
+      inputSchema: extendSchemaWithApprovalToken(tool.schema),
+    },
     logged(tool.name, tool.handler),
   );
 }

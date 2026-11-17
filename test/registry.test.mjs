@@ -10,10 +10,12 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  IMPACT_CLASSES,
   TOOL_CATEGORIES,
   TOOL_PATH_SPECS,
   TOOL_REGISTRY,
   TOOL_SOURCES,
+  baseImpact,
   filterToolCatalog,
   handleToolCatalog,
   validateToolRegistry,
@@ -69,6 +71,7 @@ test("every published schema belongs to exactly one registry entry", () => {
 test("every safety-relevant field is explicit, never defaulted", () => {
   for (const entry of TOOL_REGISTRY) {
     assert.ok(RISKS.includes(entry.risk), `${entry.name} risk`);
+    assert.ok(IMPACT_CLASSES.includes(baseImpact(entry)), `${entry.name} impact`);
     assert.ok(APPROVALS.includes(entry.approval), `${entry.name} approval`);
     assert.equal(typeof entry.unattended, "boolean", `${entry.name} unattended`);
     assert.ok(Array.isArray(entry.sideEffects), `${entry.name} sideEffects`);
@@ -166,7 +169,10 @@ test("catalogue handler returns filtered JSON and rejects unknown filters", asyn
   assert.equal(payload.riskSummary.destructive, 0);
   for (const group of payload.groups) {
     assert.equal(group.category, "adb");
-    for (const tool of group.tools) assert.notEqual(tool.risk, "destructive");
+    for (const tool of group.tools) {
+      assert.notEqual(tool.risk, "destructive");
+      assert.ok(IMPACT_CLASSES.includes(tool.impact), `${tool.name} impact`);
+    }
   }
   const invalid = await handleToolCatalog({ category: "not-a-category" });
   assert.equal(invalid.isError, true);

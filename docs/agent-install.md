@@ -117,6 +117,25 @@ npm test            # smoke test (67 tools) + tools + frida-scripts + frida help
 
 Expected: `smoke test passed: 67 tools` and `frida helper test passed`.
 
+### 1.6 Configure the execution policy
+
+The server defaults to `balanced`: inspection tools run, while destructive,
+device-state and other gated operations need a short-lived, single-use approval
+token. Before using gated tools, set a shared secret in the environment that
+launches the MCP server:
+
+```bash
+export ANDROID_MCP_APPROVAL_SECRET="$(openssl rand -hex 32)"
+```
+
+Keep the same secret for the host or human who signs requests with
+`npm run approve -- '<approval-request>'`. Use `ANDROID_MCP_POLICY=restricted`
+with `ANDROID_MCP_ALLOW` for a tighter allowlist, or
+`ANDROID_MCP_POLICY=permissive` only for a deliberately trusted session. The
+server prints its mode and approval status at startup. Full configuration,
+impact classes and limitations:
+[docs/execution-policy.md](execution-policy.md).
+
 ---
 
 ## 2. Registering with a coding agent / harness

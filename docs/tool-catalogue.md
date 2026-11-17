@@ -39,15 +39,16 @@ that registry, so a tool cannot be added without those decisions.
 
 ## environment (2)
 
-| Tool | Risk | Approval | Unattended | Source |
-|---|---|---|---|---|
-| `android_env_check` | `read-only` | none | yes | `mcp` |
-| `sdkmanager_install` | `external-write` | confirmation required | no | `build` |
+| Tool | Impact | Risk | Approval | Unattended | Source |
+|---|---|---|---|---|---|
+| `android_env_check` | `read-only` | `read-only` | none | yes | `mcp` |
+| `sdkmanager_install` | `external-write` | `external-write` | confirmation required | no | `build` |
 
 ### `android_env_check`
 
 Check installed Android toolchain (java, gradle, adb, emulator, sdkmanager, maestro, compose-preview, android CLI) and environment variables.
 
+- Impact: `read-only`
 - Preconditions: Node.js and the host Android toolchain are installed
 - Side effects: `host-read`, `process-spawn`
 - Verification: npm test — smoke registration and toolchain detection tests
@@ -57,6 +58,7 @@ Check installed Android toolchain (java, gradle, adb, emulator, sdkmanager, maes
 
 Install or update Android SDK packages through sdkmanager, downloading artefacts from Google's repositories.
 
+- Impact: `external-write`
 - Policy key: `sdk.install`
 - Preconditions: sdkmanager is on PATH; SDK licences are accepted; Network access to Google repositories
 - Side effects: `external-download`, `host-write`, `process-spawn`
@@ -67,20 +69,21 @@ Install or update Android SDK packages through sdkmanager, downloading artefacts
 
 ## build (7)
 
-| Tool | Risk | Approval | Unattended | Source |
-|---|---|---|---|---|
-| `baseline_profile_generate` | `device-state` | confirmation required | no | `build` |
-| `build_variant` | `local-write` | none | yes | `build` |
-| `compose_preview_render` | `local-write` | none | yes | `mixed` |
-| `gradle_dependencies` | `local-write` | none | yes | `build` |
-| `gradle_lint` | `local-write` | none | yes | `build` |
-| `gradle_task` | `destructive` | expert required | no | `build` |
-| `gradle_test` | `local-write` | none | yes | `build` |
+| Tool | Impact | Risk | Approval | Unattended | Source |
+|---|---|---|---|---|---|
+| `baseline_profile_generate` | `device-state` | `device-state` | confirmation required | no | `build` |
+| `build_variant` | `local-reversible` | `local-write` | none | yes | `build` |
+| `compose_preview_render` | `local-reversible` | `local-write` | none | yes | `mixed` |
+| `gradle_dependencies` | `local-reversible` | `local-write` | none | yes | `build` |
+| `gradle_lint` | `local-reversible` | `local-write` | none | yes | `build` |
+| `gradle_task` | `destructive` | `destructive` | expert required | no | `build` |
+| `gradle_test` | `local-reversible` | `local-write` | none | yes | `build` |
 
 ### `baseline_profile_generate`
 
 Generate a Baseline Profile by running the module's connected instrumented tests.
 
+- Impact: `device-state`
 - Policy key: `device.test.instrumented`
 - Preconditions: Java and a Gradle wrapper or gradle executable are available; An authorised Android device or emulator is connected and visible to adb; ANDROID_MCP_WORKSPACE covers the project, APK or output path used
 - Side effects: `project-build`, `process-spawn`, `device-write`, `host-write`
@@ -93,6 +96,7 @@ Generate a Baseline Profile by running the module's connected instrumented tests
 
 Assemble a named product-flavour variant after validating it against the module's available assemble tasks.
 
+- Impact: `local-reversible`
 - Policy key: `build.local`
 - Preconditions: Java and a Gradle wrapper or gradle executable are available; ANDROID_MCP_WORKSPACE covers the project, APK or output path used
 - Side effects: `project-build`, `process-spawn`, `host-read`, `host-write`
@@ -104,6 +108,7 @@ Assemble a named product-flavour variant after validating it against the module'
 
 Render Compose @Preview composables to PNG headlessly and return paths, hashes and optional inline images.
 
+- Impact: `local-reversible`
 - Policy key: `build.local`
 - Preconditions: compose-preview is installed; ANDROID_MCP_WORKSPACE covers the project, APK or output path used
 - Side effects: `project-build`, `process-spawn`, `host-read`, `host-write`
@@ -115,6 +120,7 @@ Render Compose @Preview composables to PNG headlessly and return paths, hashes a
 
 Print the resolved dependency graph for a Gradle configuration.
 
+- Impact: `local-reversible`
 - Policy key: `build.local`
 - Preconditions: Java and a Gradle wrapper or gradle executable are available; ANDROID_MCP_WORKSPACE covers the project, APK or output path used
 - Side effects: `project-build`, `process-spawn`, `host-read`
@@ -126,6 +132,7 @@ Print the resolved dependency graph for a Gradle configuration.
 
 Run the :app Android lint task and return the bounded report output.
 
+- Impact: `local-reversible`
 - Policy key: `build.local`
 - Preconditions: Java and a Gradle wrapper or gradle executable are available; ANDROID_MCP_WORKSPACE covers the project, APK or output path used
 - Side effects: `project-build`, `process-spawn`, `host-read`, `host-write`
@@ -137,6 +144,7 @@ Run the :app Android lint task and return the bounded report output.
 
 Run an arbitrary Gradle task in a project directory; the task may publish artefacts or mutate files.
 
+- Impact: `destructive`
 - Policy key: `gradle.task`
 - Preconditions: Java and a Gradle wrapper or gradle executable are available; ANDROID_MCP_WORKSPACE covers the project, APK or output path used
 - Side effects: `project-build`, `process-spawn`, `host-read`, `host-write`
@@ -151,6 +159,7 @@ Run an arbitrary Gradle task in a project directory; the task may publish artefa
 
 Run the :app unit-test task in a project directory and return bounded Gradle output.
 
+- Impact: `local-reversible`
 - Policy key: `build.local`
 - Preconditions: Java and a Gradle wrapper or gradle executable are available; ANDROID_MCP_WORKSPACE covers the project, APK or output path used
 - Side effects: `project-build`, `process-spawn`, `host-read`, `host-write`
@@ -161,38 +170,39 @@ Run the :app unit-test task in a project directory and return bounded Gradle out
 
 ## adb (25)
 
-| Tool | Risk | Approval | Unattended | Source |
-|---|---|---|---|---|
-| `adb_battery` | `read-only` | none | yes | `device` |
-| `adb_broadcast` | `device-state` | confirmation required | no | `device` |
-| `adb_clear_data` | `destructive` | confirmation required | no | `device` |
-| `adb_deep_link` | `device-state` | confirmation required | no | `device` |
-| `adb_devices` | `read-only` | none | yes | `device` |
-| `adb_force_stop` | `device-state` | confirmation required | no | `device` |
-| `adb_input` | `device-state` | confirmation required | no | `device` |
-| `adb_install` | `device-state` | confirmation required | no | `device` |
-| `adb_launch` | `device-state` | confirmation required | no | `device` |
-| `adb_logcat` | `device-state` | confirmation required | no | `device` |
-| `adb_parallel` | `destructive` | expert required | no | `device` |
-| `adb_pull` | `local-write` | none | yes | `device` |
-| `adb_push` | `device-state` | confirmation required | no | `device` |
-| `adb_reboot` | `device-state` | confirmation required | no | `device` |
-| `adb_rm` | `destructive` | confirmation required | no | `device` |
-| `adb_screenrecord` | `local-write` | none | yes | `device` |
-| `adb_screenshot` | `local-write` | none | yes | `device` |
-| `adb_service_start` | `device-state` | confirmation required | no | `device` |
-| `adb_shell` | `destructive` | expert required | no | `device` |
-| `adb_uninstall` | `destructive` | confirmation required | no | `device` |
-| `adb_wifi` | `device-state` | confirmation required | no | `device` |
-| `anr_check` | `read-only` | none | yes | `device` |
-| `crash_summary` | `device-state` | confirmation required | no | `device` |
-| `logcat_filtered` | `device-state` | confirmation required | no | `device` |
-| `runtime_dump` | `read-only` | none | yes | `device` |
+| Tool | Impact | Risk | Approval | Unattended | Source |
+|---|---|---|---|---|---|
+| `adb_battery` | `read-only` | `read-only` | none | yes | `device` |
+| `adb_broadcast` | `device-state` | `device-state` | confirmation required | no | `device` |
+| `adb_clear_data` | `destructive` | `destructive` | confirmation required | no | `device` |
+| `adb_deep_link` | `device-state` | `device-state` | confirmation required | no | `device` |
+| `adb_devices` | `read-only` | `read-only` | none | yes | `device` |
+| `adb_force_stop` | `device-state` | `device-state` | confirmation required | no | `device` |
+| `adb_input` | `device-state` | `device-state` | confirmation required | no | `device` |
+| `adb_install` | `device-state` | `device-state` | confirmation required | no | `device` |
+| `adb_launch` | `device-state` | `device-state` | confirmation required | no | `device` |
+| `adb_logcat` | `device-state` | `device-state` | confirmation required | no | `device` |
+| `adb_parallel` | `destructive` | `destructive` | expert required | no | `device` |
+| `adb_pull` | `local-reversible` | `local-write` | none | yes | `device` |
+| `adb_push` | `device-state` | `device-state` | confirmation required | no | `device` |
+| `adb_reboot` | `device-state` | `device-state` | confirmation required | no | `device` |
+| `adb_rm` | `destructive` | `destructive` | confirmation required | no | `device` |
+| `adb_screenrecord` | `local-reversible` | `local-write` | none | yes | `device` |
+| `adb_screenshot` | `local-reversible` | `local-write` | none | yes | `device` |
+| `adb_service_start` | `device-state` | `device-state` | confirmation required | no | `device` |
+| `adb_shell` | `destructive` | `destructive` | expert required | no | `device` |
+| `adb_uninstall` | `destructive` | `destructive` | confirmation required | no | `device` |
+| `adb_wifi` | `device-state` | `device-state` | confirmation required | no | `device` |
+| `anr_check` | `read-only` | `read-only` | none | yes | `device` |
+| `crash_summary` | `device-state` | `device-state` | confirmation required | no | `device` |
+| `logcat_filtered` | `device-state` | `device-state` | confirmation required | no | `device` |
+| `runtime_dump` | `read-only` | `read-only` | none | yes | `device` |
 
 ### `adb_battery`
 
 Read the device battery status through dumpsys battery.
 
+- Impact: `read-only`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb
 - Side effects: `device-read`, `process-spawn`
 - Verification: npm test — smoke registration; battery reads need a device
@@ -202,6 +212,7 @@ Read the device battery status through dumpsys battery.
 
 Send an explicit broadcast intent with a validated action and quoted extras.
 
+- Impact: `device-state`
 - Policy key: `device.state.write`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb; The receiving app is installed
 - Side effects: `device-write`, `process-spawn`
@@ -213,6 +224,7 @@ Send an explicit broadcast intent with a validated action and quoted extras.
 
 Clear all application data for a package on a device.
 
+- Impact: `destructive`
 - Policy key: `device.app.clear`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb; The package is installed
 - Side effects: `device-delete`, `process-spawn`
@@ -224,6 +236,7 @@ Clear all application data for a package on a device.
 
 Open a deep-link URI on the device, optionally restricted to a package.
 
+- Impact: `device-state`
 - Policy key: `device.state.write`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb; An app handles the URI
 - Side effects: `device-write`, `process-spawn`
@@ -235,6 +248,7 @@ Open a deep-link URI on the device, optionally restricted to a package.
 
 List connected Android devices and emulators with their adb state.
 
+- Impact: `read-only`
 - Preconditions: adb is on PATH
 - Side effects: `device-read`, `process-spawn`
 - Verification: npm test — smoke registration and workspace path-policy tests
@@ -244,6 +258,7 @@ List connected Android devices and emulators with their adb state.
 
 Force-stop an application process on a device.
 
+- Impact: `device-state`
 - Policy key: `device.app.force_stop`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb; The package is installed
 - Side effects: `device-write`, `process-spawn`
@@ -255,6 +270,7 @@ Force-stop an application process on a device.
 
 Inject a tap, swipe, text or key event into the device input system.
 
+- Impact: `device-state`
 - Policy key: `device.input`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb; The target screen is in the expected state
 - Side effects: `device-write`, `process-spawn`
@@ -266,6 +282,7 @@ Inject a tap, swipe, text or key event into the device input system.
 
 Install an APK on a connected device or emulator.
 
+- Impact: `device-state`
 - Policy key: `device.app.install`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb; ANDROID_MCP_WORKSPACE covers the project, APK or output path used
 - Side effects: `device-write`, `host-read`, `process-spawn`
@@ -278,6 +295,7 @@ Install an APK on a connected device or emulator.
 
 Launch an app package and optional activity, falling back to a launcher intent.
 
+- Impact: `device-state`
 - Policy key: `device.state.write`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb; The target package is installed
 - Side effects: `device-write`, `device-read`, `process-spawn`
@@ -289,6 +307,7 @@ Launch an app package and optional activity, falling back to a launcher intent.
 
 Clear, wait and dump device logcat with optional tag and regex filtering.
 
+- Impact: `device-state`
 - Policy key: `device.logs.clear`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb
 - Side effects: `device-read`, `device-delete`, `process-spawn`
@@ -302,6 +321,7 @@ Clear, wait and dump device logcat with optional tag and regex filtering.
 
 Run an arbitrary shell command on several devices in parallel.
 
+- Impact: `destructive`
 - Policy key: `device.shell`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb; The caller has reviewed the exact command
 - Side effects: `device-read`, `device-write`, `device-delete`, `process-spawn`
@@ -313,6 +333,7 @@ Run an arbitrary shell command on several devices in parallel.
 
 Copy a remote device file to an approved host path.
 
+- Impact: `local-reversible`
 - Policy key: `host.file.write`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb; ANDROID_MCP_WORKSPACE covers the project, APK or output path used; The remote path is readable
 - Side effects: `device-read`, `host-write`, `process-spawn`
@@ -324,6 +345,7 @@ Copy a remote device file to an approved host path.
 
 Copy a host file to an explicit path on a device or emulator.
 
+- Impact: `device-state`
 - Policy key: `device.file.push`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb; ANDROID_MCP_WORKSPACE covers the project, APK or output path used; The remote directory exists and is writable
 - Side effects: `device-write`, `host-read`, `process-spawn`
@@ -336,6 +358,7 @@ Copy a host file to an explicit path on a device or emulator.
 
 Reboot a device or emulator and report the command result.
 
+- Impact: `device-state`
 - Policy key: `device.reboot`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb
 - Side effects: `device-write`, `process-spawn`
@@ -347,6 +370,7 @@ Reboot a device or emulator and report the command result.
 
 Recursively delete an absolute remote path under an allowed device scope.
 
+- Impact: `destructive`
 - Policy key: `device.file.delete`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb; The target is absolute and inside an allowed scope
 - Side effects: `device-delete`, `process-spawn`
@@ -358,6 +382,7 @@ Recursively delete an absolute remote path under an allowed device scope.
 
 Record the device screen for a bounded duration and pull the MP4 to the host.
 
+- Impact: `local-reversible`
 - Policy key: `host.file.write`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb; ANDROID_MCP_WORKSPACE covers the project, APK or output path used
 - Side effects: `device-write`, `device-read`, `host-write`, `process-spawn`
@@ -369,6 +394,7 @@ Record the device screen for a bounded duration and pull the MP4 to the host.
 
 Capture a device screenshot, save the PNG to an approved path and return it inline.
 
+- Impact: `local-reversible`
 - Policy key: `host.file.write`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb; ANDROID_MCP_WORKSPACE covers the project, APK or output path used
 - Side effects: `device-read`, `host-write`, `process-spawn`
@@ -380,6 +406,7 @@ Capture a device screenshot, save the PNG to an approved path and return it inli
 
 Start a specific service component with am startservice.
 
+- Impact: `device-state`
 - Policy key: `device.state.write`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb; The component exists in the target package
 - Side effects: `device-write`, `process-spawn`
@@ -391,6 +418,7 @@ Start a specific service component with am startservice.
 
 Run a raw shell command on a device; high-trust, arbitrary and not blocklisted.
 
+- Impact: `destructive`
 - Policy key: `device.shell`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb; The caller has reviewed the exact command
 - Side effects: `device-read`, `device-write`, `device-delete`, `process-spawn`
@@ -404,6 +432,7 @@ Run a raw shell command on a device; high-trust, arbitrary and not blocklisted.
 
 Uninstall an application package from a device.
 
+- Impact: `destructive`
 - Policy key: `device.app.uninstall`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb; The package is installed
 - Side effects: `device-delete`, `process-spawn`
@@ -415,6 +444,7 @@ Uninstall an application package from a device.
 
 Switch adb to TCP/IP, connect to, or disconnect from a network device.
 
+- Impact: `device-state`
 - Policy key: `device.network`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb; The host and device share a reachable network for connect
 - Side effects: `device-write`, `network-egress`, `process-spawn`
@@ -426,6 +456,7 @@ Switch adb to TCP/IP, connect to, or disconnect from a network device.
 
 Read the device ANR trace file and report whether an ANR marker is present.
 
+- Impact: `read-only`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb; The ANR trace file is readable on the device
 - Side effects: `device-read`, `process-spawn`
 - Verification: npm test — smoke registration; ANR reads need a device
@@ -435,6 +466,7 @@ Read the device ANR trace file and report whether an ANR marker is present.
 
 Clear logcat, observe a bounded window and summarise fatal crash lines.
 
+- Impact: `device-state`
 - Policy key: `device.logs.clear`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb
 - Side effects: `device-read`, `device-delete`, `process-spawn`
@@ -446,6 +478,7 @@ Clear logcat, observe a bounded window and summarise fatal crash lines.
 
 Clear, wait and return up to 500 logcat lines filtered by tag, package or regex.
 
+- Impact: `device-state`
 - Policy key: `device.logs.clear`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb
 - Side effects: `device-read`, `device-delete`, `process-spawn`
@@ -457,6 +490,7 @@ Clear, wait and return up to 500 logcat lines filtered by tag, package or regex.
 
 Run structured dumpsys probes for activity, service, package or meminfo.
 
+- Impact: `read-only`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb
 - Side effects: `device-read`, `process-spawn`
 - Default timeout: 120000 ms
@@ -467,19 +501,20 @@ Run structured dumpsys probes for activity, service, package or meminfo.
 
 ## emulator (6)
 
-| Tool | Risk | Approval | Unattended | Source |
-|---|---|---|---|---|
-| `avd_create` | `local-write` | none | yes | `device` |
-| `avd_delete` | `destructive` | confirmation required | no | `device` |
-| `avd_wipe` | `destructive` | confirmation required | no | `device` |
-| `emulator_boot` | `device-state` | confirmation required | no | `device` |
-| `emulator_list_avds` | `read-only` | none | yes | `device` |
-| `emulator_snapshot` | `device-state` | confirmation required | no | `device` |
+| Tool | Impact | Risk | Approval | Unattended | Source |
+|---|---|---|---|---|---|
+| `avd_create` | `local-reversible` | `local-write` | none | yes | `device` |
+| `avd_delete` | `destructive` | `destructive` | confirmation required | no | `device` |
+| `avd_wipe` | `destructive` | `destructive` | confirmation required | no | `device` |
+| `emulator_boot` | `device-state` | `device-state` | confirmation required | no | `device` |
+| `emulator_list_avds` | `read-only` | `read-only` | none | yes | `device` |
+| `emulator_snapshot` | `device-state` | `device-state` | confirmation required | no | `device` |
 
 ### `avd_create`
 
 Create a new Android Virtual Device from a system image and device profile.
 
+- Impact: `local-reversible`
 - Policy key: `emulator.create`
 - Preconditions: avdmanager and the requested system image are installed
 - Side effects: `host-write`, `external-download`, `process-spawn`
@@ -490,6 +525,7 @@ Create a new Android Virtual Device from a system image and device profile.
 
 Delete an Android Virtual Device definition from the host.
 
+- Impact: `destructive`
 - Policy key: `emulator.delete`
 - Preconditions: The named AVD exists and is stopped
 - Side effects: `host-delete`, `process-spawn`
@@ -501,6 +537,7 @@ Delete an Android Virtual Device definition from the host.
 
 Reset an AVD's user data through a bounded boot, verify boot completion and stop the exact instance.
 
+- Impact: `destructive`
 - Policy key: `emulator.wipe`
 - Preconditions: The named AVD exists and is stopped; The emulator is installed
 - Side effects: `host-delete`, `device-write`, `background-process`, `process-spawn`
@@ -512,6 +549,7 @@ Reset an AVD's user data through a bounded boot, verify boot completion and stop
 
 Boot an AVD headless or windowed and wait for Android boot completion.
 
+- Impact: `device-state`
 - Policy key: `emulator.boot`
 - Preconditions: The Android emulator and an AVD are installed; Hardware acceleration is available
 - Side effects: `background-process`, `device-write`, `host-read`
@@ -523,6 +561,7 @@ Boot an AVD headless or windowed and wait for Android boot completion.
 
 List Android Virtual Devices available to the installed emulator.
 
+- Impact: `read-only`
 - Preconditions: The Android emulator is installed
 - Side effects: `host-read`, `process-spawn`
 - Verification: npm test — smoke registration; AVD listing needs the emulator
@@ -532,6 +571,7 @@ List Android Virtual Devices available to the installed emulator.
 
 List, save or load an emulator snapshot for a running device.
 
+- Impact: `device-state`
 - Policy key: `emulator.snapshot`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb
 - Side effects: `device-write`, `device-read`, `host-write`, `process-spawn`
@@ -542,16 +582,17 @@ List, save or load an emulator snapshot for a running device.
 
 ## frida (3)
 
-| Tool | Risk | Approval | Unattended | Source |
-|---|---|---|---|---|
-| `frida_hook` | `device-state` | confirmation required | no | `device` |
-| `frida_ps` | `device-state` | confirmation required | no | `device` |
-| `frida_trace_methods` | `device-state` | confirmation required | no | `device` |
+| Tool | Impact | Risk | Approval | Unattended | Source |
+|---|---|---|---|---|---|
+| `frida_hook` | `device-state` | `device-state` | confirmation required | no | `device` |
+| `frida_ps` | `device-state` | `device-state` | confirmation required | no | `device` |
+| `frida_trace_methods` | `device-state` | `device-state` | confirmation required | no | `device` |
 
 ### `frida_hook`
 
 Attach or spawn an app and run an inline or file-based Frida hook for a bounded duration.
 
+- Impact: `device-state`
 - Policy key: `frida.attach`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb; The frida CLI is installed; ANDROID_MCP_WORKSPACE covers the project, APK or output path used
 - Side effects: `device-write`, `device-read`, `process-spawn`
@@ -564,6 +605,7 @@ Attach or spawn an app and run an inline or file-based Frida hook for a bounded 
 
 Ensure frida-server is available and list installed apps and running processes.
 
+- Impact: `device-state`
 - Policy key: `frida.server`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb; The frida CLI is installed; The device permits frida-server execution
 - Side effects: `device-write`, `device-read`, `host-read`, `process-spawn`
@@ -575,6 +617,7 @@ Ensure frida-server is available and list installed apps and running processes.
 
 Trace Java methods matching a class and regex, logging arguments and return values.
 
+- Impact: `device-state`
 - Policy key: `frida.attach`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb; The frida CLI and built-in hook script are installed
 - Side effects: `device-write`, `device-read`, `process-spawn`
@@ -585,15 +628,16 @@ Trace Java methods matching a class and regex, logging arguments and return valu
 
 ## network (2)
 
-| Tool | Risk | Approval | Unattended | Source |
-|---|---|---|---|---|
-| `apk_serve` | `network-exposure` | confirmation required | no | `mcp` |
-| `net_capture` | `network-exposure` | confirmation required | no | `network` |
+| Tool | Impact | Risk | Approval | Unattended | Source |
+|---|---|---|---|---|---|
+| `apk_serve` | `network-exposure` | `network-exposure` | confirmation required | no | `mcp` |
+| `net_capture` | `network-exposure` | `network-exposure` | confirmation required | no | `network` |
 
 ### `apk_serve`
 
 Serve staged copies of APK files over loopback HTTP, with explicit LAN-exposure opt-in.
 
+- Impact: `network-exposure`
 - Policy key: `network.serve`
 - Preconditions: ANDROID_MCP_WORKSPACE covers the project, APK or output path used; The chosen directory contains readable .apk files
 - Side effects: `network-listen`, `host-read`, `background-process`, `host-write`
@@ -606,6 +650,7 @@ Serve staged copies of APK files over loopback HTTP, with explicit LAN-exposure 
 
 Start or stop a single mitmproxy session, configure the device proxy and write a HAR file.
 
+- Impact: `network-exposure`
 - Policy key: `network.capture`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb; mitmproxy is installed; The device permits proxy and CA changes
 - Side effects: `network-listen`, `device-write`, `host-write`, `background-process`
@@ -616,16 +661,17 @@ Start or stop a single mitmproxy session, configure the device proxy and write a
 
 ## ui (3)
 
-| Tool | Risk | Approval | Unattended | Source |
-|---|---|---|---|---|
-| `compose_recomposition` | `read-only` | none | yes | `device` |
-| `layout_bounds` | `device-state` | confirmation required | no | `device` |
-| `ui_dump` | `local-write` | none | yes | `device` |
+| Tool | Impact | Risk | Approval | Unattended | Source |
+|---|---|---|---|---|---|
+| `compose_recomposition` | `read-only` | `read-only` | none | yes | `device` |
+| `layout_bounds` | `device-state` | `device-state` | confirmation required | no | `device` |
+| `ui_dump` | `local-reversible` | `local-write` | none | yes | `device` |
 
 ### `compose_recomposition`
 
 Read activity dumpsys output used to inspect Compose recomposition state.
 
+- Impact: `read-only`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb; The app under test is running
 - Side effects: `device-read`, `process-spawn`
 - Verification: npm test — smoke registration and recomposition output tests
@@ -635,6 +681,7 @@ Read activity dumpsys output used to inspect Compose recomposition state.
 
 Enable or disable the debug.layout property so layout bounds are drawn.
 
+- Impact: `device-state`
 - Policy key: `device.state.write`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb
 - Side effects: `device-write`, `process-spawn`
@@ -646,6 +693,7 @@ Enable or disable the debug.layout property so layout bounds are drawn.
 
 Dump the current UI hierarchy XML and pull it to an approved host path.
 
+- Impact: `local-reversible`
 - Policy key: `host.file.write`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb; ANDROID_MCP_WORKSPACE covers the project, APK or output path used
 - Side effects: `device-write`, `device-read`, `host-write`, `process-spawn`
@@ -656,18 +704,19 @@ Dump the current UI hierarchy XML and pull it to an approved host path.
 
 ## static-analysis (5)
 
-| Tool | Risk | Approval | Unattended | Source |
-|---|---|---|---|---|
-| `apk_decompile` | `local-write` | none | yes | `static` |
-| `apk_info` | `read-only` | none | yes | `static` |
-| `dex_strings` | `read-only` | none | yes | `static` |
-| `manifest_inspect` | `read-only` | none | yes | `static` |
-| `native_libs` | `read-only` | none | yes | `static` |
+| Tool | Impact | Risk | Approval | Unattended | Source |
+|---|---|---|---|---|---|
+| `apk_decompile` | `local-reversible` | `local-write` | none | yes | `static` |
+| `apk_info` | `read-only` | `read-only` | none | yes | `static` |
+| `dex_strings` | `read-only` | `read-only` | none | yes | `static` |
+| `manifest_inspect` | `read-only` | `read-only` | none | yes | `static` |
+| `native_libs` | `read-only` | `read-only` | none | yes | `static` |
 
 ### `apk_decompile`
 
 Decompile an APK with jadx or apktool into a new or explicitly replaceable directory.
 
+- Impact: `local-reversible`
 - Policy key: `host.file.write`
 - Preconditions: jadx or apktool is installed; ANDROID_MCP_WORKSPACE covers the project, APK or output path used
 - Side effects: `host-read`, `host-write`, `process-spawn`
@@ -681,6 +730,7 @@ Decompile an APK with jadx or apktool into a new or explicitly replaceable direc
 
 Read APK badging metadata with aapt2, falling back to a zip listing.
 
+- Impact: `read-only`
 - Preconditions: aapt2 or unzip is installed; ANDROID_MCP_WORKSPACE covers the project, APK or output path used
 - Side effects: `host-read`, `process-spawn`
 - Path arguments: `apkPath` (read)
@@ -693,6 +743,7 @@ Read APK badging metadata with aapt2, falling back to a zip listing.
 
 Extract printable strings from an APK with an optional regex filter.
 
+- Impact: `read-only`
 - Preconditions: strings is installed; ANDROID_MCP_WORKSPACE covers the project, APK or output path used
 - Side effects: `host-read`, `process-spawn`
 - Path arguments: `apkPath` (read)
@@ -703,6 +754,7 @@ Extract printable strings from an APK with an optional regex filter.
 
 Dump the binary AndroidManifest.xml from an APK as an XML tree.
 
+- Impact: `read-only`
 - Preconditions: aapt2 is installed; ANDROID_MCP_WORKSPACE covers the project, APK or output path used
 - Side effects: `host-read`, `process-spawn`
 - Path arguments: `apkPath` (read)
@@ -713,6 +765,7 @@ Dump the binary AndroidManifest.xml from an APK as an XML tree.
 
 List native .so libraries packaged in an APK.
 
+- Impact: `read-only`
 - Preconditions: unzip is installed; ANDROID_MCP_WORKSPACE covers the project, APK or output path used
 - Side effects: `host-read`, `process-spawn`
 - Path arguments: `apkPath` (read)
@@ -722,17 +775,18 @@ List native .so libraries packaged in an APK.
 
 ## testing (4)
 
-| Tool | Risk | Approval | Unattended | Source |
-|---|---|---|---|---|
-| `instrumented_test` | `device-state` | confirmation required | no | `build` |
-| `macrobenchmark` | `device-state` | confirmation required | no | `build` |
-| `maestro_run` | `device-state` | confirmation required | no | `device` |
-| `test_coverage` | `local-write` | none | yes | `build` |
+| Tool | Impact | Risk | Approval | Unattended | Source |
+|---|---|---|---|---|---|
+| `instrumented_test` | `device-state` | `device-state` | confirmation required | no | `build` |
+| `macrobenchmark` | `device-state` | `device-state` | confirmation required | no | `build` |
+| `maestro_run` | `device-state` | `device-state` | confirmation required | no | `device` |
+| `test_coverage` | `local-reversible` | `local-write` | none | yes | `build` |
 
 ### `instrumented_test`
 
 Run a module's connected instrumented tests with an optional class filter.
 
+- Impact: `device-state`
 - Policy key: `device.test.instrumented`
 - Preconditions: Java and a Gradle wrapper or gradle executable are available; An authorised Android device or emulator is connected and visible to adb; ANDROID_MCP_WORKSPACE covers the project, APK or output path used
 - Side effects: `project-build`, `process-spawn`, `device-write`, `host-write`
@@ -745,6 +799,7 @@ Run a module's connected instrumented tests with an optional class filter.
 
 Run a module's connected macrobenchmark instrumentation tests.
 
+- Impact: `device-state`
 - Policy key: `device.test.instrumented`
 - Preconditions: Java and a Gradle wrapper or gradle executable are available; An authorised Android device or emulator is connected and visible to adb; ANDROID_MCP_WORKSPACE covers the project, APK or output path used
 - Side effects: `project-build`, `process-spawn`, `device-write`, `host-write`
@@ -757,6 +812,7 @@ Run a module's connected macrobenchmark instrumentation tests.
 
 Run a Maestro flow YAML against a connected device.
 
+- Impact: `device-state`
 - Policy key: `device.test.maestro`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb; Maestro is installed; ANDROID_MCP_WORKSPACE covers the project, APK or output path used
 - Side effects: `device-write`, `device-read`, `process-spawn`
@@ -769,6 +825,7 @@ Run a Maestro flow YAML against a connected device.
 
 Run the module's debug unit-test coverage task and return bounded output.
 
+- Impact: `local-reversible`
 - Policy key: `build.local`
 - Preconditions: Java and a Gradle wrapper or gradle executable are available; ANDROID_MCP_WORKSPACE covers the project, APK or output path used
 - Side effects: `project-build`, `process-spawn`, `host-write`
@@ -779,16 +836,17 @@ Run the module's debug unit-test coverage task and return bounded output.
 
 ## profiling (3)
 
-| Tool | Risk | Approval | Unattended | Source |
-|---|---|---|---|---|
-| `memory_profile` | `read-only` | none | yes | `device` |
-| `perfetto_trace` | `local-write` | none | yes | `device` |
-| `startup_time` | `device-state` | confirmation required | no | `device` |
+| Tool | Impact | Risk | Approval | Unattended | Source |
+|---|---|---|---|---|---|
+| `memory_profile` | `read-only` | `read-only` | none | yes | `device` |
+| `perfetto_trace` | `local-reversible` | `local-write` | none | yes | `device` |
+| `startup_time` | `device-state` | `device-state` | confirmation required | no | `device` |
 
 ### `memory_profile`
 
 Read dumpsys meminfo for a package on a device.
 
+- Impact: `read-only`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb; The package is installed
 - Side effects: `device-read`, `process-spawn`
 - Verification: npm test — smoke registration; meminfo reads need a device
@@ -798,6 +856,7 @@ Read dumpsys meminfo for a package on a device.
 
 Capture a Perfetto system trace for a bounded duration and pull it to the host.
 
+- Impact: `local-reversible`
 - Policy key: `host.file.write`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb; ANDROID_MCP_WORKSPACE covers the project, APK or output path used
 - Side effects: `device-write`, `device-read`, `host-write`, `process-spawn`
@@ -809,6 +868,7 @@ Capture a Perfetto system trace for a bounded duration and pull it to the host.
 
 Measure repeated cold-start timings for a package and clean up with force-stop.
 
+- Impact: `device-state`
 - Policy key: `device.app.force_stop`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb; The package has a resolvable launcher activity
 - Side effects: `device-write`, `device-read`, `process-spawn`
@@ -819,14 +879,15 @@ Measure repeated cold-start timings for a package and clean up with force-stop.
 
 ## privacy (1)
 
-| Tool | Risk | Approval | Unattended | Source |
-|---|---|---|---|---|
-| `privacy_scan` | `local-write` | none | yes | `project` |
+| Tool | Impact | Risk | Approval | Unattended | Source |
+|---|---|---|---|---|---|
+| `privacy_scan` | `local-reversible` | `local-write` | none | yes | `project` |
 
 ### `privacy_scan`
 
 Scan an Android project for privacy inventory signals and compare them with data-safety declarations.
 
+- Impact: `local-reversible`
 - Policy key: `host.file.write`
 - Preconditions: ANDROID_MCP_WORKSPACE covers the project, APK or output path used; The project contains an Android manifest and sources
 - Side effects: `host-read`, `host-write`
@@ -837,16 +898,17 @@ Scan an Android project for privacy inventory signals and compare them with data
 
 ## security (3)
 
-| Tool | Risk | Approval | Unattended | Source |
-|---|---|---|---|---|
-| `policy_preflight` | `local-write` | none | yes | `project` |
-| `secret_scan` | `local-write` | none | yes | `project` |
-| `security_audit` | `local-write` | none | yes | `project` |
+| Tool | Impact | Risk | Approval | Unattended | Source |
+|---|---|---|---|---|---|
+| `policy_preflight` | `local-reversible` | `local-write` | none | yes | `project` |
+| `secret_scan` | `local-reversible` | `local-write` | none | yes | `project` |
+| `security_audit` | `local-reversible` | `local-write` | none | yes | `project` |
 
 ### `policy_preflight`
 
 Run a sourced Google Play policy preflight with last-verified policy links.
 
+- Impact: `local-reversible`
 - Policy key: `host.file.write`
 - Preconditions: ANDROID_MCP_WORKSPACE covers the project, APK or output path used; The project has an Android manifest and Gradle build
 - Side effects: `host-read`, `host-write`
@@ -858,6 +920,7 @@ Run a sourced Google Play policy preflight with last-verified policy links.
 
 Scan a project tree for committed credentials, redacting every matched value.
 
+- Impact: `local-reversible`
 - Policy key: `host.file.write`
 - Preconditions: ANDROID_MCP_WORKSPACE covers the project, APK or output path used; The project tree is readable
 - Side effects: `host-read`, `host-write`
@@ -869,6 +932,7 @@ Scan a project tree for committed credentials, redacting every matched value.
 
 Audit the source AndroidManifest for exported components and insecure configuration.
 
+- Impact: `local-reversible`
 - Policy key: `host.file.write`
 - Preconditions: ANDROID_MCP_WORKSPACE covers the project, APK or output path used; The project has a source AndroidManifest.xml
 - Side effects: `host-read`, `host-write`
@@ -879,15 +943,16 @@ Audit the source AndroidManifest for exported components and insecure configurat
 
 ## skills (2)
 
-| Tool | Risk | Approval | Unattended | Source |
-|---|---|---|---|---|
-| `android_skills_list` | `read-only` | none | yes | `mcp` |
-| `android_skills_search` | `read-only` | none | yes | `mcp` |
+| Tool | Impact | Risk | Approval | Unattended | Source |
+|---|---|---|---|---|---|
+| `android_skills_list` | `read-only` | `read-only` | none | yes | `mcp` |
+| `android_skills_search` | `read-only` | `read-only` | none | yes | `mcp` |
 
 ### `android_skills_list`
 
 List available Android skills through the Android CLI when it is installed.
 
+- Impact: `read-only`
 - Preconditions: The Android CLI is installed for live results
 - Side effects: `host-read`, `process-spawn`
 - Verification: npm test — smoke registration; live listing needs the Android CLI
@@ -897,6 +962,7 @@ List available Android skills through the Android CLI when it is installed.
 
 Search Android skills through the Android CLI when it is installed.
 
+- Impact: `read-only`
 - Preconditions: The Android CLI is installed for live results
 - Side effects: `host-read`, `process-spawn`
 - Verification: npm test — smoke registration; live search needs the Android CLI
@@ -905,14 +971,15 @@ Search Android skills through the Android CLI when it is installed.
 
 ## catalog (1)
 
-| Tool | Risk | Approval | Unattended | Source |
-|---|---|---|---|---|
-| `tool_catalog` | `read-only` | none | yes | `mcp` |
+| Tool | Impact | Risk | Approval | Unattended | Source |
+|---|---|---|---|---|---|
+| `tool_catalog` | `read-only` | `read-only` | none | yes | `mcp` |
 
 ### `tool_catalog`
 
 List registered MCP tools with category, risk, approval and safe-to-run metadata.
 
+- Impact: `read-only`
 - Side effects: `host-read`
 - Verification: npm test — smoke registration and registry catalogue tests
 - Tests: `test/smoke.test.mjs`, `test/registry.test.mjs`
