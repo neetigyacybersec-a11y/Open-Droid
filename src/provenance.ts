@@ -7,77 +7,10 @@
 // layer; execution policy and workspace boundaries remain the authorization
 // boundary.
 
+import { TOOL_SOURCES } from "./registry.js";
+
 export type SourceCategory =
   "project" | "build" | "device" | "static" | "network" | "mixed" | "mcp";
-
-export const TOOL_SOURCES: Record<string, SourceCategory> = Object.freeze({
-  android_env_check: "mcp",
-  gradle_task: "build",
-  adb_devices: "device",
-  adb_screenshot: "device",
-  adb_install: "device",
-  adb_launch: "device",
-  emulator_list_avds: "device",
-  emulator_boot: "device",
-  maestro_run: "device",
-  compose_preview_render: "mixed",
-  android_skills_list: "mcp",
-  android_skills_search: "mcp",
-  sdkmanager_install: "build",
-  adb_shell: "device",
-  adb_logcat: "device",
-  runtime_dump: "device",
-  frida_ps: "device",
-  frida_hook: "device",
-  frida_trace_methods: "device",
-  net_capture: "network",
-  gradle_test: "build",
-  gradle_lint: "build",
-  gradle_dependencies: "build",
-  build_variant: "build",
-  baseline_profile_generate: "build",
-  adb_push: "device",
-  adb_pull: "device",
-  adb_rm: "device",
-  adb_uninstall: "device",
-  adb_clear_data: "device",
-  adb_force_stop: "device",
-  adb_reboot: "device",
-  adb_screenrecord: "device",
-  adb_input: "device",
-  adb_deep_link: "device",
-  adb_broadcast: "device",
-  adb_service_start: "device",
-  adb_wifi: "device",
-  adb_battery: "device",
-  logcat_filtered: "device",
-  anr_check: "device",
-  crash_summary: "device",
-  ui_dump: "device",
-  compose_recomposition: "device",
-  layout_bounds: "device",
-  avd_create: "device",
-  avd_delete: "device",
-  avd_wipe: "device",
-  emulator_snapshot: "device",
-  apk_info: "static",
-  apk_decompile: "static",
-  manifest_inspect: "static",
-  privacy_scan: "project",
-  secret_scan: "project",
-  security_audit: "project",
-  policy_preflight: "project",
-  native_libs: "static",
-  dex_strings: "static",
-  instrumented_test: "build",
-  test_coverage: "build",
-  macrobenchmark: "build",
-  perfetto_trace: "device",
-  memory_profile: "device",
-  startup_time: "device",
-  adb_parallel: "device",
-  apk_serve: "mcp",
-});
 
 export const UNTRUSTED_BEGIN = "[android-mcp:untrusted-data";
 export const UNTRUSTED_END = "[/android-mcp:untrusted-data]";
@@ -200,6 +133,7 @@ export function frameUntrusted(
 
 export interface ResultOptions {
   target?: string | null;
+  source?: SourceCategory;
   now?: Date;
   maxChars?: number;
 }
@@ -210,7 +144,7 @@ export interface ResultOptions {
  * sanitized and framed as data.
  */
 export function presentResult(tool: string, result: any, opts: ResultOptions = {}): any {
-  const source = TOOL_SOURCES[tool] ?? "mixed";
+  const source = opts.source ?? TOOL_SOURCES[tool] ?? "mixed";
   const now = opts.now ?? new Date();
   const trusted = source === "mcp";
   let truncated = false;

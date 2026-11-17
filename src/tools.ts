@@ -422,6 +422,15 @@ export const ToolSchemas = {
       .default(10)
       .describe("Upper bound for the server to answer a loopback HTTP request"),
   }),
+  toolCatalog: z.object({
+    category: z.string().optional().describe("Only return tools in this category"),
+    risk: z.string().optional().describe("Only return tools in this risk class"),
+    safeOnly: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe("Only return tools that need no approval and can run unattended"),
+  }),
 };
 
 export type ToolName = keyof typeof ToolSchemas;

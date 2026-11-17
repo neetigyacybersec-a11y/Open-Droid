@@ -27,6 +27,7 @@ jobs:
       - run: npm run format:check
       - run: node --test test/privacy.test.mjs
       - run: bash scripts/check-readme.sh
+      - run: npm run catalogue
       - run: bash scripts/repo-hygiene.sh
       - run: node scripts/lifecycle-matrix.mjs --check
 

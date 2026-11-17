@@ -19,10 +19,9 @@ import {
   checkWorkspacePath,
   isPathInside,
   createPathGrant,
-  TOOL_PATH_SPECS,
 } from "../dist/workspace.js";
 import { runWithBoundary } from "../dist/boundary.js";
-import { TOOL_SOURCES } from "../dist/provenance.js";
+import { TOOL_NAMES, TOOL_PATH_SPECS, TOOL_SOURCES } from "../dist/registry.js";
 import { cleanup } from "../dist/util.js";
 
 const REPO = resolve(import.meta.dirname, "..");
@@ -256,10 +255,8 @@ test("concurrent requests cannot leak workspace context", async () => {
 });
 
 test("every registered MCP tool has an explicit path classification", () => {
-  const index = readFileSync(join(REPO, "src/index.ts"), "utf8");
-  const names = [...index.matchAll(/server\.registerTool\(\s*"([^"]+)"/g)].map((m) => m[1]);
-  assert.equal(names.length, 66, "tool registry changed; update the classification");
-  assert.deepEqual(Object.keys(TOOL_PATH_SPECS).sort(), names.sort());
+  assert.equal(TOOL_NAMES.length, 67, "tool registry changed; update the classification");
+  assert.deepEqual(Object.keys(TOOL_PATH_SPECS).sort(), [...TOOL_NAMES].sort());
   for (const [name, specs] of Object.entries(TOOL_PATH_SPECS)) {
     for (const spec of specs) {
       assert.ok(spec.field.length > 0, `${name} has an empty field`);
@@ -275,12 +272,11 @@ test("every registered MCP tool has an explicit path classification", () => {
   assert.equal(fields("adb_pull").localPath, "write");
   assert.equal(fields("privacy_scan").reportPath, "write");
   assert.deepEqual(TOOL_PATH_SPECS.adb_devices, []);
+  assert.deepEqual(TOOL_PATH_SPECS.tool_catalog, []);
 });
 
 test("every registered MCP tool has a provenance source category", () => {
-  const index = readFileSync(join(REPO, "src/index.ts"), "utf8");
-  const names = [...index.matchAll(/server\.registerTool\(\s*"([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(Object.keys(TOOL_SOURCES).sort(), names.sort());
+  assert.deepEqual(Object.keys(TOOL_SOURCES).sort(), [...TOOL_NAMES].sort());
   for (const [name, source] of Object.entries(TOOL_SOURCES)) {
     assert.match(source, /^(project|build|device|static|network|mixed|mcp)$/, name);
   }

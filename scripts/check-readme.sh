@@ -6,7 +6,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 SKILLS=$(ls -d skills/*/ 2>/dev/null | wc -l)
-# Tool count: single source of truth is the EXPECTED Set literal in test/smoke.test.mjs.
+# Tool count: the smoke test's EXPECTED Set, which is asserted equal to the
+# typed registry (src/registry.ts) at runtime.
 # Counted with pure bash (awk range + grep/sort) — the earlier embedded python3
 # heredoc failed cryptically on hosts without a real python (Windows Store stub).
 TOOLS=$(awk '/const EXPECTED = new Set\(\[/,/^[ \t]*\]\);/' test/smoke.test.mjs \

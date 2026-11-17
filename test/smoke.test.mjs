@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
 import { strict as assert } from "node:assert";
 
+import { TOOL_NAMES } from "../dist/registry.js";
+
 const proc = spawn("node", ["dist/index.js"], { stdio: ["pipe", "pipe", "pipe"] });
 let out = "";
 proc.stdout.on("data", (d) => {
@@ -94,8 +96,14 @@ setTimeout(() => {
     "sdkmanager_install",
     "startup_time",
     "test_coverage",
+    "tool_catalog",
     "ui_dump",
   ]);
+  assert.deepEqual(
+    [...EXPECTED].sort(),
+    [...TOOL_NAMES].sort(),
+    "smoke list drifted from the typed registry",
+  );
   assert.equal(tools.length, EXPECTED.size, "tool count drifted");
   const got = new Set(tools.map((t) => t.name));
   for (const n of EXPECTED) assert.ok(got.has(n), `missing tool: ${n}`);

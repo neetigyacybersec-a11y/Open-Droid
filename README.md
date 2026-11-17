@@ -25,7 +25,7 @@ No scattered MCP servers. No repeated downloads. No "works on my machine."
 - [Quick start — Clone + setup (automatic registration)](#quick-start--clone--setup-automatic-registration)
 - [What's included](#whats-included)
 - [Skills (30)](#skills-30)
-- [MCP tools (66)](#mcp-tools-66)
+- [MCP tools (67)](#mcp-tools-67)
 - [Create your first app](#create-your-first-app)
 - [Live visual output](#live-visual-output)
 - [Architecture](#architecture)
@@ -173,33 +173,33 @@ See `THIRD-PARTY.md` for attribution.
 
 ---
 
-## MCP tools (66)
+## MCP tools (67)
 
-The server exposes 66 tools grouped by category. The full list with schemas is
-returned by `tools/list` (MCP); `docs/agent-install.md` covers installation,
-registration, and verification.
+The server exposes 67 tools grouped by category. The full list with schemas is
+returned by `tools/list` (MCP); [`docs/tool-catalogue.md`](docs/tool-catalogue.md)
+is generated from the typed registry and records each tool's risk class,
+approval requirement, path policy and tests. `docs/agent-install.md` covers
+installation, registration, and verification.
 
 | Category | Count | Examples |
 |---|---|---|
-| Environment / build | 6 | `android_env_check`, `gradle_task`, `gradle_test`, `gradle_lint`, `build_variant`, `baseline_profile_generate` |
-| ADB core | 6 | `adb_devices`, `adb_screenshot`, `adb_install`, `adb_launch`, `adb_push`, `adb_pull` |
-| ADB device interaction | 10 | `adb_shell`, `adb_input`, `adb_deep_link`, `adb_broadcast`, `adb_wifi`, `adb_battery`, `adb_reboot`, ... |
-| ADB logs & diagnostics | 4 | `adb_logcat`, `logcat_filtered`, `anr_check`, `crash_summary` |
-| Emulator / AVD | 7 | `emulator_list_avds`, `emulator_boot`, `avd_create`, `avd_delete`, `avd_wipe`, `emulator_snapshot`, ... |
-| Frida (dynamic) | 4 | `frida_ps`, `frida_hook`, `frida_trace_methods`, (+ ensureServer) |
-| Network capture | 1 | `net_capture` (single-session mitmproxy) |
+| Environment | 2 | `android_env_check`, `sdkmanager_install` |
+| Build | 7 | `gradle_task`, `gradle_test`, `build_variant`, `compose_preview_render` |
+| ADB | 25 | `adb_devices`, `adb_screenshot`, `adb_shell`, `adb_logcat`, `adb_parallel` |
+| Emulator / AVD | 6 | `emulator_list_avds`, `emulator_boot`, `avd_create`, `avd_wipe` |
+| Frida (dynamic) | 3 | `frida_ps`, `frida_hook`, `frida_trace_methods` |
+| Network exposure | 2 | `net_capture`, `apk_serve` |
 | UI inspection | 3 | `ui_dump`, `compose_recomposition`, `layout_bounds` |
 | Static analysis | 5 | `apk_info`, `apk_decompile`, `manifest_inspect`, `native_libs`, `dex_strings` |
-| Testing | 3 | `instrumented_test`, `test_coverage`, `macrobenchmark` |
+| Testing | 4 | `maestro_run`, `instrumented_test`, `test_coverage`, `macrobenchmark` |
 | Profiling | 3 | `perfetto_trace`, `memory_profile`, `startup_time` |
-| Multi-device | 1 | `adb_parallel` |
-| APK serving (localhost) | 1 | `apk_serve` (serves only staged copies of regular `.apk` files found under the chosen dir; binds 127.0.0.1, `expose:true` opts into 0.0.0.0) |
-| Skills / SDK | 4 | `android_skills_list`, `android_skills_search`, `sdkmanager_install`, `compose_preview_render` |
-| Privacy / compliance | 1 | `privacy_scan` (permissions, SDKs, endpoints, storage, account flows, PII logs, declaration diff) |
-| Security audit | 3 | `secret_scan` (redacted credentials), `security_audit` (manifest/components), `policy_preflight` (sourced Play policy checks) |
-| Maestro | 1 | `maestro_run` |
+| Privacy | 1 | `privacy_scan` |
+| Security | 3 | `secret_scan`, `security_audit`, `policy_preflight` |
+| Skills | 2 | `android_skills_list`, `android_skills_search` |
+| Catalogue | 1 | `tool_catalog` (safe-only discovery with risk and approval metadata) |
 
-Run `tools/list` for the exact schema of every tool.
+Run `tools/list` for the exact schema of every tool, or `tool_catalog` with
+`safeOnly: true` to see only approval-free tools that can run unattended.
 
 
 ---
@@ -258,7 +258,8 @@ per-agent).
 ```bash
 npm install
 npm run build        # compile TypeScript
-npm test             # smoke test (66 tools)
+npm test             # smoke test (67 tools)
+npm run catalogue    # verify docs/tool-catalogue.md matches src/registry.ts
 npm run lint         # eslint
 npm run format       # prettier
 make doctor          # toolchain + registration checks
@@ -346,6 +347,13 @@ truthful outcome (`success`, `failed`, `blocked`, `unavailable`, `timeout`,
 `partial`, `cancelled`). Diagnostics are one redacted, bounded line; raw
 arguments, scripts and full tool output are not logged. The same correlation ID
 is returned in `_meta.correlationId` for cross-referencing.
+
+The typed tool registry in `src/registry.ts` records each tool's risk class,
+approval requirement, side effects, preconditions, path policy and test
+references. `tool_catalog` returns that metadata and can filter to the
+`approval: none` + unattended subset for clients that want a conservative
+starting point. That view is advisory: the execution boundary still enforces
+the workspace policy for every call.
 
 ### Dependency and build-system review
 

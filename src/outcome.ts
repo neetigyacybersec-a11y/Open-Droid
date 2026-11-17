@@ -7,7 +7,8 @@ import { randomUUID } from "node:crypto";
 
 import { STARTUP_BUILD } from "./buildInfo.js";
 import { runWithBoundary, type BoundaryOptions } from "./boundary.js";
-import { TOOL_SOURCES, sanitizeUntrusted } from "./provenance.js";
+import { TOOL_SOURCES } from "./registry.js";
+import { sanitizeUntrusted } from "./provenance.js";
 import type { WorkspacePolicy } from "./workspace.js";
 
 export const OUTCOMES = Object.freeze([

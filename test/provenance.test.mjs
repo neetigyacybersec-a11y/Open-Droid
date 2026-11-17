@@ -8,12 +8,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-  TOOL_SOURCES,
   presentResult,
   redactSecrets,
   sanitizeUntrusted,
   frameUntrusted,
 } from "../dist/provenance.js";
+import { TOOL_SOURCES } from "../dist/registry.js";
 import { createWorkspacePolicy, checkWorkspacePath } from "../dist/workspace.js";
 import { runWithBoundary } from "../dist/boundary.js";
 

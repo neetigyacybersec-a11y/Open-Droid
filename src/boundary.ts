@@ -7,13 +7,13 @@ import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
 import {
-  TOOL_PATH_SPECS,
   checkWorkspacePath,
   validatePathGrant,
   type PathGrant,
   type PathOperation,
   type WorkspacePolicy,
 } from "./workspace.js";
+import { TOOL_PATH_SPECS, TOOL_SOURCES } from "./registry.js";
 import { presentResult, type SourceCategory } from "./provenance.js";
 
 export interface BoundaryOptions {
@@ -173,6 +173,7 @@ export async function runWithBoundary(
   const result = await handler(args);
   return presentResult(name, result, {
     target: primaryTarget,
+    source: TOOL_SOURCES[name] ?? "mixed",
     now,
     maxChars: options.maxChars ?? configuredMaxChars(process.env),
   });
