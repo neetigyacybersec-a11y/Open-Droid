@@ -13,4 +13,28 @@ export default tseslint.config(
       "@typescript-eslint/no-explicit-any": "off",
     },
   },
+  {
+    // ISSUE-96: low-level process access is only legal inside the approved
+    // services. The architecture test also scans source text; this lint rule
+    // gives the same failure at edit time.
+    files: ["src/**/*.ts"],
+    ignores: ["src/services/process-runner.ts", "src/services/managed-process.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "node:child_process",
+              message: "Use src/services/process-runner.ts or managed-process.ts.",
+            },
+            {
+              name: "child_process",
+              message: "Use src/services/process-runner.ts or managed-process.ts.",
+            },
+          ],
+        },
+      ],
+    },
+  },
 );

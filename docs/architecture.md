@@ -14,7 +14,8 @@ Dangerous operating-system capabilities are not implemented in tool handlers.
 Handlers validate and describe an operation, then call one of the approved
 services below. `npm run architecture` enforces this contract in CI: it scans
 `src/**/*.ts` and fails on any `node:child_process` import or raw
-`exec`/`execSync`/`spawn`/`execFile` call outside the allowlist.
+`exec`/`execSync`/`spawn`/`execFile` call outside the allowlist. ESLint's
+`no-restricted-imports` rule reports the same import at edit time.
 
 | Boundary | Owns | Must not |
 | --- | --- | --- |
