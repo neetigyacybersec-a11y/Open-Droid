@@ -20,6 +20,9 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm test --if-present
+      # ISSUE-96: dangerous primitive imports are an architecture failure, not
+      # a review preference.
+      - run: npm run architecture
       # Issue 71: source quality gates must fail the build, not rely on
       # developers running them locally.
       - run: npm run typecheck

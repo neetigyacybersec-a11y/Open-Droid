@@ -11,7 +11,8 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PIDFILE, ensureRoot, pidRunning, resolveDeviceSerial, resolveMitmDump } from "./frida.js";
-import { run } from "./util.js";
+import { run } from "./services/process-runner.js";
+import { spawnManaged, type ManagedProcess } from "./services/managed-process.js";
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -541,22 +542,8 @@ async function prepareForStart(warnings: string[], requestedPort: number): Promi
 }
 
 /** Rollback after a partial start, using the exact child object we spawned. */
-async function stopSpawnedChild(
-  child: import("node:child_process").ChildProcess | undefined,
-  pid: number,
-): Promise<void> {
-  try {
-    child?.kill("SIGTERM");
-  } catch {
-    // Already gone.
-  }
-  if (await waitForExit(pid, KILL_WAIT_MS)) return;
-  try {
-    child?.kill("SIGKILL");
-  } catch {
-    // Already gone.
-  }
-  await waitForExit(pid, KILL_WAIT_MS);
+async function stopSpawnedChild(child: ManagedProcess | undefined): Promise<void> {
+  await child?.stop(KILL_WAIT_MS, KILL_WAIT_MS);
 }
 
 export async function handleNetCapture(args: NetCaptureArgs) {
@@ -651,23 +638,15 @@ export async function handleNetCapture(args: NetCaptureArgs) {
     const log = `${har}.log`;
     const appliedProxy = `${EMULATOR_HOST_ALIAS}:${port}`;
 
-    const { spawn } = await import("node:child_process");
     const fd = openSync(log, "a");
-    let child: import("node:child_process").ChildProcess | undefined;
+    let child: ReturnType<typeof spawnManaged> | undefined;
     let pid: number | undefined;
     try {
-      pid = await new Promise<number>((resolve, reject) => {
-        const spawned = spawn(mitm, ["-p", String(port), "--set", `hardump=${har}`], {
-          detached: true,
-          stdio: ["ignore", fd, fd],
-        });
-        child = spawned;
-        spawned.once("spawn", () => {
-          spawned.unref();
-          resolve(spawned.pid as number);
-        });
-        spawned.once("error", (e) => reject(e instanceof Error ? e : new Error(String(e))));
+      child = spawnManaged(mitm, ["-p", String(port), "--set", `hardump=${har}`], {
+        detached: true,
+        stdio: ["ignore", fd, fd],
       });
+      pid = await child.waitForSpawn();
     } finally {
       closeSync(fd);
     }
@@ -706,7 +685,7 @@ export async function handleNetCapture(args: NetCaptureArgs) {
     try {
       await writeCaptureState(session);
     } catch (e) {
-      await stopSpawnedChild(child, pid);
+      await stopSpawnedChild(child);
       throw e;
     }
 
@@ -721,7 +700,7 @@ export async function handleNetCapture(args: NetCaptureArgs) {
 
     const setError = await applyDeviceProxy(serial, appliedProxy);
     if (setError) {
-      await stopSpawnedChild(child, pid);
+      await stopSpawnedChild(child);
       const restoreError = await restoreDeviceProxy(serial, original.setting);
       let message =
         `failed to set device HTTP proxy: ${setError} — ` +

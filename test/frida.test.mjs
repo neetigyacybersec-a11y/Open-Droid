@@ -18,7 +18,7 @@ process.env.ANDROID_MCP_PIDFILE = TEST_PIDFILE;
 const { mapAbiToAsset, parseBuildType, resolveFridaCli, resolveMitmDump, pidRunning, PIDFILE } =
   await import("../dist/frida.js");
 const { ToolSchemas, handleFridaHook, handleNetCapture } = await import("../dist/tools.js");
-const { which } = await import("../dist/util.js");
+const { which } = await import("../dist/services/process-runner.js");
 
 // --- ABI mapping: device getprop ABI -> frida-server release asset suffix ---
 assert.equal(mapAbiToAsset("x86_64"), "x86_64");

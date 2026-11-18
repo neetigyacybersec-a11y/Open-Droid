@@ -9,12 +9,9 @@
 // Redaction is a hard invariant: detected values never leave this module. The
 // snippet in every finding has the value replaced with `[REDACTED:<rule>]`, and
 // PEM/keystore content is reported by path only.
-import { execFile } from "node:child_process";
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
-import { promisify } from "node:util";
-
-const execFileAsync = promisify(execFile);
+import { run } from "./services/process-runner.js";
 
 export type SecretSeverity = "critical" | "high" | "medium" | "low";
 export type SecretConfidence = "confirmed" | "heuristic";
@@ -246,17 +243,10 @@ async function walk(
 }
 
 async function trackedStatus(root: string, relPath: string): Promise<boolean | null> {
-  try {
-    await execFileAsync("git", ["-C", root, "rev-parse", "--is-inside-work-tree"]);
-  } catch {
-    return null;
-  }
-  try {
-    await execFileAsync("git", ["-C", root, "ls-files", "--error-unmatch", relPath]);
-    return true;
-  } catch {
-    return false;
-  }
+  const inside = await run("git", ["-C", root, "rev-parse", "--is-inside-work-tree"]);
+  if (inside.code !== 0) return null;
+  const tracked = await run("git", ["-C", root, "ls-files", "--error-unmatch", relPath]);
+  return tracked.code === 0;
 }
 
 async function readAllowlist(root: string): Promise<AllowlistedFinding[]> {

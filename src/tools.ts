@@ -5,21 +5,25 @@ import { dirname, join, resolve, basename, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import {
-  run,
-  which,
   tmpDir,
   readBase64,
   cleanup,
   validateGradleTask,
   validatePackageName,
+  notOptionLike,
+  serveStatePath,
+} from "./util.js";
+import { run, which } from "./services/process-runner.js";
+import { spawnManaged } from "./services/managed-process.js";
+import {
+  adbArgs,
   shquote,
   validateRemotePath,
-  notOptionLike,
   validateIntentAction,
   validateComponent,
   resolveActivityComponent,
-  serveStatePath,
-} from "./util.js";
+} from "./services/adb-client.js";
+
 import { ensureServer, resolveFridaCli } from "./frida.js";
 import {
   SERVER_STARTED_AT,
@@ -435,10 +439,6 @@ export const ToolSchemas = {
 
 export type ToolName = keyof typeof ToolSchemas;
 
-async function adbBase(deviceId?: string): Promise<string[]> {
-  return deviceId ? ["-s", deviceId] : [];
-}
-
 export async function handleEnvCheck() {
   const checks = await Promise.all([
     which("java"),
@@ -501,7 +501,7 @@ export async function handleAdbDevices() {
 }
 
 export async function handleAdbScreenshot(args: z.infer<typeof ToolSchemas.adbScreenshot>) {
-  const base = await adbBase(args.deviceId);
+  const base = adbArgs(args.deviceId);
   const persistent = Boolean(args.outputPath);
   const dir = persistent ? null : await tmpDir();
   const local = args.outputPath ?? join(dir!, "screen.png");
@@ -557,7 +557,7 @@ export async function handleAdbScreenshot(args: z.infer<typeof ToolSchemas.adbSc
 }
 
 export async function handleAdbInstall(args: z.infer<typeof ToolSchemas.adbInstall>) {
-  const base = await adbBase(args.deviceId);
+  const base = adbArgs(args.deviceId);
   const r = await run("adb", [...base, "install", "-r", args.apkPath], { timeout: 300_000 });
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
 }
@@ -581,7 +581,7 @@ export async function handleAdbLaunch(args: z.infer<typeof ToolSchemas.adbLaunch
       isError: true,
     };
   }
-  const base = await adbBase(args.deviceId);
+  const base = adbArgs(args.deviceId);
   if (explicit) {
     // One quoted remote-shell argument, like the other component paths (issue 67).
     const r = await run("adb", [...base, "shell", "am", "start", "-n", shquote(explicit)]);
@@ -654,7 +654,6 @@ export async function handleEmulatorBoot(args: z.infer<typeof ToolSchemas.emulat
 
   const timeoutSec = Math.max(1, args.timeoutSec ?? 180);
   const deadline = Date.now() + timeoutSec * 1000;
-  const { spawn: sp } = await import("node:child_process");
   const gpu = args.gpu ?? "swiftshader_indirect";
   const launchArgs = [
     "-avd",
@@ -665,17 +664,12 @@ export async function handleEmulatorBoot(args: z.infer<typeof ToolSchemas.emulat
     ...(args.scale !== undefined ? ["-scale", String(args.scale)] : []),
     ...(args.windowSize ? ["-skin", args.windowSize] : []),
   ];
-  const child = sp("emulator", launchArgs, { detached: true, stdio: "ignore" });
+  const child = spawnManaged("emulator", launchArgs, { detached: true, stdio: "ignore" });
   let spawnError: Error | null = null;
-  let exited = false;
-  child.once("error", (err) => {
-    spawnError = err;
+  void child.waitForSpawn().catch((error) => {
+    spawnError = error;
   });
-  child.once("exit", () => {
-    exited = true;
-  });
-  child.unref();
-  const exitedNow = () => exited || child.exitCode !== null || child.signalCode !== null;
+  const exitedNow = () => !child.isRunning();
 
   let serial: string | null = null;
   while (!serial && Date.now() < deadline) {
@@ -691,7 +685,7 @@ export async function handleEmulatorBoot(args: z.infer<typeof ToolSchemas.emulat
   }
   if (!serial) {
     const exitedEarly = exitedNow();
-    const instance = await stopManagedChild(child);
+    const instance = await child.stop();
     const reason = spawnError
       ? `could not start emulator: ${(spawnError as Error).message}`
       : exitedEarly
@@ -715,7 +709,7 @@ export async function handleEmulatorBoot(args: z.infer<typeof ToolSchemas.emulat
   if (!booted) {
     const exitedEarly = exitedNow();
     await run("adb", ["-s", serial, "emu", "kill"], { timeout: 30_000 }).catch(() => undefined);
-    const instance = await stopManagedChild(child);
+    const instance = await child.stop();
     return fail(
       `status=${exitedEarly ? "exited" : "timeout"}\navd=${args.avdName}\nserial=${serial}\nphase=boot\n` +
         `instance=${instance}\nreason=sys.boot_completed=1 was not observed before the deadline`,
@@ -973,7 +967,7 @@ export function capOutput(text: string, max = OUTPUT_MAX_CHARS): string {
 
 export async function handleAdbShell(args: z.infer<typeof ToolSchemas.adbShell>) {
   const timeoutMs = Math.max(1_000, (args.timeoutSec ?? 60) * 1000);
-  const base = await adbBase(args.deviceId);
+  const base = adbArgs(args.deviceId);
   const r = await run("adb", [...base, "shell", args.command], { timeout: timeoutMs });
   const out = `exit=${r.code}\n--- stdout ---\n${capOutput(r.stdout)}\n--- stderr ---\n${capOutput(r.stderr)}`;
   return { content: [{ type: "text" as const, text: out }], isError: r.code !== 0 };
@@ -982,7 +976,7 @@ export async function handleAdbShell(args: z.infer<typeof ToolSchemas.adbShell>)
 const LOGCAT_MAX_LINES = 4_000;
 
 export async function handleAdbLogcat(args: z.infer<typeof ToolSchemas.adbLogcat>) {
-  const base = await adbBase(args.deviceId);
+  const base = adbArgs(args.deviceId);
   const notes: string[] = [];
 
   if (args.clear !== false) {
@@ -1043,7 +1037,7 @@ export async function handleRuntimeDump(args: z.infer<typeof ToolSchemas.runtime
   if (args.packageName && !validatePackageName(args.packageName)) {
     return { content: [{ type: "text" as const, text: "Invalid package name." }], isError: true };
   }
-  const base = await adbBase(args.deviceId);
+  const base = adbArgs(args.deviceId);
   const dumpArgs = ["shell", "dumpsys", args.kind];
   const ignored = args.packageName && !wantsPackage;
   if (wantsPackage && args.packageName) dumpArgs.push(args.packageName);
@@ -1205,10 +1199,6 @@ export async function handleFridaTraceMethods(args: z.infer<typeof ToolSchemas.f
 // Extra tools (build/test/device/logs/ui/emulator/static/profiling/multi/serve)
 // ---------------------------------------------------------------------------
 
-function adb(dev?: string): string[] {
-  return dev ? ["-s", dev] : [];
-}
-
 export async function handleGradleTest(a: z.infer<typeof ToolSchemas.gradleTest>) {
   const args = [":app:test", ...(a.offline ? ["--offline"] : []), ...(a.args ?? [])];
   const r = await run("gradle", args, { cwd: a.projectPath, timeout: 600_000 });
@@ -1337,7 +1327,7 @@ export async function handleBaselineProfileGenerate(
 }
 // Device interaction
 export async function handleAdbPush(a: z.infer<typeof ToolSchemas.adbPush>) {
-  const r = await run("adb", [...adb(a.deviceId), "push", a.localPath, a.remotePath], {
+  const r = await run("adb", [...adbArgs(a.deviceId), "push", a.localPath, a.remotePath], {
     timeout: 300_000,
   });
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
@@ -1347,7 +1337,7 @@ export async function handleAdbPull(a: z.infer<typeof ToolSchemas.adbPull>) {
   // working directory. Keep tool-owned artifacts under the managed temp root.
   const local =
     a.localPath ?? join(await tmpDir("android-mcp-pull-"), basename(a.remotePath) || "pulled");
-  const r = await run("adb", [...adb(a.deviceId), "pull", a.remotePath, local], {
+  const r = await run("adb", [...adbArgs(a.deviceId), "pull", a.remotePath, local], {
     timeout: 300_000,
   });
   return {
@@ -1369,15 +1359,19 @@ export async function handleAdbRm(a: z.infer<typeof ToolSchemas.adbRm>) {
       isError: true,
     };
   }
-  const r = await run("adb", [...adb(a.deviceId), "shell", "rm", "-rf", shquote(a.remotePath)], {
-    timeout: 60_000,
-  });
+  const r = await run(
+    "adb",
+    [...adbArgs(a.deviceId), "shell", "rm", "-rf", shquote(a.remotePath)],
+    {
+      timeout: 60_000,
+    },
+  );
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
 }
 export async function handleAdbUninstall(a: z.infer<typeof ToolSchemas.adbUninstall>) {
   if (!validatePackageName(a.packageName))
     return { content: [{ type: "text" as const, text: "Invalid package name." }], isError: true };
-  const r = await run("adb", [...adb(a.deviceId), "uninstall", a.packageName], {
+  const r = await run("adb", [...adbArgs(a.deviceId), "uninstall", a.packageName], {
     timeout: 120_000,
   });
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
@@ -1385,7 +1379,7 @@ export async function handleAdbUninstall(a: z.infer<typeof ToolSchemas.adbUninst
 export async function handleAdbClearData(a: z.infer<typeof ToolSchemas.adbClearData>) {
   if (!validatePackageName(a.packageName))
     return { content: [{ type: "text" as const, text: "Invalid package name." }], isError: true };
-  const r = await run("adb", [...adb(a.deviceId), "shell", "pm", "clear", a.packageName], {
+  const r = await run("adb", [...adbArgs(a.deviceId), "shell", "pm", "clear", a.packageName], {
     timeout: 60_000,
   });
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
@@ -1393,13 +1387,13 @@ export async function handleAdbClearData(a: z.infer<typeof ToolSchemas.adbClearD
 export async function handleAdbForceStop(a: z.infer<typeof ToolSchemas.adbForceStop>) {
   if (!validatePackageName(a.packageName))
     return { content: [{ type: "text" as const, text: "Invalid package name." }], isError: true };
-  const r = await run("adb", [...adb(a.deviceId), "shell", "am", "force-stop", a.packageName], {
+  const r = await run("adb", [...adbArgs(a.deviceId), "shell", "am", "force-stop", a.packageName], {
     timeout: 60_000,
   });
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
 }
 export async function handleAdbReboot(a: z.infer<typeof ToolSchemas.adbReboot>) {
-  const r = await run("adb", [...adb(a.deviceId), "reboot"], { timeout: 60_000 });
+  const r = await run("adb", [...adbArgs(a.deviceId), "reboot"], { timeout: 60_000 });
   const output = (r.stdout + r.stderr).trim();
   const prefix = a.deviceId ? `device ${a.deviceId}: ` : "";
   const message =
@@ -1414,7 +1408,7 @@ export async function handleAdbScreenrecord(a: z.infer<typeof ToolSchemas.adbScr
   const local = a.outputPath ?? `screenrecord-${Date.now()}.mp4`;
   const r = await run(
     "adb",
-    [...adb(a.deviceId), "shell", "screenrecord", "--time-limit", String(dur), remote],
+    [...adbArgs(a.deviceId), "shell", "screenrecord", "--time-limit", String(dur), remote],
     { timeout: (dur + 5) * 1000 },
   );
   if (r.code !== 0)
@@ -1422,14 +1416,16 @@ export async function handleAdbScreenrecord(a: z.infer<typeof ToolSchemas.adbScr
       content: [{ type: "text" as const, text: `screenrecord failed: ${r.stderr}` }],
       isError: true,
     };
-  const r2 = await run("adb", [...adb(a.deviceId), "pull", remote, local], { timeout: 120_000 });
+  const r2 = await run("adb", [...adbArgs(a.deviceId), "pull", remote, local], {
+    timeout: 120_000,
+  });
   return {
     content: [{ type: "text" as const, text: `saved ${local}\n${r2.stdout + r2.stderr}` }],
     isError: r2.code !== 0,
   };
 }
 export async function handleAdbInput(a: z.infer<typeof ToolSchemas.adbInput>) {
-  const base = adb(a.deviceId);
+  const base = adbArgs(a.deviceId);
   let args: string[] = [];
   switch (a.action) {
     case "tap":
@@ -1471,7 +1467,7 @@ export async function handleAdbDeepLink(a: z.infer<typeof ToolSchemas.adbDeepLin
     return { content: [{ type: "text" as const, text: "Invalid package name." }], isError: true };
   }
   const args = [
-    ...adb(a.deviceId),
+    ...adbArgs(a.deviceId),
     "shell",
     "am",
     "start",
@@ -1498,7 +1494,7 @@ export async function handleAdbBroadcast(a: z.infer<typeof ToolSchemas.adbBroadc
   }
   // Extras are remote-shell-quoted too; each must stay one remote argument.
   const args = [
-    ...adb(a.deviceId),
+    ...adbArgs(a.deviceId),
     "shell",
     "am",
     "broadcast",
@@ -1523,13 +1519,13 @@ export async function handleAdbServiceStart(a: z.infer<typeof ToolSchemas.adbSer
   }
   const r = await run(
     "adb",
-    [...adb(a.deviceId), "shell", "am", "startservice", "-n", shquote(a.component)],
+    [...adbArgs(a.deviceId), "shell", "am", "startservice", "-n", shquote(a.component)],
     { timeout: 30_000 },
   );
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
 }
 export async function handleAdbWifi(a: z.infer<typeof ToolSchemas.adbWifi>) {
-  const base = adb(a.deviceId);
+  const base = adbArgs(a.deviceId);
   let args: string[] = [];
   if (a.action === "tcpip") args = [...base, "tcpip", String(a.port ?? 5555)];
   else if (a.action === "connect")
@@ -1539,14 +1535,14 @@ export async function handleAdbWifi(a: z.infer<typeof ToolSchemas.adbWifi>) {
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
 }
 export async function handleAdbBattery(a: z.infer<typeof ToolSchemas.adbBattery>) {
-  const r = await run("adb", [...adb(a.deviceId), "shell", "dumpsys", "battery"], {
+  const r = await run("adb", [...adbArgs(a.deviceId), "shell", "dumpsys", "battery"], {
     timeout: 30_000,
   });
   return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
 }
 // Logs & diagnostics
 export async function handleLogcatFiltered(a: z.infer<typeof ToolSchemas.logcatFiltered>) {
-  const base = adb(a.deviceId);
+  const base = adbArgs(a.deviceId);
   if (a.clear !== false) await run("adb", [...base, "logcat", "-c"], { timeout: 30_000 });
   await new Promise((res) => setTimeout(res, Math.max(0, (a.durationSec ?? 10) * 1000)));
   const args = [...base, "logcat", "-d", "-v", "time"];
@@ -1570,7 +1566,7 @@ export async function handleLogcatFiltered(a: z.infer<typeof ToolSchemas.logcatF
   return { content: [{ type: "text" as const, text }], isError: r.code !== 0 };
 }
 export async function handleAnrCheck(a: z.infer<typeof ToolSchemas.anrCheck>) {
-  const r = await run("adb", [...adb(a.deviceId), "shell", "cat", "/data/anr/traces.txt"], {
+  const r = await run("adb", [...adbArgs(a.deviceId), "shell", "cat", "/data/anr/traces.txt"], {
     timeout: 30_000,
   });
   const text = r.stdout || r.stderr;
@@ -1587,7 +1583,7 @@ async function resolveCrashSummarySerial(deviceId?: string): Promise<string> {
   return r.code === 0 && serial && serial !== "unknown" ? serial : "(default)";
 }
 export async function handleCrashSummary(a: z.infer<typeof ToolSchemas.crashSummary>) {
-  const base = adb(a.deviceId);
+  const base = adbArgs(a.deviceId);
   const serial = await resolveCrashSummarySerial(a.deviceId);
   const durationSec = Math.max(0, a.durationSec ?? 10);
   const startedAt = new Date().toISOString();
@@ -1644,7 +1640,7 @@ export async function handleCrashSummary(a: z.infer<typeof ToolSchemas.crashSumm
 export async function handleUiDump(a: z.infer<typeof ToolSchemas.uiDump>) {
   const remote = "/sdcard/window_dump.xml";
   const local = a.outputPath ?? `/tmp/ui-dump-${Date.now()}.xml`;
-  const base = adb(a.deviceId);
+  const base = adbArgs(a.deviceId);
   let r = await run("adb", [...base, "shell", "uiautomator", "dump", remote], { timeout: 60_000 });
   if (r.code !== 0)
     return {
@@ -1660,7 +1656,7 @@ export async function handleUiDump(a: z.infer<typeof ToolSchemas.uiDump>) {
 export async function handleComposeRecomposition(
   a: z.infer<typeof ToolSchemas.composeRecomposition>,
 ) {
-  const base = adb(a.deviceId);
+  const base = adbArgs(a.deviceId);
   // Issue 67: the optional package filter gets the same validation as every
   // other package-typed input.
   if (a.packageName && !validatePackageName(a.packageName)) {
@@ -1684,7 +1680,7 @@ export async function handleComposeRecomposition(
   };
 }
 export async function handleLayoutBounds(a: z.infer<typeof ToolSchemas.layoutBounds>) {
-  const base = adb(a.deviceId);
+  const base = adbArgs(a.deviceId);
   const val = a.enabled ? "true" : "false";
   const r = await run("adb", [...base, "shell", "setprop", "debug.layout", val], {
     timeout: 30_000,
@@ -1721,33 +1717,6 @@ export async function handleAvdDelete(a: z.infer<typeof ToolSchemas.avdDelete>) 
 }
 const AVD_NAME_RE = /^[A-Za-z0-9._-]+$/;
 const WIPE_POLL_MS = 250;
-
-async function waitForExit(
-  child: import("node:child_process").ChildProcess,
-  ms: number,
-): Promise<boolean> {
-  if (child.exitCode !== null || child.signalCode !== null) return true;
-  return new Promise((resolve) => {
-    const onExit = () => {
-      clearTimeout(timer);
-      resolve(true);
-    };
-    const timer = setTimeout(() => {
-      child.off("exit", onExit);
-      resolve(false);
-    }, ms);
-    child.once("exit", onExit);
-  });
-}
-
-async function stopManagedChild(child: import("node:child_process").ChildProcess): Promise<string> {
-  if (!child.pid) return "not-spawned";
-  if (child.exitCode !== null || child.signalCode !== null) return "already-exited";
-  child.kill("SIGTERM");
-  if (await waitForExit(child, 5_000)) return "terminated";
-  child.kill("SIGKILL");
-  return (await waitForExit(child, 2_000)) ? "force-killed" : "still-running";
-}
 
 async function runningEmulatorSerials(): Promise<string[] | null> {
   const r = await run("adb", ["devices"], { timeout: 15_000 });
@@ -1808,8 +1777,7 @@ export async function handleAvdWipe(a: z.infer<typeof ToolSchemas.avdWipe>) {
   }
 
   const deadline = Date.now() + Math.max(1, a.timeoutSec ?? 300) * 1000;
-  const { spawn } = await import("node:child_process");
-  const child = spawn(
+  const child = spawnManaged(
     "emulator",
     [
       "-avd",
@@ -1824,13 +1792,13 @@ export async function handleAvdWipe(a: z.infer<typeof ToolSchemas.avdWipe>) {
     { stdio: "ignore" },
   );
   let spawnError: Error | null = null;
-  child.once("error", (err) => {
-    spawnError = err;
+  void child.waitForSpawn().catch((error) => {
+    spawnError = error;
   });
 
   let serial: string | null = null;
   while (!serial && Date.now() < deadline) {
-    if (spawnError) break;
+    if (spawnError || child.exitCode !== null) break;
     const now = await runningEmulatorSerials();
     for (const candidate of (now ?? []).filter((s) => !before.includes(s))) {
       if ((await emulatorAvdName(candidate)) === a.avdName) {
@@ -1841,7 +1809,7 @@ export async function handleAvdWipe(a: z.infer<typeof ToolSchemas.avdWipe>) {
     if (!serial) await sleep(WIPE_POLL_MS);
   }
   if (!serial) {
-    const instance = await stopManagedChild(child);
+    const instance = await child.stop();
     const reason = spawnError
       ? `emulator failed to spawn: ${(spawnError as Error).message}`
       : "no matching emulator serial became ready before the deadline";
@@ -1862,7 +1830,7 @@ export async function handleAvdWipe(a: z.infer<typeof ToolSchemas.avdWipe>) {
     // Best effort: ask this exact serial to stop, then terminate only the
     // child this operation spawned.
     await run("adb", ["-s", serial, "emu", "kill"], { timeout: 30_000 }).catch(() => undefined);
-    const instance = await stopManagedChild(child);
+    const instance = await child.stop();
     return fail(
       `status=timeout\navd=${a.avdName}\nserial=${serial}\nphase=boot\nwipe=indeterminate\ninstance=${instance}\n` +
         `reason=sys.boot_completed was not observed before the deadline; reset state is unknown`,
@@ -1870,9 +1838,9 @@ export async function handleAvdWipe(a: z.infer<typeof ToolSchemas.avdWipe>) {
   }
 
   const kill = await run("adb", ["-s", serial, "emu", "kill"], { timeout: 30_000 });
-  const exited = await waitForExit(child, 30_000);
+  const exited = await child.waitForExit(30_000);
   if (kill.code !== 0 || !exited) {
-    const instance = await stopManagedChild(child);
+    const instance = await child.stop();
     return fail(
       `status=shutdown-failed\navd=${a.avdName}\nserial=${serial}\nwipe=complete\nshutdown=failed\ninstance=${instance}\n` +
         `reason=${kill.code !== 0 ? `emu kill exited ${kill.code}: ${kill.stderr.trim()}` : "emulator process did not exit"} ` +
@@ -1893,7 +1861,7 @@ export async function handleAvdWipe(a: z.infer<typeof ToolSchemas.avdWipe>) {
   };
 }
 export async function handleEmulatorSnapshot(a: z.infer<typeof ToolSchemas.emulatorSnapshot>) {
-  const base = adb(a.deviceId);
+  const base = adbArgs(a.deviceId);
   if (a.action === "list") {
     const r = await run("adb", [...base, "emu", "avd", "snapshot", "list"], { timeout: 30_000 });
     return {
@@ -2228,7 +2196,7 @@ export async function handleMacrobenchmark(a: z.infer<typeof ToolSchemas.macrobe
 export async function handlePerfettoTrace(a: z.infer<typeof ToolSchemas.perfettoTrace>) {
   const dur = Math.max(1, a.durationSec ?? 10);
   const out = a.outputPath ?? `/tmp/trace-${Date.now()}.perfetto-trace`;
-  const base = adb(a.deviceId);
+  const base = adbArgs(a.deviceId);
   const r = await run(
     "adb",
     [
@@ -2261,9 +2229,13 @@ export async function handlePerfettoTrace(a: z.infer<typeof ToolSchemas.perfetto
 export async function handleMemoryProfile(a: z.infer<typeof ToolSchemas.memoryProfile>) {
   if (!validatePackageName(a.packageName))
     return { content: [{ type: "text" as const, text: "Invalid package name." }], isError: true };
-  const r = await run("adb", [...adb(a.deviceId), "shell", "dumpsys", "meminfo", a.packageName], {
-    timeout: 60_000,
-  });
+  const r = await run(
+    "adb",
+    [...adbArgs(a.deviceId), "shell", "dumpsys", "meminfo", a.packageName],
+    {
+      timeout: 60_000,
+    },
+  );
   return {
     content: [{ type: "text" as const, text: (r.stdout + "\n" + r.stderr).slice(0, 12000) }],
     isError: r.code !== 0,
@@ -2331,7 +2303,7 @@ export async function handleStartupTime(a: z.infer<typeof ToolSchemas.startupTim
       };
     component = built;
   } else {
-    const resolved = await resolveLauncherComponent(adb(a.deviceId), a.packageName);
+    const resolved = await resolveLauncherComponent(adbArgs(a.deviceId), a.packageName);
     if (!resolved.component)
       return {
         content: [{ type: "text" as const, text: resolved.error ?? "launcher resolution failed" }],
@@ -2351,13 +2323,13 @@ export async function handleStartupTime(a: z.infer<typeof ToolSchemas.startupTim
   for (let i = 0; i < iters; i++) {
     const start = await run(
       "adb",
-      [...adb(a.deviceId), "shell", "am", "start-activity", "-W", "-n", component],
+      [...adbArgs(a.deviceId), "shell", "am", "start-activity", "-W", "-n", component],
       { timeout: 60_000 },
     );
     const timeMs = /TotalTime:\s*(\d+)/.exec(start.stdout)?.[1];
     const stop = await run(
       "adb",
-      [...adb(a.deviceId), "shell", "am", "force-stop", a.packageName],
+      [...adbArgs(a.deviceId), "shell", "am", "force-stop", a.packageName],
       {
         timeout: 30_000,
       },
@@ -2741,28 +2713,22 @@ export async function handleApkServe(a: z.infer<typeof ToolSchemas.apkServe>) {
     return failStart("stage-failed", message);
   }
 
-  const { spawn } = await import("node:child_process");
-  const child = spawn(
+  const child = spawnManaged(
     "python3",
     ["-m", "http.server", String(port), "--directory", servingDir, "--bind", bind],
     { detached: true, stdio: "ignore" },
   );
   let spawnError: Error | null = null;
-  let exited = false;
-  child.once("error", (err) => {
-    spawnError = err;
+  void child.waitForSpawn().catch((error) => {
+    spawnError = error;
   });
-  child.once("exit", () => {
-    exited = true;
-  });
-  child.unref();
 
   const readyTimeoutMs = Math.max(1, a.readyTimeoutSec ?? 10) * 1000;
   const deadline = Date.now() + readyTimeoutMs;
   let ready = false;
   while (Date.now() < deadline) {
     if (spawnError) break;
-    if (exited || child.exitCode !== null || child.signalCode !== null) break;
+    if (!child.isRunning()) break;
     if (await httpProbe(probeHost, port)) {
       ready = true;
       break;
@@ -2770,8 +2736,8 @@ export async function handleApkServe(a: z.infer<typeof ToolSchemas.apkServe>) {
     await sleep(100);
   }
   if (!ready) {
-    const exitedEarly = exited || child.exitCode !== null || child.signalCode !== null;
-    await stopManagedChild(child);
+    const exitedEarly = !child.isRunning();
+    await child.stop();
     if (spawnError)
       return failStart(
         "exited",
@@ -2789,8 +2755,8 @@ export async function handleApkServe(a: z.infer<typeof ToolSchemas.apkServe>) {
   }
   // Readiness and liveness are separate facts: do not persist state for a
   // process that answered once and then died.
-  if (exited || child.exitCode !== null || child.signalCode !== null) {
-    await stopManagedChild(child);
+  if (!child.isRunning()) {
+    await child.stop();
     return failStart("exited", "python3 exited immediately after readiness");
   }
 
@@ -2816,7 +2782,7 @@ export async function handleApkServe(a: z.infer<typeof ToolSchemas.apkServe>) {
       /* best effort */
     }
   } catch (error) {
-    await stopManagedChild(child);
+    await child.stop();
     const message = error instanceof Error ? error.message : String(error);
     return failStart("state-write-failed", message);
   }

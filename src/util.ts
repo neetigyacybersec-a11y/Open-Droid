@@ -1,5 +1,3 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { readFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,46 +6,6 @@ import { join } from "node:path";
 // Env-overridable for tests via ANDROID_MCP_SERVE_STATE.
 export function serveStatePath(): string {
   return process.env.ANDROID_MCP_SERVE_STATE ?? `${tmpdir()}/android-mcp-serve.json`;
-}
-
-export const execFileAsync = promisify(execFile);
-
-export interface RunResult {
-  stdout: string;
-  stderr: string;
-  code: number;
-}
-
-export async function run(
-  cmd: string,
-  args: string[],
-  opts: { cwd?: string; timeout?: number; env?: NodeJS.ProcessEnv } = {},
-): Promise<RunResult> {
-  try {
-    const { stdout, stderr } = await execFileAsync(cmd, args, {
-      cwd: opts.cwd,
-      timeout: opts.timeout ?? 120_000,
-      env: { ...process.env, ...(opts.env ?? {}) },
-      maxBuffer: 10 * 1024 * 1024,
-    });
-    return { stdout: stdout ?? "", stderr: stderr ?? "", code: 0 };
-  } catch (e: any) {
-    return {
-      stdout: e?.stdout ?? "",
-      stderr: e?.stderr ?? e?.message ?? String(e),
-      code: typeof e?.code === "number" ? e.code : 1,
-    };
-  }
-}
-
-export function which(cmd: string): Promise<string | null> {
-  // `which` does not exist on Windows; `where.exe` is always present there.
-  if (process.platform === "win32") {
-    return run("where", [cmd]).then((r) =>
-      r.code === 0 ? (r.stdout.trim().split(/\r?\n/)[0] ?? null) : null,
-    );
-  }
-  return run("which", [cmd]).then((r) => (r.code === 0 ? r.stdout.trim() : null));
 }
 
 export async function tmpDir(prefix = "android-mcp-"): Promise<string> {
@@ -74,60 +32,8 @@ export function validatePackageName(p: string): boolean {
   return /^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$/.test(p);
 }
 
-// Issue 67: adb joins everything after "shell" with spaces and the DEVICE's
-// shell re-parses that string, so local execFile argument arrays do NOT
-// preserve remote argument boundaries. Quote for the remote shell: wrap in
-// single quotes, escaping embedded single quotes POSIX-style ('\'').
-export function shquote(v: string): string {
-  return `'${v.replace(/'/g, `'\\''`)}'`;
-}
-
-// Issue 67: destructive remote paths must be absolute, in a test-relevant
-// scope, and free of shell metacharacters and traversal.
-export function validateRemotePath(p: string): boolean {
-  return (
-    typeof p === "string" &&
-    p.startsWith("/") &&
-    !p.includes("..") &&
-    !/["'`\n\r;|&$<>(){}[\]#*?!~]/.test(p) &&
-    /^(\/sdcard|\/storage\/emulated|\/data\/local\/tmp|\/cache|\/data\/data)\//.test(p)
-  );
-}
-
 // Issue 68: values that would be parsed as CLI options are rejected when the
 // call semantics require a name/path, not a flag.
 export function notOptionLike(v: string): boolean {
   return typeof v === "string" && v !== "" && !v.startsWith("-");
-}
-
-// Issue 67: intent actions ("am broadcast -a", "am start -a") and component
-// names ("am startservice -n pkg/cls") have constrained grammars.
-export function validateIntentAction(a: string): boolean {
-  return /^[a-zA-Z0-9_.$]+$/.test(a) && a.split(".").every((s) => s.length > 0);
-}
-
-export function validateComponent(c: string): boolean {
-  // Full component form: package/class, both segments non-empty.
-  return /^[a-zA-Z][a-zA-Z0-9_.$]*\/[a-zA-Z][a-zA-Z0-9_.$]*$/.test(c);
-}
-
-// ISSUE-82: an activity may be shorthand (".Secondary"), a simple class
-// ("Secondary"), or fully qualified inside the requested package. Resolve it to
-// one canonical package/class component; anything else is rejected as data
-// before it can reach the device shell.
-const JAVA_CLASS = "[A-Za-z_$][A-Za-z0-9_$]*";
-const JAVA_QUALIFIED = `${JAVA_CLASS}(?:\\.${JAVA_CLASS})*`;
-const ACTIVITY_RELATIVE_RE = new RegExp(`^\\.${JAVA_QUALIFIED}$`);
-const ACTIVITY_QUALIFIED_RE = new RegExp(`^${JAVA_QUALIFIED}$`);
-
-export function resolveActivityComponent(pkg: string, activity: string): string | null {
-  // Return a flattened ComponentName ("package/class"). `am start -n` parses
-  // this with ComponentName.unflattenFromString, which rejects values without
-  // a slash, so a bare "package.Class" would fail on the device.
-  if (activity.startsWith(".")) {
-    return ACTIVITY_RELATIVE_RE.test(activity) ? `${pkg}/${pkg}${activity}` : null;
-  }
-  if (!ACTIVITY_QUALIFIED_RE.test(activity)) return null;
-  if (!activity.includes(".")) return `${pkg}/${pkg}.${activity}`;
-  return activity.startsWith(`${pkg}.`) ? `${pkg}/${activity}` : null;
 }

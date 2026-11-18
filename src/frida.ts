@@ -3,7 +3,8 @@ import { access, readFile, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { run, which } from "./util.js";
+import { run, which } from "./services/process-runner.js";
+import { adbArgs } from "./services/adb-client.js";
 
 // Every adb/frida invocation here is interactive-ish (push, root, attach) and
 // must fail loudly instead of hanging the MCP request forever.
@@ -33,10 +34,6 @@ export const PIDFILE = process.env.ANDROID_MCP_PIDFILE ?? join(STATE_DIR, "net-c
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
-
-function adbArgs(deviceId?: string): string[] {
-  return deviceId ? ["-s", deviceId] : [];
-}
 
 /** Windows venvs use Scripts\*.exe; POSIX venvs use bin/<name> (with exec bits). */
 const IS_WIN = process.platform === "win32";

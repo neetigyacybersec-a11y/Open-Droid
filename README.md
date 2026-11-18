@@ -259,6 +259,7 @@ per-agent).
 npm install
 npm run build        # compile TypeScript
 npm test             # smoke test (67 tools)
+npm run architecture # enforce approved process/ADB boundaries
 npm run catalogue    # verify docs/tool-catalogue.md matches src/registry.ts
 npm run lint         # eslint
 npm run format       # prettier
