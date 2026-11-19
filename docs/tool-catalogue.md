@@ -893,7 +893,7 @@ Measure repeated cold-start timings for a package and clean up with force-stop.
 
 ### `privacy_scan`
 
-Scan an Android project for privacy inventory signals and compare them with data-safety declarations.
+Scan an Android project for privacy inventory signals with explicit evidence classes and scan-coverage limits, then compare them with data-safety declarations. A static inventory aid, not a compliance certificate.
 
 - Impact: `local-reversible`
 - Policy key: `host.file.write`

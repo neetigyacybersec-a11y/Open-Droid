@@ -6,9 +6,6 @@
     "cyclomatic": 32,
     "lines": 129
   },
-  "src/executionPolicy.ts::decodeApprovalRequest": {
-    "cyclomatic": 18
-  },
   "src/executionPolicy.ts::describeTarget": {
     "cyclomatic": 17
   },
@@ -17,7 +14,7 @@
     "lines": 127
   },
   "src/executionPolicy.ts::previewOperation": {
-    "cyclomatic": 62,
+    "cyclomatic": 61,
     "lines": 150
   },
   "src/executionPolicy.ts::verifyApprovalToken": {
@@ -50,10 +47,6 @@
   "src/netCapture.ts::isCaptureSession": {
     "cyclomatic": 18
   },
-  "src/privacy.ts::buildFindings": {
-    "cyclomatic": 20,
-    "lines": 137
-  },
   "src/privacy.ts::declarationCheck": {
     "cyclomatic": 31,
     "lines": 84
@@ -68,14 +61,9 @@
   "src/privacy.ts::linePrefixIsCode": {
     "nesting": 5
   },
-  "src/privacy.ts::renderPrivacyReport": {
-    "cyclomatic": 34,
-    "lines": 151
-  },
   "src/privacy.ts::scanPrivacyProject": {
-    "cyclomatic": 35,
-    "nesting": 6,
-    "lines": 177
+    "cyclomatic": 15,
+    "lines": 124
   },
   "src/registry.ts::validateToolRegistry": {
     "cyclomatic": 52,
@@ -96,7 +84,7 @@
     "cyclomatic": 14
   },
   "src/tools.ts::handleAdbLogcat": {
-    "cyclomatic": 14
+    "cyclomatic": 13
   },
   "src/tools.ts::handleApkServe": {
     "cyclomatic": 39,
@@ -107,8 +95,8 @@
     "lines": 116
   },
   "src/tools.ts::handleComposePreviewRender": {
-    "cyclomatic": 29,
-    "lines": 147
+    "cyclomatic": 28,
+    "lines": 143
   },
   "src/tools.ts::handleEmulatorBoot": {
     "cyclomatic": 35,

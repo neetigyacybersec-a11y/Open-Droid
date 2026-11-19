@@ -1556,7 +1556,7 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = Object.freeze([
   defineTool({
     name: "privacy_scan",
     description:
-      "Scan an Android project for privacy inventory signals and compare them with data-safety declarations.",
+      "Scan an Android project for privacy inventory signals with explicit evidence classes and scan-coverage limits, then compare them with data-safety declarations. A static inventory aid, not a compliance certificate.",
     schema: ToolSchemas.privacyScan,
     handler: (args) => H.handlePrivacyScan(args),
     category: "privacy",

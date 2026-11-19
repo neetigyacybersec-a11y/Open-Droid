@@ -3,6 +3,32 @@ import { basename, join, relative, resolve, sep } from "node:path";
 
 export interface PrivacyScanOptions {
   declarationsPath?: string;
+  /** Test/diagnostic override; production defaults stay at MAX_FILES. */
+  maxFiles?: number;
+  /** Test/diagnostic override; production defaults stay at MAX_FILE_BYTES. */
+  maxFileBytes?: number;
+}
+
+/**
+ * ISSUE-88: every inventory item records where it came from. A direct build
+ * declaration is not the same evidence as a resolved graph or a merged
+ * manifest, so the report must not flatten them into one list.
+ */
+export type PrivacyEvidenceSource =
+  | "source-code"
+  | "resource-value"
+  | "build-config"
+  | "manifest-source"
+  | "manifest-merged"
+  | "network-config"
+  | "dependency-declaration"
+  | "dependency-resolved"
+  | "heuristic";
+
+export interface PermissionFinding {
+  permission: string;
+  file: string;
+  source: PrivacyEvidenceSource;
 }
 
 export interface SdkFinding {
@@ -10,26 +36,41 @@ export interface SdkFinding {
   id: string;
   dataTypes: string[];
   file: string;
+  source: PrivacyEvidenceSource;
 }
 
 export interface EndpointFinding {
   host: string;
   file: string;
+  source: PrivacyEvidenceSource;
 }
 
 export interface DataStoreFinding {
   kind: string;
   file: string;
+  source: PrivacyEvidenceSource;
 }
 
 export interface CodeMatch {
   file: string;
   line: number;
   snippet: string;
+  source: PrivacyEvidenceSource;
 }
 
 export interface PiiLogFinding extends CodeMatch {
   identifiers: string[];
+}
+
+export interface PrivacyCoverage {
+  filesByCategory: Record<string, number>;
+  filesSkipped: number;
+  oversizedFiles: number;
+  limitReached: boolean;
+  mergedManifest: "inspected" | "not-found" | "limited";
+  dependencyResolution: "not-run";
+  transitiveDependencies: "not-assessed";
+  unsupportedSources: string[];
 }
 
 export interface PrivacyFinding {
@@ -74,12 +115,14 @@ export interface PrivacyScanResult {
   filesSkipped: number;
   limitReached: boolean;
   permissions: string[];
+  permissionEvidence: PermissionFinding[];
   sdks: SdkFinding[];
   endpoints: EndpointFinding[];
   dataStores: DataStoreFinding[];
   accountCreation: CodeMatch[];
   accountDeletion: CodeMatch[];
   piiLogs: PiiLogFinding[];
+  coverage: PrivacyCoverage;
   declarationsPath: string;
   declarations: PrivacyDeclarations | null;
   declarationsError: string | null;
@@ -306,6 +349,15 @@ const IGNORED_HOSTS = new Set([
   "xmlns.com",
 ]);
 
+const UNSUPPORTED_SOURCES = Object.freeze([
+  "Resolved Gradle dependency graph (only literal build-file declarations are read)",
+  "Transitive dependencies and manifest entries they merge in",
+  "Compiled bytecode, DEX files and native libraries",
+  "Generated code and build outputs other than an existing merged manifest",
+  "Remote configuration, feature flags and backend payloads",
+  "Runtime collection and sharing behaviour",
+]);
+
 const PERMISSION_DATA_TYPES: Record<string, string[]> = {
   ACCESS_BACKGROUND_LOCATION: ["background location"],
   ACCESS_COARSE_LOCATION: ["approximate location"],
@@ -335,7 +387,7 @@ function toPosix(path: string): string {
 }
 
 function shortPermission(value: string): string {
-  return value.replace(/^android\.permission\./, "");
+  return value.replace(/^.*?\.permission\./, "");
 }
 
 function normalizeHost(raw: string): string | null {
@@ -390,15 +442,29 @@ export function parsePrivacyDeclarations(raw: unknown): PrivacyDeclarations {
   };
 }
 
-function isRelevantFile(name: string): boolean {
-  if (name === "AndroidManifest.xml") return true;
-  if (BUILD_FILE_NAMES.has(name)) return true;
-  if (name.includes("network_security_config") && name.endsWith(".xml")) return true;
-  return /\.(kt|java)$/.test(name);
+function isResourceValueFile(relativePath: string): boolean {
+  return /(^|\/)res\/values[^/]*\/[^/]+\.xml$/.test(relativePath);
+}
+
+function fileCategory(relativePath: string): string | null {
+  const name = basename(relativePath);
+  if (name === "AndroidManifest.xml") return "manifest";
+  if (name.includes("network_security_config") && name.endsWith(".xml")) {
+    return "network-security";
+  }
+  if (isResourceValueFile(relativePath)) return "resource-xml";
+  if (BUILD_FILE_NAMES.has(name)) return "build-config";
+  if (/\.(kt|java)$/.test(name)) return "source-code";
+  return null;
+}
+
+function isRelevantFile(relativePath: string): boolean {
+  return fileCategory(relativePath) !== null;
 }
 
 async function collectFiles(
   root: string,
+  maxFiles: number,
 ): Promise<{ files: string[]; skipped: number; limitReached: boolean }> {
   const files: string[] = [];
   let skipped = 0;
@@ -420,8 +486,8 @@ async function collectFiles(
         if (!SKIP_DIRS.has(entry.name)) await walk(path);
         continue;
       }
-      if (!entry.isFile() || !isRelevantFile(entry.name)) continue;
-      if (files.length >= MAX_FILES) {
+      if (!entry.isFile() || !isRelevantFile(toPosix(relative(root, path)))) continue;
+      if (files.length >= maxFiles) {
         limitReached = true;
         return;
       }
@@ -431,6 +497,135 @@ async function collectFiles(
 
   await walk(root);
   return { files, skipped, limitReached };
+}
+
+function xmlWithoutComments(content: string): string {
+  return content.replace(/<!--[\s\S]*?-->/g, "");
+}
+
+export function extractManifestPermissions(content: string): string[] {
+  const xml = xmlWithoutComments(content);
+  const permissions: string[] = [];
+  for (const match of xml.matchAll(
+    /<uses-permission(?:-sdk-23)?\b[^>]*\bandroid:name\s*=\s*"([^"]+)"/g,
+  )) {
+    permissions.push(shortPermission(match[1]));
+  }
+  return permissions;
+}
+
+export function extractNetworkConfigEndpoints(content: string): string[] {
+  const hosts: string[] = [];
+  const xml = xmlWithoutComments(content);
+  for (const match of xml.matchAll(/<domain[^>]*>([^<]+)<\/domain>/g)) {
+    const host = normalizeHost(match[1]);
+    if (host) hosts.push(host);
+  }
+  return hosts;
+}
+
+export function extractResourceEndpoints(content: string): string[] {
+  const xml = xmlWithoutComments(content);
+  const hosts: string[] = [];
+  for (const match of xml.matchAll(/<(string|item)\b[^>]*>([\s\S]*?)<\/\1>/g)) {
+    const text = match[2].replace(/<[^>]+>/g, " ").replaceAll("&amp;", "&");
+    for (const url of text.matchAll(URL_HOST)) {
+      const host = normalizeHost(url[1]);
+      if (host) hosts.push(host);
+    }
+  }
+  return hosts;
+}
+
+export function extractBuildConfigEndpoints(content: string): string[] {
+  const hosts: string[] = [];
+  for (const line of content.split("\n")) {
+    if (isCommentLine(line) || line.trimStart().startsWith("#")) continue;
+    if (!/\b(buildConfigField|resValue|manifestPlaceholders?)\b/.test(line)) continue;
+    for (const match of line.matchAll(URL_HOST)) {
+      const host = normalizeHost(match[1]);
+      if (host) hosts.push(host);
+    }
+  }
+  return hosts;
+}
+
+function extractManifestEndpoints(content: string): string[] {
+  const hosts: string[] = [];
+  for (const match of xmlWithoutComments(content).matchAll(URL_HOST)) {
+    const host = normalizeHost(match[1]);
+    if (host) hosts.push(host);
+  }
+  return hosts;
+}
+
+const MAX_MERGED_MANIFESTS = 20;
+
+/**
+ * Inspect only merged manifests that already exist on disk. This never runs
+ * Gradle or downloads anything, so a cold/offline project simply reports that
+ * merged coverage was not available.
+ */
+async function findMergedManifests(root: string): Promise<{ files: string[]; limited: boolean }> {
+  const files: string[] = [];
+  let limited = false;
+
+  async function walk(dir: string, depth: number): Promise<void> {
+    if (limited || depth > 4) return;
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (limited) return;
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(path, depth + 1);
+        continue;
+      }
+      if (!entry.isFile() || entry.name !== "AndroidManifest.xml") continue;
+      if (files.length >= MAX_MERGED_MANIFESTS) {
+        limited = true;
+        return;
+      }
+      files.push(path);
+    }
+  }
+
+  async function inspectModule(moduleDir: string): Promise<void> {
+    let entries;
+    try {
+      entries = await readdir(join(moduleDir, "build", "intermediates"), {
+        withFileTypes: true,
+      });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !entry.name.startsWith("merged_manifest")) continue;
+      await walk(join(moduleDir, "build", "intermediates", entry.name), 0);
+    }
+  }
+
+  async function inspectModules(dir: string, depth: number): Promise<void> {
+    if (limited || depth > 3) return;
+    await inspectModule(dir);
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || SKIP_DIRS.has(entry.name)) continue;
+      await inspectModules(join(dir, entry.name), depth + 1);
+    }
+  }
+
+  await inspectModules(root, 0);
+  return { files, limited };
 }
 
 function lineNumber(content: string, index: number): number {
@@ -596,7 +791,7 @@ function findPiiLogs(content: string, file: string, limitations: string[]): PiiL
     const key = `${line}:${snippet}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    findings.push({ file, line, snippet, identifiers });
+    findings.push({ file, line, snippet, identifiers, source: "heuristic" });
   }
   return findings;
 }
@@ -622,6 +817,7 @@ function findCodeMatches(
       file,
       line: index + 1,
       snippet: line.trim().slice(0, 200),
+      source: "heuristic",
     });
     if (matches.length >= MAX_MATCHES) {
       limitations.push(`${file}: stopped after ${MAX_MATCHES} account-flow matches.`);
@@ -716,18 +912,109 @@ function declarationCheck(
   };
 }
 
+function declarationFindings(check: DeclarationCheck): PrivacyFinding[] {
+  const findings: PrivacyFinding[] = [];
+  const add = (severity: PrivacyFinding["severity"], rule: string, message: string): void => {
+    findings.push({ severity, rule, message, evidence: check.path });
+  };
+
+  if (check.missingFields.length > 0) {
+    add(
+      "review",
+      "declarations-incomplete",
+      `Declarations are missing fields: ${check.missingFields.join(", ")}`,
+    );
+  }
+  if (check.undeclaredPermissions.length > 0) {
+    add(
+      "blocker",
+      "permissions-undeclared",
+      `Observed permissions are not declared: ${check.undeclaredPermissions.join(", ")}`,
+    );
+  }
+  if (check.stalePermissions.length > 0) {
+    add(
+      "review",
+      "permissions-stale",
+      `Declared permissions were not observed (check manifest merging): ${check.stalePermissions.join(", ")}`,
+    );
+  }
+  if (check.undeclaredSdks.length > 0) {
+    add(
+      "blocker",
+      "sdks-undeclared",
+      `Observed privacy-relevant SDKs are not declared: ${check.undeclaredSdks.join(", ")}`,
+    );
+  }
+  if (check.staleSdks.length > 0) {
+    add(
+      "review",
+      "sdks-stale",
+      `Declared SDKs were not observed (check transitive dependencies): ${check.staleSdks.join(", ")}`,
+    );
+  }
+  if (check.undeclaredEndpoints.length > 0) {
+    add(
+      "blocker",
+      "endpoints-undeclared",
+      `Observed endpoints are not declared: ${check.undeclaredEndpoints.join(", ")}`,
+    );
+  }
+  if (check.staleEndpoints.length > 0) {
+    add(
+      "review",
+      "endpoints-stale",
+      `Declared endpoints were not observed (check backend-only flows): ${check.staleEndpoints.join(", ")}`,
+    );
+  }
+  return findings;
+}
+
+function accountDeclarationFindings(check: DeclarationCheck): PrivacyFinding[] {
+  const findings: PrivacyFinding[] = [];
+  const add = (severity: PrivacyFinding["severity"], rule: string, message: string): void => {
+    findings.push({ severity, rule, message, evidence: check.path });
+  };
+  if (check.accountCreationUndeclared) {
+    add(
+      "blocker",
+      "account-creation-undeclared",
+      "Account creation was observed but declarations say it is disabled.",
+    );
+  }
+  if (check.accountCreationStale) {
+    add(
+      "review",
+      "account-creation-stale",
+      "Declarations say account creation is enabled, but no creation marker was observed.",
+    );
+  }
+  if (check.accountDeletionUndeclared) {
+    add(
+      "blocker",
+      "account-deletion-undeclared",
+      "Account deletion was observed but declarations say it is disabled.",
+    );
+  }
+  if (check.accountDeletionStale) {
+    add(
+      "review",
+      "account-deletion-stale",
+      "Declarations say account deletion is enabled, but no deletion marker was observed.",
+    );
+  }
+  return findings;
+}
+
 function buildFindings(
   result: Omit<PrivacyScanResult, "findings" | "limitations">,
 ): PrivacyFinding[] {
-  const findings: PrivacyFinding[] = [];
-  for (const log of result.piiLogs) {
-    findings.push({
-      severity: "blocker",
-      rule: "pii-log",
-      message: `PII identifier(s) may be logged: ${log.identifiers.join(", ")}`,
-      evidence: `${log.file}:${log.line}`,
-    });
-  }
+  const findings: PrivacyFinding[] = result.piiLogs.map((log) => ({
+    severity: "blocker",
+    rule: "pii-log",
+    message: `PII identifier(s) may be logged: ${log.identifiers.join(", ")}`,
+    evidence: `${log.file}:${log.line}`,
+  }));
 
   if (result.accountCreation.length > 0 && result.accountDeletion.length === 0) {
     findings.push({
@@ -740,97 +1027,10 @@ function buildFindings(
   }
 
   if (result.declarationsCheck) {
-    const check = result.declarationsCheck;
-    if (check.missingFields.length > 0) {
-      findings.push({
-        severity: "review",
-        rule: "declarations-incomplete",
-        message: `Declarations are missing fields: ${check.missingFields.join(", ")}`,
-        evidence: check.path,
-      });
-    }
-    if (check.undeclaredPermissions.length > 0) {
-      findings.push({
-        severity: "blocker",
-        rule: "permissions-undeclared",
-        message: `Observed permissions are not declared: ${check.undeclaredPermissions.join(", ")}`,
-        evidence: check.path,
-      });
-    }
-    if (check.stalePermissions.length > 0) {
-      findings.push({
-        severity: "review",
-        rule: "permissions-stale",
-        message: `Declared permissions were not observed (check manifest merging): ${check.stalePermissions.join(", ")}`,
-        evidence: check.path,
-      });
-    }
-    if (check.undeclaredSdks.length > 0) {
-      findings.push({
-        severity: "blocker",
-        rule: "sdks-undeclared",
-        message: `Observed privacy-relevant SDKs are not declared: ${check.undeclaredSdks.join(", ")}`,
-        evidence: check.path,
-      });
-    }
-    if (check.staleSdks.length > 0) {
-      findings.push({
-        severity: "review",
-        rule: "sdks-stale",
-        message: `Declared SDKs were not observed (check transitive dependencies): ${check.staleSdks.join(", ")}`,
-        evidence: check.path,
-      });
-    }
-    if (check.undeclaredEndpoints.length > 0) {
-      findings.push({
-        severity: "blocker",
-        rule: "endpoints-undeclared",
-        message: `Observed endpoints are not declared: ${check.undeclaredEndpoints.join(", ")}`,
-        evidence: check.path,
-      });
-    }
-    if (check.staleEndpoints.length > 0) {
-      findings.push({
-        severity: "review",
-        rule: "endpoints-stale",
-        message: `Declared endpoints were not observed (check backend-only flows): ${check.staleEndpoints.join(", ")}`,
-        evidence: check.path,
-      });
-    }
-    if (check.accountCreationUndeclared) {
-      findings.push({
-        severity: "blocker",
-        rule: "account-creation-undeclared",
-        message: "Account creation was observed but declarations say it is disabled.",
-        evidence: check.path,
-      });
-    }
-    if (check.accountCreationStale) {
-      findings.push({
-        severity: "review",
-        rule: "account-creation-stale",
-        message:
-          "Declarations say account creation is enabled, but no creation marker was observed.",
-        evidence: check.path,
-      });
-    }
-    if (check.accountDeletionUndeclared) {
-      findings.push({
-        severity: "blocker",
-        rule: "account-deletion-undeclared",
-        message: "Account deletion was observed but declarations say it is disabled.",
-        evidence: check.path,
-      });
-    }
-    if (check.accountDeletionStale) {
-      findings.push({
-        severity: "review",
-        rule: "account-deletion-stale",
-        message:
-          "Declarations say account deletion is enabled, but no deletion marker was observed.",
-        evidence: check.path,
-      });
-    }
+    findings.push(
+      ...declarationFindings(result.declarationsCheck),
+      ...accountDeclarationFindings(result.declarationsCheck),
+    );
   } else if (result.declarationsError) {
     findings.push({
       severity: result.declarationsRequired ? "blocker" : "review",
@@ -842,11 +1042,16 @@ function buildFindings(
     });
   }
 
-  if (result.limitReached) {
+  if (result.limitReached || result.coverage.oversizedFiles > 0) {
+    const parts: string[] = [];
+    if (result.limitReached) parts.push("the file limit was reached");
+    if (result.coverage.oversizedFiles > 0) {
+      parts.push(`${result.coverage.oversizedFiles} file(s) exceeded the size limit`);
+    }
     findings.push({
       severity: "review",
       rule: "scan-limit",
-      message: `Scan stopped after ${MAX_FILES} files; results may be incomplete.`,
+      message: `Scan coverage is limited because ${parts.join(" and ")}; results may be incomplete.`,
       evidence: result.root,
     });
   }
@@ -865,6 +1070,270 @@ function candidateDataTypes(permissions: string[], sdks: SdkFinding[]): string[]
   return [...types].sort();
 }
 
+interface ScanState {
+  filesByCategory: Record<string, number>;
+  permissionEvidence: PermissionFinding[];
+  permissionKeys: Set<string>;
+  permissions: Set<string>;
+  sdks: Map<string, SdkFinding>;
+  endpoints: EndpointFinding[];
+  endpointKeys: Set<string>;
+  dataStores: Map<string, DataStoreFinding>;
+  accountCreation: CodeMatch[];
+  accountDeletion: CodeMatch[];
+  piiLogs: PiiLogFinding[];
+  limitations: string[];
+  filesScanned: number;
+  filesSkipped: number;
+  oversizedFiles: number;
+}
+
+function createScanState(filesSkipped: number): ScanState {
+  return {
+    filesByCategory: {},
+    permissionEvidence: [],
+    permissionKeys: new Set<string>(),
+    permissions: new Set<string>(),
+    sdks: new Map<string, SdkFinding>(),
+    endpoints: [],
+    endpointKeys: new Set<string>(),
+    dataStores: new Map<string, DataStoreFinding>(),
+    accountCreation: [],
+    accountDeletion: [],
+    piiLogs: [],
+    limitations: [],
+    filesScanned: 0,
+    filesSkipped,
+    oversizedFiles: 0,
+  };
+}
+
+function addPermission(
+  state: ScanState,
+  permission: string,
+  file: string,
+  source: PrivacyEvidenceSource,
+): void {
+  const normalized = shortPermission(permission);
+  state.permissions.add(normalized);
+  if (
+    state.permissionEvidence.some(
+      (entry) => entry.permission === normalized && entry.file === file && entry.source === source,
+    )
+  ) {
+    return;
+  }
+  state.permissionEvidence.push({ permission: normalized, file, source });
+}
+
+function addEndpoint(
+  state: ScanState,
+  host: string,
+  file: string,
+  source: PrivacyEvidenceSource,
+): void {
+  if (
+    state.endpoints.some(
+      (entry) => entry.host === host && entry.file === file && entry.source === source,
+    )
+  ) {
+    return;
+  }
+  state.endpoints.push({ host, file, source });
+}
+
+type FileOutcome =
+  { kind: "content"; content: string } | { kind: "oversized" } | { kind: "skipped" };
+
+async function readFileWithinLimit(file: string, maxFileBytes: number): Promise<FileOutcome> {
+  let size: number;
+  try {
+    size = (await stat(file)).size;
+  } catch {
+    return { kind: "skipped" };
+  }
+  if (size > maxFileBytes) return { kind: "oversized" };
+  let content: string;
+  try {
+    content = await readFile(file, "utf8");
+  } catch {
+    return { kind: "skipped" };
+  }
+  if (Buffer.byteLength(content, "utf8") > maxFileBytes) return { kind: "oversized" };
+  return { kind: "content", content };
+}
+
+const SDK_COORDINATE = /["']([A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+)(?::[^"'\s]+)?["']/g;
+
+function addDeclaredSdks(state: ScanState, content: string, filePath: string): void {
+  for (const line of content.split("\n")) {
+    if (isCommentLine(line) || line.trimStart().startsWith("#")) continue;
+    for (const match of line.matchAll(SDK_COORDINATE)) {
+      const lower = match[1].toLowerCase();
+      for (const entry of SDK_CATALOG) {
+        const key = entry.artifact.toLowerCase();
+        if (!lower.includes(key) || state.sdks.has(key)) continue;
+        state.sdks.set(key, {
+          artifact: entry.artifact,
+          id: entry.id,
+          dataTypes: entry.dataTypes,
+          file: filePath,
+          source: "dependency-declaration",
+        });
+      }
+    }
+  }
+}
+
+function scanSourceContent(state: ScanState, content: string, filePath: string): void {
+  for (const line of content.split("\n")) {
+    if (isCommentLine(line)) continue;
+    for (const match of line.matchAll(URL_HOST)) {
+      const host = normalizeHost(match[1]);
+      if (host) addEndpoint(state, host, filePath, "source-code");
+    }
+    for (const marker of DATA_STORE_MARKERS) {
+      if (!marker.pattern.test(line) || state.dataStores.has(marker.kind)) continue;
+      state.dataStores.set(marker.kind, {
+        kind: marker.kind,
+        file: filePath,
+        source: "source-code",
+      });
+    }
+  }
+  state.accountCreation.push(
+    ...findCodeMatches(content, filePath, ACCOUNT_CREATION, state.limitations),
+  );
+  state.accountDeletion.push(
+    ...findCodeMatches(content, filePath, ACCOUNT_DELETION, state.limitations),
+  );
+  state.piiLogs.push(...findPiiLogs(content, filePath, state.limitations));
+}
+
+function scanFileContent(
+  state: ScanState,
+  content: string,
+  filePath: string,
+  category: string,
+): void {
+  switch (category) {
+    case "manifest":
+      for (const permission of extractManifestPermissions(content)) {
+        addPermission(state, permission, filePath, "manifest-source");
+      }
+      for (const host of extractManifestEndpoints(content)) {
+        addEndpoint(state, host, filePath, "manifest-source");
+      }
+      return;
+    case "build-config":
+      for (const host of extractBuildConfigEndpoints(content)) {
+        addEndpoint(state, host, filePath, "build-config");
+      }
+      addDeclaredSdks(state, content, filePath);
+      return;
+    case "network-security":
+      for (const host of extractNetworkConfigEndpoints(content)) {
+        addEndpoint(state, host, filePath, "network-config");
+      }
+      return;
+    case "resource-xml":
+      for (const host of extractResourceEndpoints(content)) {
+        addEndpoint(state, host, filePath, "resource-value");
+      }
+      return;
+    case "source-code":
+      scanSourceContent(state, content, filePath);
+      return;
+    default:
+      return;
+  }
+}
+
+async function scanMergedManifestFiles(
+  root: string,
+  maxFileBytes: number,
+  state: ScanState,
+): Promise<PrivacyCoverage["mergedManifest"]> {
+  const merged = await findMergedManifests(root);
+  if (merged.files.length > 0) state.filesByCategory["manifest-merged"] = merged.files.length;
+  for (const file of merged.files) {
+    const filePath = toPosix(relative(root, file));
+    const outcome = await readFileWithinLimit(file, maxFileBytes);
+    if (outcome.kind !== "content") {
+      state.filesSkipped++;
+      if (outcome.kind === "oversized") state.oversizedFiles++;
+      continue;
+    }
+    for (const permission of extractManifestPermissions(outcome.content)) {
+      addPermission(state, permission, filePath, "manifest-merged");
+    }
+    for (const host of extractManifestEndpoints(outcome.content)) {
+      addEndpoint(state, host, filePath, "manifest-merged");
+    }
+  }
+  if (merged.limited) {
+    state.limitations.push(
+      `Only the first ${MAX_MERGED_MANIFESTS} existing merged manifest(s) were inspected.`,
+    );
+    return "limited";
+  }
+  return merged.files.length > 0 ? "inspected" : "not-found";
+}
+
+const BASE_LIMITATIONS = Object.freeze([
+  "Backend request and response payloads are not inspected; review API models and backend data flows for every observed endpoint.",
+  "Static scanning cannot prove runtime collection or sharing; use net_capture, adb_logcat and SDK documentation to verify.",
+  "Candidate data types are derived from permissions and SDKs only; they are not a completed Play Data safety declaration.",
+  "Account deletion may live in a backend or web flow; this scan only finds source-code markers.",
+  "Gradle dependency resolution was not run; SDK detection is based on literal build-file declarations, and transitive dependencies are not assessed.",
+]);
+
+function buildScanLimitations(
+  state: ScanState,
+  limitReached: boolean,
+  maxFiles: number,
+  maxFileBytes: number,
+  mergedManifest: PrivacyCoverage["mergedManifest"],
+): string[] {
+  const limitations = [...state.limitations, ...BASE_LIMITATIONS];
+  if (limitReached) {
+    limitations.push(`File limit reached (${maxFiles}); results may be incomplete.`);
+  }
+  if (state.oversizedFiles > 0) {
+    limitations.push(
+      `${state.oversizedFiles} file(s) exceeded the ${maxFileBytes}-byte limit and were not parsed.`,
+    );
+  }
+  if (state.filesSkipped > 0) {
+    limitations.push(
+      `${state.filesSkipped} unreadable or oversized file(s), or unreadable directories, were skipped.`,
+    );
+  }
+  if (mergedManifest === "not-found") {
+    limitations.push(
+      "No existing merged manifest was found; permissions contributed by dependencies are not assessed.",
+    );
+  }
+  return limitations;
+}
+
+function buildCoverage(
+  state: ScanState,
+  limitReached: boolean,
+  mergedManifest: PrivacyCoverage["mergedManifest"],
+): PrivacyCoverage {
+  return {
+    filesByCategory: state.filesByCategory,
+    filesSkipped: state.filesSkipped,
+    oversizedFiles: state.oversizedFiles,
+    limitReached,
+    mergedManifest,
+    dependencyResolution: "not-run",
+    transitiveDependencies: "not-assessed",
+    unsupportedSources: [...UNSUPPORTED_SOURCES],
+  };
+}
+
 export async function scanPrivacyProject(
   projectPath: string,
   options: PrivacyScanOptions = {},
@@ -873,126 +1342,71 @@ export async function scanPrivacyProject(
   const rootStat = await stat(root);
   if (!rootStat.isDirectory()) throw new Error(`not a directory: ${root}`);
 
-  const { files, skipped, limitReached } = await collectFiles(root);
-  const permissions = new Set<string>();
-  const sdks = new Map<string, SdkFinding>();
-  const endpoints = new Map<string, EndpointFinding>();
-  const dataStores = new Map<string, DataStoreFinding>();
-  const accountCreation: CodeMatch[] = [];
-  const accountDeletion: CodeMatch[] = [];
-  const piiLogs: PiiLogFinding[] = [];
-  const limitations: string[] = [];
-  let filesScanned = 0;
-  let filesSkipped = skipped;
+  const maxFiles = options.maxFiles ?? MAX_FILES;
+  const maxFileBytes = options.maxFileBytes ?? MAX_FILE_BYTES;
+  const discovery = await collectFiles(root, MAX_FILES);
+  const limitReached = discovery.limitReached || discovery.files.length > maxFiles;
+  const state = createScanState(discovery.skipped);
 
-  for (const file of files) {
-    let content: string;
-    try {
-      content = await readFile(file, "utf8");
-    } catch {
-      filesSkipped++;
-      continue;
-    }
-    if (content.length > MAX_FILE_BYTES) {
-      filesSkipped++;
-      continue;
-    }
-    filesScanned++;
+  for (const file of discovery.files) {
     const filePath = toPosix(relative(root, file));
-    const name = basename(file);
+    const category = fileCategory(filePath);
+    if (!category) continue;
+    state.filesByCategory[category] = (state.filesByCategory[category] ?? 0) + 1;
 
-    if (name === "AndroidManifest.xml") {
-      const xml = content.replace(/<!--[\s\S]*?-->/g, "");
-      for (const match of xml.matchAll(
-        /<uses-permission(?:-sdk-23)?\b[^>]*\bandroid:name\s*=\s*"([^"]+)"/g,
-      )) {
-        permissions.add(shortPermission(match[1]));
-      }
+    const outcome = await readFileWithinLimit(file, maxFileBytes);
+    if (outcome.kind === "skipped") {
+      state.filesSkipped++;
+      continue;
     }
-
-    if (BUILD_FILE_NAMES.has(name)) {
-      for (const line of content.split("\n")) {
-        if (isCommentLine(line) || line.trimStart().startsWith("#")) continue;
-        for (const match of line.matchAll(
-          /["']([A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+)(?::[^"'\s]+)?["']/g,
-        )) {
-          const artifact = match[1];
-          const lower = artifact.toLowerCase();
-          for (const entry of SDK_CATALOG) {
-            if (!lower.includes(entry.artifact.toLowerCase())) continue;
-            const key = entry.artifact.toLowerCase();
-            if (sdks.has(key)) continue;
-            sdks.set(key, {
-              artifact: entry.artifact,
-              id: entry.id,
-              dataTypes: entry.dataTypes,
-              file: filePath,
-            });
-          }
-        }
-      }
+    if (outcome.kind === "oversized") {
+      state.filesSkipped++;
+      state.oversizedFiles++;
+      continue;
     }
-
-    if (name.includes("network_security_config") && name.endsWith(".xml")) {
-      const xml = content.replace(/<!--[\s\S]*?-->/g, "");
-      for (const match of xml.matchAll(/<domain[^>]*>([^<]+)<\/domain>/g)) {
-        const host = normalizeHost(match[1]);
-        if (host && !endpoints.has(host)) endpoints.set(host, { host, file: filePath });
-      }
-    }
-
-    if (!/\.(kt|java)$/.test(name)) continue;
-
-    const lines = content.split("\n");
-    for (const line of lines) {
-      if (isCommentLine(line)) continue;
-      for (const match of line.matchAll(URL_HOST)) {
-        const host = normalizeHost(match[1]);
-        if (host && !endpoints.has(host)) endpoints.set(host, { host, file: filePath });
-      }
-      for (const marker of DATA_STORE_MARKERS) {
-        if (!marker.pattern.test(line) || dataStores.has(marker.kind)) continue;
-        dataStores.set(marker.kind, { kind: marker.kind, file: filePath });
-      }
-    }
-
-    accountCreation.push(...findCodeMatches(content, filePath, ACCOUNT_CREATION, limitations));
-    accountDeletion.push(...findCodeMatches(content, filePath, ACCOUNT_DELETION, limitations));
-    piiLogs.push(...findPiiLogs(content, filePath, limitations));
+    if (state.filesScanned >= maxFiles) continue;
+    state.filesScanned++;
+    scanFileContent(state, outcome.content, filePath, category);
   }
 
-  const sortedPermissions = [...permissions].sort();
-  const sortedSdks = [...sdks.values()].sort((left, right) =>
+  const mergedManifest = await scanMergedManifestFiles(root, maxFileBytes, state);
+  const coverage = buildCoverage(state, limitReached, mergedManifest);
+  const limitations = buildScanLimitations(
+    state,
+    limitReached,
+    maxFiles,
+    maxFileBytes,
+    mergedManifest,
+  );
+
+  const sortedPermissions = [...state.permissions].sort();
+  const sortedPermissionEvidence = state.permissionEvidence.sort(
+    (left, right) =>
+      left.permission.localeCompare(right.permission) ||
+      left.source.localeCompare(right.source) ||
+      left.file.localeCompare(right.file),
+  );
+  const sortedSdks = [...state.sdks.values()].sort((left, right) =>
     left.artifact.localeCompare(right.artifact),
   );
-  const sortedEndpoints = [...endpoints.values()].sort((left, right) =>
-    left.host.localeCompare(right.host),
+  const sortedEndpoints = state.endpoints.sort(
+    (left, right) =>
+      left.host.localeCompare(right.host) ||
+      left.source.localeCompare(right.source) ||
+      left.file.localeCompare(right.file),
   );
-  const sortedDataStores = [...dataStores.values()].sort((left, right) =>
+  const sortedDataStores = [...state.dataStores.values()].sort((left, right) =>
     left.kind.localeCompare(right.kind),
   );
-  const sortedCreation = accountCreation
+  const sortedCreation = state.accountCreation
     .sort((left, right) => left.file.localeCompare(right.file) || left.line - right.line)
     .slice(0, MAX_MATCHES);
-  const sortedDeletion = accountDeletion
+  const sortedDeletion = state.accountDeletion
     .sort((left, right) => left.file.localeCompare(right.file) || left.line - right.line)
     .slice(0, MAX_MATCHES);
-  const sortedPiiLogs = piiLogs
+  const sortedPiiLogs = state.piiLogs
     .sort((left, right) => left.file.localeCompare(right.file) || left.line - right.line)
     .slice(0, MAX_PII_LOGS);
-
-  limitations.push(
-    "Backend request and response payloads are not inspected; review API models and backend data flows for every observed endpoint.",
-    "Static scanning cannot prove runtime collection or sharing; use net_capture, adb_logcat and SDK documentation to verify.",
-    "Candidate data types are derived from permissions and SDKs only; they are not a completed Play Data safety declaration.",
-    "Account deletion may live in a backend or web flow; this scan only finds source-code markers.",
-  );
-  if (limitReached)
-    limitations.push(`File limit reached (${MAX_FILES}); results may be incomplete.`);
-  if (filesSkipped > 0)
-    limitations.push(
-      `${filesSkipped} unreadable or oversized file(s), or unreadable directories, were skipped.`,
-    );
 
   const defaultDeclarationsPath = join(root, "privacy", "data-safety.json");
   const declarationsPath = options.declarationsPath
@@ -1013,16 +1427,18 @@ export async function scanPrivacyProject(
   > = {
     root,
     projectName: basename(root),
-    filesScanned,
-    filesSkipped,
+    filesScanned: state.filesScanned,
+    filesSkipped: state.filesSkipped,
     limitReached,
     permissions: sortedPermissions,
+    permissionEvidence: sortedPermissionEvidence,
     sdks: sortedSdks,
     endpoints: sortedEndpoints,
     dataStores: sortedDataStores,
     accountCreation: sortedCreation,
     accountDeletion: sortedDeletion,
     piiLogs: sortedPiiLogs,
+    coverage,
     declarationsPath,
     declarations,
     declarationsError,
@@ -1053,63 +1469,90 @@ function renderCode(value: string): string {
   return `\`${value.replaceAll("`", "'")}\``;
 }
 
-export function renderPrivacyReport(result: PrivacyScanResult): string {
-  const blockers = result.findings.filter((finding) => finding.severity === "blocker");
-  const reviews = result.findings.filter((finding) => finding.severity === "review");
-  const lines: string[] = [
-    `# Privacy inventory — ${result.projectName}`,
+function renderCoverage(result: PrivacyScanResult): string[] {
+  const categories = Object.entries(result.coverage.filesByCategory)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([category, count]) => `${category}=${count}`)
+    .join(", ");
+  const lines = [
+    "## Scan coverage",
     "",
-    `Scanned ${result.filesScanned} relevant file(s) under ${renderCode(result.root)}.`,
+    `- Files scanned: ${result.filesScanned}`,
+    `- Files by category: ${categories}`,
+    `- Oversized files: ${result.coverage.oversizedFiles}`,
+    `- File limit reached: ${result.coverage.limitReached ? "yes" : "no"}`,
+    `- Merged manifest: ${result.coverage.mergedManifest}`,
+    `- Gradle dependency resolution: ${result.coverage.dependencyResolution.replaceAll("-", " ")}`,
+    `- Transitive dependencies: ${result.coverage.transitiveDependencies.replaceAll("-", " ")}`,
+    "",
+    "Not inspected by this static scan:",
   ];
-  if (result.filesSkipped > 0)
-    lines.push(`Skipped ${result.filesSkipped} unreadable or oversized file(s).`);
-  if (result.limitReached) lines.push("The file limit was reached; results may be incomplete.");
+  for (const source of result.coverage.unsupportedSources) lines.push(`- ${source}`);
   lines.push(
     "",
-    `Verdict: **${blockers.length} blocker(s), ${reviews.length} review item(s)**.`,
+    "This scan is an inventory and review aid. It is **not a compliance certificate**; absence of a signal only means that signal was not found in the inspected sources.",
     "",
   );
+  return lines;
+}
 
-  lines.push("## Observed signals", "", "### Permissions", "");
+function renderPermissionsAndSdks(result: PrivacyScanResult): string[] {
+  const lines = ["### Permissions", ""];
   if (result.permissions.length === 0) lines.push("No permissions observed.");
   else for (const permission of result.permissions) lines.push(`- ${renderCode(permission)}`);
-  lines.push("");
-
-  lines.push("### Privacy-relevant SDKs", "");
+  lines.push("", "### Privacy-relevant SDKs", "");
   if (result.sdks.length === 0) lines.push("No known privacy-relevant SDK artifacts observed.");
   else {
     for (const sdk of result.sdks) {
       lines.push(
-        `- ${renderCode(sdk.artifact)} — ${sdk.id}; candidate data: ${sdk.dataTypes.join(", ")} — ${renderCode(sdk.file)}`,
+        `- ${renderCode(sdk.artifact)} — ${sdk.id}; candidate data: ${sdk.dataTypes.join(", ")} — ${renderCode(sdk.file)} (${sdk.source})`,
       );
     }
   }
   lines.push("");
+  return lines;
+}
 
-  lines.push("### Network endpoints", "");
-  if (result.endpoints.length === 0)
-    lines.push("No network endpoints observed in source or network-security configuration.");
-  else {
-    for (const endpoint of result.endpoints)
-      lines.push(`- ${renderCode(endpoint.host)} — ${renderCode(endpoint.file)}`);
+function renderEndpointSection(result: PrivacyScanResult): string[] {
+  const lines = ["### Network endpoints", ""];
+  if (result.endpoints.length === 0) {
+    lines.push(
+      "No network endpoints detected in inspected sources. This does not prove that none exist in resolved dependencies, generated code, remote configuration or backend flows.",
+    );
+  } else {
+    for (const endpoint of result.endpoints) {
+      lines.push(
+        `- ${renderCode(endpoint.host)} — ${renderCode(endpoint.file)} (${endpoint.source})`,
+      );
+    }
     lines.push("", "Endpoints are observed; request and response payloads are not inspected.");
   }
   lines.push("");
+  return lines;
+}
 
-  lines.push("### On-device storage", "");
+function renderStorageSection(result: PrivacyScanResult): string[] {
+  const lines = ["### On-device storage", ""];
   if (result.dataStores.length === 0) lines.push("No known on-device storage markers observed.");
-  else
-    for (const store of result.dataStores)
+  else {
+    for (const store of result.dataStores) {
       lines.push(`- ${store.kind} — ${renderCode(store.file)}`);
+    }
+  }
   lines.push("");
+  return lines;
+}
 
-  lines.push("### Account flows", "");
+function renderAccountFlows(result: PrivacyScanResult): string[] {
+  const lines = ["### Account flows", ""];
   lines.push(`- Account creation markers: ${result.accountCreation.length}`);
-  for (const match of result.accountCreation)
+  for (const match of result.accountCreation) {
     lines.push(`  - ${renderCode(`${match.file}:${match.line}`)} — ${renderCode(match.snippet)}`);
+  }
   lines.push(`- Account deletion markers: ${result.accountDeletion.length}`);
-  for (const match of result.accountDeletion)
+  for (const match of result.accountDeletion) {
     lines.push(`  - ${renderCode(`${match.file}:${match.line}`)} — ${renderCode(match.snippet)}`);
+  }
   if (result.accountCreation.length > 0 && result.accountDeletion.length === 0) {
     lines.push(
       "",
@@ -1117,8 +1560,11 @@ export function renderPrivacyReport(result: PrivacyScanResult): string {
     );
   }
   lines.push("");
+  return lines;
+}
 
-  lines.push("### PII in logs", "");
+function renderPiiSection(result: PrivacyScanResult): string[] {
+  const lines = ["### PII in logs", ""];
   if (result.piiLogs.length === 0) lines.push("No PII identifiers found in log calls.");
   else {
     for (const log of result.piiLogs) {
@@ -1128,14 +1574,22 @@ export function renderPrivacyReport(result: PrivacyScanResult): string {
     }
   }
   lines.push("");
+  return lines;
+}
 
-  lines.push("### Candidate data types (verify, do not paste blindly)", "");
-  if (result.candidateDataTypes.length === 0)
+function renderCandidateDataTypes(result: PrivacyScanResult): string[] {
+  const lines = ["### Candidate data types (verify, do not paste blindly)", ""];
+  if (result.candidateDataTypes.length === 0) {
     lines.push("No data types derived from permissions or SDKs.");
-  else for (const type of result.candidateDataTypes) lines.push(`- ${type}`);
+  } else {
+    for (const type of result.candidateDataTypes) lines.push(`- ${type}`);
+  }
   lines.push("");
+  return lines;
+}
 
-  lines.push("## Declaration check", "");
+function renderDeclarationSection(result: PrivacyScanResult): string[] {
+  const lines = ["## Declaration check", ""];
   if (!result.declarations) {
     lines.push(
       `No machine-readable declarations loaded from ${renderCode(result.declarationsPath)}.`,
@@ -1163,8 +1617,11 @@ export function renderPrivacyReport(result: PrivacyScanResult): string {
     lines.push(`- Account deletion gap: ${check.accountDeletionGap ? "yes" : "no"}`);
   }
   lines.push("");
+  return lines;
+}
 
-  lines.push("## Findings", "");
+function renderFindingsSection(result: PrivacyScanResult): string[] {
+  const lines = ["## Findings", ""];
   if (result.findings.length === 0) {
     lines.push(
       "No blockers or review items from the static scan. Manual evidence is still required.",
@@ -1178,29 +1635,54 @@ export function renderPrivacyReport(result: PrivacyScanResult): string {
     }
   }
   lines.push("");
+  return lines;
+}
 
-  lines.push("## Manual evidence still required", "");
-  lines.push(
+function renderManualEvidence(result: PrivacyScanResult): string[] {
+  const lines = [
+    "## Manual evidence still required",
+    "",
     "- Review every observed endpoint's request and response models, and the backend data flows that are not in this repository.",
-  );
-  lines.push(
     "- Verify runtime collection and sharing with `net_capture`, `adb_logcat`, and SDK documentation; a static scan cannot prove behavior.",
-  );
-  lines.push(
     "- Complete the Play Data safety form from the reviewed inventory, not from permissions and SDKs alone.",
-  );
-  lines.push(
     "- Determine applicable consent and disclosure flows from the data types, user age, and jurisdictions in scope.",
-  );
-  lines.push(
     "- If account creation is enabled, provide an in-app deletion path and a public web deletion URL, then test both.",
-  );
-  lines.push(
     "- Host the privacy policy at a public, stable URL and link it in the app and the Play listing.",
-  );
-  lines.push("- This scan is a review aid, not legal advice.");
+    "- This scan is a review aid, not legal advice.",
+  ];
   for (const limitation of result.limitations) lines.push(`- ${limitation}`);
   lines.push("");
+  return lines;
+}
 
+export function renderPrivacyReport(result: PrivacyScanResult): string {
+  const blockers = result.findings.filter((finding) => finding.severity === "blocker");
+  const reviews = result.findings.filter((finding) => finding.severity === "review");
+  const lines: string[] = [
+    `# Privacy inventory — ${result.projectName}`,
+    "",
+    `Scanned ${result.filesScanned} relevant file(s) under ${renderCode(result.root)}.`,
+  ];
+  if (result.filesSkipped > 0) {
+    lines.push(`Skipped ${result.filesSkipped} unreadable or oversized file(s).`);
+  }
+  if (result.limitReached) lines.push("The file limit was reached; results may be incomplete.");
+  lines.push(
+    "",
+    `Verdict: **${blockers.length} blocker(s), ${reviews.length} review item(s)**.`,
+    "",
+    ...renderCoverage(result),
+    "## Observed signals",
+    "",
+    ...renderPermissionsAndSdks(result),
+    ...renderEndpointSection(result),
+    ...renderStorageSection(result),
+    ...renderAccountFlows(result),
+    ...renderPiiSection(result),
+    ...renderCandidateDataTypes(result),
+    ...renderDeclarationSection(result),
+    ...renderFindingsSection(result),
+    ...renderManualEvidence(result),
+  );
   return `${lines.join("\n")}\n`;
 }

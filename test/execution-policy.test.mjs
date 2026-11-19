@@ -182,7 +182,11 @@ test("high-impact wrappers get a concrete preview instead of a generic placehold
     script: "const secret = 'do-not-print-this';",
   });
   assert.match(inline, /inline script/);
-  assert.doesNotMatch(inline, /do-not-print-this/, "inline script bodies are not copied into previews");
+  assert.doesNotMatch(
+    inline,
+    /do-not-print-this/,
+    "inline script bodies are not copied into previews",
+  );
 });
 
 test("a blocked operation carries a preview and an encoded approval request", () => {
@@ -269,7 +273,13 @@ test("approvals are single-use and short-lived", () => {
   const fresh = createApprovalLedger();
   const expired = evaluate(
     "adb_shell",
-    { ...args, approvalToken: signApprovalRequest(evaluate("adb_shell", args, policy, fresh).approval, SECRET) },
+    {
+      ...args,
+      approvalToken: signApprovalRequest(
+        evaluate("adb_shell", args, policy, fresh).approval,
+        SECRET,
+      ),
+    },
     policy,
     fresh,
     LATER,
@@ -294,7 +304,9 @@ test("forged or tampered tokens never authorize an operation", () => {
 
   const valid = signApprovalRequest(request, SECRET);
   const [body, signature] = valid.split(".");
-  const tampered = `${body}.${signature.slice(0, -1)}${signature.endsWith("A") ? "B" : "A"}`;
+  // Tamper with the first signature character. The trailing base64url character
+  // carries only padding bits, so flipping it can decode to the same MAC.
+  const tampered = `${body}.${signature[0] === "A" ? "B" : "A"}${signature.slice(1)}`;
   const tamperedDecision = evaluate(
     "adb_shell",
     { ...args, approvalToken: tampered },
@@ -351,10 +363,7 @@ test("restricted mode allows read-only tools and explicit allowlist entries only
     ANDROID_MCP_POLICY: "restricted",
     ANDROID_MCP_ALLOW: "device.shell",
   });
-  assert.equal(
-    evaluate("adb_rm", { remotePath: "/sdcard/x" }, missing).reason,
-    "not-allowlisted",
-  );
+  assert.equal(evaluate("adb_rm", { remotePath: "/sdcard/x" }, missing).reason, "not-allowlisted");
   assert.match(evaluate("adb_shell", {}, restricted).guidance.join("\n"), /ANDROID_MCP_ALLOW/);
 });
 
@@ -629,4 +638,3 @@ test("the out-of-band CLI signs a blocked request end to end", async () => {
     rmSync(f.base, { recursive: true, force: true });
   }
 });
-

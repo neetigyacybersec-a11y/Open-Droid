@@ -76,7 +76,9 @@ fun log(email: String, token: String, count: Int, password: String) {
   assert.ok(result.piiLogs.some((log) => log.identifiers.includes("email")));
   assert.ok(result.piiLogs.some((log) => log.identifiers.includes("token")));
   assert.ok(result.piiLogs.every((log) => !log.snippet.includes("password=")));
-  assert.ok(result.findings.some((finding) => finding.rule === "pii-log" && finding.severity === "blocker"));
+  assert.ok(
+    result.findings.some((finding) => finding.rule === "pii-log" && finding.severity === "blocker"),
+  );
 });
 
 test("piiIdentifiers only reports identifier-like PII, not string text", () => {
@@ -101,7 +103,11 @@ fun create() {
   const result = await scanPrivacyProject(root);
   assert.equal(result.accountCreation.length, 1);
   assert.equal(result.accountDeletion.length, 0);
-  assert.ok(result.findings.some((finding) => finding.rule === "account-deletion-gap" && finding.severity === "blocker"));
+  assert.ok(
+    result.findings.some(
+      (finding) => finding.rule === "account-deletion-gap" && finding.severity === "blocker",
+    ),
+  );
 });
 
 test("accepts declarations that match observed signals", async (t) => {
@@ -179,9 +185,21 @@ class Main {
   assert.deepEqual(check.staleEndpoints, ["other.example.com"]);
   assert.equal(check.accountCreationUndeclared, true);
   assert.equal(check.accountDeletionUndeclared, true);
-  assert.ok(result.findings.some((finding) => finding.rule === "permissions-undeclared" && finding.severity === "blocker"));
-  assert.ok(result.findings.some((finding) => finding.rule === "sdks-undeclared" && finding.severity === "blocker"));
-  assert.ok(result.findings.some((finding) => finding.rule === "endpoints-undeclared" && finding.severity === "blocker"));
+  assert.ok(
+    result.findings.some(
+      (finding) => finding.rule === "permissions-undeclared" && finding.severity === "blocker",
+    ),
+  );
+  assert.ok(
+    result.findings.some(
+      (finding) => finding.rule === "sdks-undeclared" && finding.severity === "blocker",
+    ),
+  );
+  assert.ok(
+    result.findings.some(
+      (finding) => finding.rule === "endpoints-undeclared" && finding.severity === "blocker",
+    ),
+  );
 });
 
 test("ignores build output and commented log calls", async (t) => {
@@ -210,7 +228,11 @@ test("missing explicit declarations are a blocker", async (t) => {
   const result = await scanPrivacyProject(root, { declarationsPath: "privacy/missing.json" });
   assert.equal(result.declarations, null);
   assert.equal(result.declarationsRequired, true);
-  assert.ok(result.findings.some((finding) => finding.rule === "declarations-missing" && finding.severity === "blocker"));
+  assert.ok(
+    result.findings.some(
+      (finding) => finding.rule === "declarations-missing" && finding.severity === "blocker",
+    ),
+  );
 });
 
 test("the MCP handler writes a report and honors strict mode", async (t) => {
@@ -228,4 +250,135 @@ test("the MCP handler writes a report and honors strict mode", async (t) => {
 
   const lenient = await handlePrivacyScan({ projectPath: root, strict: false });
   assert.equal(lenient.isError, false);
+});
+
+test("inventories resource strings and buildConfigField URLs with evidence classes", async (t) => {
+  const root = await fixture({
+    "app/src/main/res/values/strings.xml": `<resources>
+  <string name="source_url">https://strings.example.com/v1</string>
+  <string-array name="endpoints">
+    <item>https://array.example.com/v2</item>
+  </string-array>
+  <!-- <string name="old">https://commented.example.com</string> -->
+</resources>
+`,
+    "app/build.gradle.kts": `android {
+  defaultConfig {
+    buildConfigField("String", "API_URL", "\\"https://build.example.com/v3\\"")
+    // buildConfigField("String", "OLD", "\\"https://commented-build.example.com\\"")
+  }
+}
+`,
+    "app/src/main/java/com/example/Main.kt": `package com.example
+class Main {
+    val endpoint = "https://source.example.com/api"
+    // val old = "https://commented-source.example.com"
+}
+`,
+    "app/src/main/AndroidManifest.xml": manifest,
+  });
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const result = await scanPrivacyProject(root);
+  const hosts = new Set(result.endpoints.map((endpoint) => endpoint.host));
+  assert.ok(hosts.has("strings.example.com"));
+  assert.ok(hosts.has("array.example.com"));
+  assert.ok(hosts.has("build.example.com"));
+  assert.ok(hosts.has("source.example.com"));
+  assert.ok(!hosts.has("commented.example.com"));
+  assert.ok(!hosts.has("commented-build.example.com"));
+  assert.ok(!hosts.has("commented-source.example.com"));
+
+  const resource = result.endpoints.find((endpoint) => endpoint.host === "strings.example.com");
+  const build = result.endpoints.find((endpoint) => endpoint.host === "build.example.com");
+  const source = result.endpoints.find((endpoint) => endpoint.host === "source.example.com");
+  assert.equal(resource.source, "resource-value");
+  assert.equal(build.source, "build-config");
+  assert.equal(source.source, "source-code");
+  assert.ok(result.coverage.filesByCategory["resource-xml"] >= 1);
+  assert.ok(result.coverage.filesByCategory["build-config"] >= 1);
+  assert.ok(result.coverage.filesByCategory["source-code"] >= 1);
+
+  const report = renderPrivacyReport(result);
+  assert.match(report, /Files by category: .*build-config=/);
+  assert.match(report, /Files by category: .*resource-xml=/);
+  assert.match(report, /Files by category: .*source-code=/);
+  assert.match(report, /Not inspected by this static scan:/);
+  assert.match(report, /Transitive dependencies: not assessed/);
+});
+
+test("retains every evidence path for duplicate endpoints", async (t) => {
+  const root = await fixture({
+    "app/src/main/res/values/strings.xml": `<resources>
+  <string name="api">https://shared.example.com/v1</string>
+</resources>
+`,
+    "app/src/main/java/com/example/Main.kt": `package com.example
+class Main { val api = "https://shared.example.com/v1" }
+`,
+  });
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const result = await scanPrivacyProject(root);
+  const shared = result.endpoints.filter((endpoint) => endpoint.host === "shared.example.com");
+  assert.equal(shared.length, 2);
+  assert.deepEqual(shared.map((endpoint) => endpoint.source).sort(), [
+    "resource-value",
+    "source-code",
+  ]);
+  assert.deepEqual(shared.map((endpoint) => endpoint.file).sort(), [
+    "app/src/main/java/com/example/Main.kt",
+    "app/src/main/res/values/strings.xml",
+  ]);
+});
+
+test("inspects an existing merged manifest and separates its permissions", async (t) => {
+  const root = await fixture({
+    "app/src/main/AndroidManifest.xml": manifest,
+    "app/build/intermediates/merged_manifest/debug/AndroidManifest.xml": `<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-permission android:name="android.permission.INTERNET" />
+  <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
+</manifest>
+`,
+  });
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const result = await scanPrivacyProject(root);
+  assert.equal(result.coverage.mergedManifest, "inspected");
+  const merged = result.permissionEvidence.filter((entry) => entry.source === "manifest-merged");
+  assert.ok(merged.some((entry) => entry.permission === "AD_ID"));
+  assert.ok(merged.some((entry) => entry.permission === "INTERNET"));
+  assert.ok(
+    result.permissionEvidence.some(
+      (entry) => entry.permission === "INTERNET" && entry.source === "manifest-source",
+    ),
+  );
+  assert.match(renderPrivacyReport(result), /Merged manifest: inspected/);
+});
+
+test("reports coverage limits and never claims absence beyond inspected sources", async (t) => {
+  const root = await fixture({
+    "app/src/main/AndroidManifest.xml": manifest,
+    "app/src/main/java/com/example/Main.kt": `package com.example
+class Main { val greeting = "hello" }
+`,
+    "app/src/main/java/com/example/Oversized.kt": `package com.example\nval api = "https://hidden.example.com"\n${"x".repeat(200)}`,
+  });
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const result = await scanPrivacyProject(root, { maxFiles: 2, maxFileBytes: 100 });
+  assert.equal(result.limitReached, true);
+  assert.ok(result.coverage.oversizedFiles >= 1);
+  assert.ok(!result.endpoints.some((endpoint) => endpoint.host === "hidden.example.com"));
+  assert.equal(result.coverage.dependencyResolution, "not-run");
+  assert.equal(result.coverage.transitiveDependencies, "not-assessed");
+  assert.equal(result.coverage.mergedManifest, "not-found");
+  assert.ok(result.coverage.unsupportedSources.length > 0);
+  assert.ok(result.findings.some((finding) => finding.rule === "scan-limit"));
+
+  const report = renderPrivacyReport(result);
+  assert.match(report, /No network endpoints detected in inspected sources/);
+  assert.match(report, /not a compliance certificate/i);
+  assert.match(report, /Gradle dependency resolution: not run/);
+  assert.match(report, /transitive dependencies are not assessed/i);
 });
