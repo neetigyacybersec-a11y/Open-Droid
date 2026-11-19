@@ -121,6 +121,10 @@ jobs:
         # Roborazzi verify: apps without goldens/Roborazzi ignore the property;
         # the template fails on pixel diff vs committed goldens (FR-B2 slice 2).
         run: cd ${{ matrix.app-dir }} && gradle :app:assembleDebug :app:testDebugUnitTest -Proborazzi.test.verify=true :app:lintDebug --no-daemon
+      - name: Verify release versioning contract
+        if: matrix.app-dir == 'templates/compose-starter'
+        # ISSUE-122: run real Gradle fixtures for explicit/env/shallow/missing history.
+        run: node --test test/version-code.test.mjs
 
   # FR-B2 + FR-B6: the template's instrumented Compose test executes on one API
   # level; the vendored toolchain hosts lack KVM, so this runs only in CI.

@@ -61,3 +61,18 @@ make screenshot        # captures screenshots/screen.png
 ## Dynamic analysis (optional)
 
 `make setup` now also vendors Frida + mitmproxy for dynamic analysis. See `docs/dynamic-analysis.md`.
+
+## Release builds
+
+Release tasks require an explicit, validated version code. Git commit count is
+only a development fallback and is not monotonic in shallow CI checkouts or
+source archives:
+
+```bash
+cd my-app
+gradle :app:bundleRelease -PversionCode=42   # or export VERSION_CODE=42
+```
+
+`versionCode` must be an integer from 1 to 2,100,000,000. A release task with no
+explicit value fails with a message explaining both overrides. Signing still
+reads `keystore.properties`; see `templates/compose-starter/app/build.gradle.kts`.

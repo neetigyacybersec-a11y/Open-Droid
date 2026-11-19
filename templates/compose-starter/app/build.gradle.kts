@@ -1,5 +1,4 @@
 import java.util.Properties
-import java.util.concurrent.TimeUnit
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -8,18 +7,10 @@ plugins {
     id("io.github.takahirom.roborazzi") version "1.41.0"
 }
 
-// ---- FR-B3 signing + versioning scaffold ----
-// versionCode comes from this project's git history, so it climbs monotonically
-// across releases; 1 when there is no history (fresh scaffold before first commit).
-val gitCommitCount: Int = runCatching {
-    val probe = ProcessBuilder("git", "rev-list", "--count", "HEAD")
-        .directory(rootDir)
-        .redirectErrorStream(true)
-        .start()
-    val count = probe.inputStream.bufferedReader().use { it.readText().trim().toInt() }
-    probe.waitFor(10, TimeUnit.SECONDS)
-    count
-}.getOrDefault(1)
+// ---- FR-B3 + ISSUE-122 signing + versioning scaffold ----
+// Release builds need an explicit -PversionCode or VERSION_CODE; git commit
+// count is only a development fallback and is not monotonic in shallow clones.
+apply(from = rootProject.file("gradle/version-code.gradle.kts"))
 
 // keystore.properties is gitignored and supplies storeFile, storePassword,
 // keyAlias and keyPassword for the release signing config.
@@ -38,7 +29,7 @@ android {
         applicationId = "com.example.starter"
         minSdk = 26
         targetSdk = 35
-        versionCode = gitCommitCount
+        versionCode = project.extra["resolvedVersionCode"] as Int
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Robolectric needs these generated app resources + config to build; without it the

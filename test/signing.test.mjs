@@ -9,6 +9,10 @@ import path from 'node:path';
 
 const REPO = path.resolve(import.meta.dirname, '..');
 const appGradle = readFileSync(path.join(REPO, 'templates/compose-starter/app/build.gradle.kts'), 'utf8');
+const versionScript = readFileSync(
+  path.join(REPO, 'templates/compose-starter/gradle/version-code.gradle.kts'),
+  'utf8',
+);
 
 test('release signing comes from gitignored keystore.properties', () => {
   assert.match(appGradle, /keystore\.properties/, 'must read keystore.properties');
@@ -35,13 +39,22 @@ test('release tasks fail closed when no keystore is configured', () => {
   );
 });
 
-test('versionCode is derived from git history, not hardcoded', () => {
+test('versionCode is explicit for release and git-derived only as a dev fallback', () => {
   assert.match(
     appGradle,
-    /rev-list.*--count.*HEAD|--count.*rev-list/s,
-    'versionCode must come from git rev-list --count HEAD',
+    /apply\(from = rootProject\.file\("gradle\/version-code\.gradle\.kts"\)\)/,
+    'the app must apply the shared versioning script',
   );
-  assert.match(appGradle, /versionCode\s*=\s*\w/, 'versionCode must be assigned from the derived value, not the literal 1');
+  assert.match(
+    appGradle,
+    /versionCode = project\.extra\["resolvedVersionCode"\] as Int/,
+    'the app must read the resolved version instead of recomputing it',
+  );
+  assert.match(versionScript, /rev-list.*--count.*HEAD|--count.*rev-list/s);
+  assert.match(versionScript, /-PversionCode/, 'an explicit Gradle property must be supported');
+  assert.match(versionScript, /VERSION_CODE/, 'an environment override must be supported');
+  assert.match(versionScript, /taskNames/, 'release tasks must be detected');
+  assert.match(versionScript, /2100000000/, 'the Play upper bound must be enforced');
   assert.ok(!/^versionCode = 1$/m.test(appGradle), 'versionCode must not be hardcoded to 1');
 });
 
