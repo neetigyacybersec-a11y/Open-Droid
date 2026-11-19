@@ -4,13 +4,14 @@
 // approval requirement or test reference cannot be registered.
 import { strict as assert } from "node:assert";
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
   IMPACT_CLASSES,
+  PLANNED_TOOLS,
   TOOL_CATEGORIES,
   TOOL_PATH_SPECS,
   TOOL_REGISTRY,
@@ -222,4 +223,81 @@ test("generated catalogue documentation is current", () => {
     encoding: "utf8",
   });
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+});
+
+test("planned tools are explicit, tracked and never registered", () => {
+  const registered = new Set(TOOL_REGISTRY.map((entry) => entry.name));
+  assert.deepEqual(
+    PLANNED_TOOLS.map((tool) => tool.name).sort(),
+    ["a11y_audit", "design_qa_matrix", "screenshot_diff"],
+    "the planned list is the checked-in answer for names that docs may mention",
+  );
+  for (const tool of PLANNED_TOOLS) {
+    assert.equal(tool.status, "not-implemented", tool.name);
+    assert.ok(tool.summary.trim().length >= 20, `${tool.name} needs a useful summary`);
+    assert.ok(tool.tracking.length > 0, `${tool.name} needs a tracking issue`);
+    assert.ok(!registered.has(tool.name), `${tool.name} is planned and must not be registered`);
+  }
+});
+
+test("README and generated catalogue mark planned tools as unavailable", () => {
+  const readme = readFileSync(join(REPO, "README.md"), "utf8");
+  const catalogue = readFileSync(join(REPO, "docs", "tool-catalogue.md"), "utf8");
+  assert.match(readme, /\*\*Not registered:\*\*/);
+  assert.match(catalogue, /## Output content/);
+  assert.match(catalogue, /Every registered tool returns MCP text content/);
+  assert.match(catalogue, /`adb_screenshot` and[\s\S]*`compose_preview_render`/);
+  assert.match(catalogue, /No tool returns an MCP resource or embedded file/);
+  assert.match(catalogue, /## Planned, not registered/);
+  for (const tool of PLANNED_TOOLS) {
+    assert.ok(readme.includes(`\`${tool.name}\``), `README must name planned tool ${tool.name}`);
+    assert.ok(
+      catalogue.includes(`| \`${tool.name}\` | \`not-implemented\` |`),
+      `catalogue must mark ${tool.name} as not implemented`,
+    );
+    for (const issue of tool.tracking) {
+      assert.ok(catalogue.includes(`#${issue}`), `catalogue must link ${tool.name} to #${issue}`);
+    }
+  }
+});
+
+test("README category counts match the registry", () => {
+  const readme = readFileSync(join(REPO, "README.md"), "utf8");
+  const labels = {
+    Environment: "environment",
+    Build: "build",
+    ADB: "adb",
+    "Emulator / AVD": "emulator",
+    "Frida (dynamic)": "frida",
+    "Network exposure": "network",
+    "UI inspection": "ui",
+    "Static analysis": "static-analysis",
+    Testing: "testing",
+    Profiling: "profiling",
+    Privacy: "privacy",
+    Security: "security",
+    Skills: "skills",
+    Catalogue: "catalog",
+  };
+  let total = 0;
+  for (const [label, category] of Object.entries(labels)) {
+    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = readme.match(new RegExp(`^\\| ${escaped} \\| (\\d+) \\|`, "m"));
+    assert.ok(match, `README is missing the ${label} category row`);
+    const expected = TOOL_REGISTRY.filter((entry) => entry.category === category).length;
+    assert.equal(Number(match[1]), expected, `README ${label} count drifted`);
+    total += Number(match[1]);
+  }
+  assert.equal(total, TOOL_REGISTRY.length, "README category counts must sum to the registry size");
+});
+
+test("descriptions name the non-text content a caller receives", () => {
+  const byName = new Map(TOOL_REGISTRY.map((entry) => [entry.name, entry]));
+  assert.match(byName.get("adb_screenshot").description, /image content/);
+  assert.match(byName.get("compose_preview_render").description, /inline images/);
+  assert.match(byName.get("tool_catalog").description, /structured JSON text/);
+  assert.match(
+    readFileSync(join(REPO, "docs", "tool-catalogue.md"), "utf8"),
+    /No tool returns an MCP resource or embedded file/,
+  );
 });

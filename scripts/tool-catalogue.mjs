@@ -13,7 +13,13 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { RISK_CLASSES, TOOL_CATEGORIES, TOOL_REGISTRY, baseImpact } from "../dist/registry.js";
+import {
+  PLANNED_TOOLS,
+  RISK_CLASSES,
+  TOOL_CATEGORIES,
+  TOOL_REGISTRY,
+  baseImpact,
+} from "../dist/registry.js";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DOC_PATH = join(REPO, "docs", "tool-catalogue.md");
@@ -36,6 +42,14 @@ function renderMarkdown() {
     "`src/registry.ts` with its schema, handler, risk class, approval requirement,",
     "path policy, provenance source and test references. Registration is a loop over",
     "that registry, so a tool cannot be added without those decisions.",
+    "",
+    "## Output content",
+    "",
+    "Every registered tool returns MCP text content. `adb_screenshot` and",
+    "`compose_preview_render` additionally return inline PNG image content",
+    "(`image/png`). No tool returns an MCP resource or embedded file: tools that",
+    "persist files report the path and metadata as text. `tool_catalog` returns",
+    "structured JSON encoded as text. Every other tool is text-only.",
     "",
     "## Risk summary",
     "",
@@ -104,6 +118,21 @@ function renderMarkdown() {
   }
 
   lines.push(
+    "## Planned, not registered",
+    "",
+    "These names appear in design notes and feature requests but are **not",
+    "registered**. Calling them fails; the table exists so documentation cannot",
+    "be mistaken for a working capability.",
+    "",
+    "| Tool | Status | Summary | Tracking |",
+    "|---|---|---|---|",
+  );
+  for (const tool of PLANNED_TOOLS) {
+    const tracking = tool.tracking.map((issue) => `#${issue}`).join(", ");
+    lines.push(`| \`${tool.name}\` | \`${tool.status}\` | ${tool.summary} | ${tracking} |`);
+  }
+  lines.push(
+    "",
     "## Safe subset",
     "",
     "`tool_catalog` with `safeOnly: true` returns only tools with `approval: none`",

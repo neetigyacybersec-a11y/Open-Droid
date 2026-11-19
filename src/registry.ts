@@ -61,6 +61,43 @@ export const IMPACT_CLASSES = Object.freeze([
 
 export type ImpactClass = (typeof IMPACT_CLASSES)[number];
 
+/**
+ * ISSUE-22: names that design notes or feature requests may mention but that
+ * are deliberately not registered. The generated catalogue lists them so a
+ * reader never has to guess whether a missing tool is broken or unbuilt.
+ */
+export interface PlannedTool {
+  readonly name: string;
+  readonly status: "not-implemented";
+  readonly summary: string;
+  /** GitHub issue numbers that track the feature request. */
+  readonly tracking: readonly number[];
+}
+
+export const PLANNED_TOOLS: readonly PlannedTool[] = Object.freeze([
+  Object.freeze({
+    name: "screenshot_diff",
+    status: "not-implemented",
+    summary:
+      "Pixel-diff a capture against a golden baseline. Use adb_screenshot for capture and Roborazzi verify in app tests until this tool exists.",
+    tracking: Object.freeze([16, 18]),
+  }),
+  Object.freeze({
+    name: "design_qa_matrix",
+    status: "not-implemented",
+    summary:
+      "Capture light, dark, font-scale and landscape variants as one contact sheet. Use Robolectric/Roborazzi variants in app tests for now.",
+    tracking: Object.freeze([18]),
+  }),
+  Object.freeze({
+    name: "a11y_audit",
+    status: "not-implemented",
+    summary:
+      "Audit tap targets, labels and sampled contrast over uiautomator. Use Roborazzi accessibility checks in app tests for now.",
+    tracking: Object.freeze([18]),
+  }),
+]);
+
 export type SideEffect =
   | "host-read"
   | "host-write"
@@ -595,7 +632,7 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = Object.freeze([
   defineTool({
     name: "adb_screenshot",
     description:
-      "Capture a device screenshot, save the PNG to an approved path and return it inline.",
+      "Capture a device screenshot, save the PNG to an approved path and return the PNG inline as image content.",
     schema: ToolSchemas.adbScreenshot,
     handler: (args) => H.handleAdbScreenshot(args),
     category: "adb",
@@ -1633,7 +1670,7 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = Object.freeze([
   defineTool({
     name: "tool_catalog",
     description:
-      "List registered MCP tools with category, risk, approval and safe-to-run metadata.",
+      "List registered MCP tools as structured JSON text with category, risk, approval and safe-to-run metadata.",
     schema: ToolSchemas.toolCatalog,
     handler: (args) => handleToolCatalog(args),
     category: "catalog",

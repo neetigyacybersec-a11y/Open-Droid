@@ -7,6 +7,14 @@ The server registers **67 tools**. Every entry is declared in
 path policy, provenance source and test references. Registration is a loop over
 that registry, so a tool cannot be added without those decisions.
 
+## Output content
+
+Every registered tool returns MCP text content. `adb_screenshot` and
+`compose_preview_render` additionally return inline PNG image content
+(`image/png`). No tool returns an MCP resource or embedded file: tools that
+persist files report the path and metadata as text. `tool_catalog` returns
+structured JSON encoded as text. Every other tool is text-only.
+
 ## Risk summary
 
 | Risk class | Tools |
@@ -392,7 +400,7 @@ Record the device screen for a bounded duration and pull the MP4 to the host.
 
 ### `adb_screenshot`
 
-Capture a device screenshot, save the PNG to an approved path and return it inline.
+Capture a device screenshot, save the PNG to an approved path and return the PNG inline as image content.
 
 - Impact: `local-reversible`
 - Policy key: `host.file.write`
@@ -977,12 +985,24 @@ Search Android skills through the Android CLI when it is installed.
 
 ### `tool_catalog`
 
-List registered MCP tools with category, risk, approval and safe-to-run metadata.
+List registered MCP tools as structured JSON text with category, risk, approval and safe-to-run metadata.
 
 - Impact: `read-only`
 - Side effects: `host-read`
 - Verification: npm test — smoke registration and registry catalogue tests
 - Tests: `test/smoke.test.mjs`, `test/registry.test.mjs`
+
+## Planned, not registered
+
+These names appear in design notes and feature requests but are **not
+registered**. Calling them fails; the table exists so documentation cannot
+be mistaken for a working capability.
+
+| Tool | Status | Summary | Tracking |
+|---|---|---|---|
+| `screenshot_diff` | `not-implemented` | Pixel-diff a capture against a golden baseline. Use adb_screenshot for capture and Roborazzi verify in app tests until this tool exists. | #16, #18 |
+| `design_qa_matrix` | `not-implemented` | Capture light, dark, font-scale and landscape variants as one contact sheet. Use Robolectric/Roborazzi variants in app tests for now. | #18 |
+| `a11y_audit` | `not-implemented` | Audit tap targets, labels and sampled contrast over uiautomator. Use Roborazzi accessibility checks in app tests for now. | #18 |
 
 ## Safe subset
 

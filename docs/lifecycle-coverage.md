@@ -15,8 +15,8 @@ Applicability reflects the reference product scope in `BACKLOG.md`; a product ma
 | Build | `build.debug` | required | partial | untested | — | — | `Makefile`<br>`scripts/warm-cache.sh`<br>`src/tools.ts` |
 | UI authoring | `ui-authoring.compose` | required | partial | untested | — | — | `templates/compose-starter`<br>`examples/hello-compose` |
 | Design tokens | `design-tokens.pipeline` | required | missing | untested | — | — | — |
-| Visual QA | `visual-qa.screenshot-diff` | required | partial | untested | — | — | `src/tools.ts`<br>`test/smoke.test.mjs` |
-| Accessibility | `accessibility.static-rules` | required | partial | untested | — | — | `src/tools.ts` |
+| Visual QA | `visual-qa.screenshot-diff` | required | partial | untested | — | — | `src/tools.ts`<br>`templates/compose-starter/app/src/test/java/com/example/starter/GreetingScreenshotTest.kt` |
+| Accessibility | `accessibility.static-rules` | required | partial | untested | — | — | `templates/compose-starter/app/src/test/java/com/example/starter/GreetingA11yTest.kt` |
 | UI testing | `testing.compose-ui` | required | missing | untested | — | — | — |
 | Motion | `motion.presets` | required | missing | untested | — | — | — |
 | Brand / logo / icons | `branding.identity` | required | missing | untested | — | — | — |

@@ -201,6 +201,12 @@ installation, registration, and verification.
 Run `tools/list` for the exact schema of every tool, or `tool_catalog` with
 `safeOnly: true` to see only approval-free tools that can run unattended.
 
+**Not registered:** `screenshot_diff`, `design_qa_matrix` and `a11y_audit` are
+planned, not callable. Use `adb_screenshot` and `compose_preview_render` for
+captures today, and Roborazzi screenshot/accessibility checks inside app tests.
+The generated catalogue's [planned section](docs/tool-catalogue.md#planned-not-registered)
+records their tracking issues.
+
 
 ---
 

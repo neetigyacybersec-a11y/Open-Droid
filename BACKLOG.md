@@ -3,10 +3,11 @@
 **This is the single consolidated backlog.** Everything the repo owner needs — what is
 broken, what is missing, what shipped, what it costs to close — is on this page.
 
-- Last verified: **2026-11-06**, Windows 11 + `Pixel_9_API_35` (API 35, 1080×1620, density 420), vendored offline toolchain; host-specific measurements are not universal guarantees
+- Last verified: **2026-11-19** for the MCP registry and Node suite; the Android host measurements below were captured **2026-11-06**, Windows 11 + `Pixel_9_API_35` (API 35, 1080×1620, density 420), vendored offline toolchain; host-specific measurements are not universal guarantees
 - Network: **reachable** (`dl.google.com` and `repo1.maven.org` return 200) — the cache is cold, not blocked
-- Tool count: **63 MCP tools** (`test/smoke.test.mjs` is the contract)
-- Test suite: **46 Node tests · 46 pass · 0 skipped** (MCP/server/scripts tests, not Android UI tests (§11.10).
+- Tool count: **67 MCP tools** (`src/registry.ts` is the source of truth; `test/smoke.test.mjs` checks the built `tools/list`)
+- Test suite: **297 Node tests · 297 pass · 0 skipped** (MCP/server/scripts tests, not Android UI tests (§11.10)).
+- UI QA status: `screenshot_diff`, `design_qa_matrix` and `a11y_audit` are **not implemented** and are not registered. See the planned-tools section in [`docs/tool-catalogue.md`](docs/tool-catalogue.md#planned-not-registered). The available path is `adb_screenshot`/`compose_preview_render` plus Roborazzi screenshot and accessibility checks in app tests.
 - Source documents merged here: [`docs/feature-requests.md`](docs/feature-requests.md),
   [`docs/capability-matrix.md`](docs/capability-matrix.md), [`EMULATOR-CROPPING-ISSUE.md`](EMULATOR-CROPPING-ISSUE.md),
   plus defects found while building `hello-app`
@@ -110,7 +111,7 @@ should exist.
 | ISSUE-28 | **Permissions** — grant/revoke, denial-path testing, declared-vs-used audit | `adb_shell pm grant` / `revoke` manually | The denied-permission path is where most apps fail; it is never exercised | **FR-R14** `permissions_audit` |
 | ISSUE-29 | **Release tooling** — signing, bundle analysis, version checks | `build_variant` and `apk_info` only; nothing produces an installable release | "Deploy the app" cannot mean a release build today (also ISSUE-20) | **FR-R7** `release_checklist` + `release_sign` |
 | ISSUE-30 | **Network mocking and contract tests** | `net_capture` (proxy capture) only | Loading/error/empty states cannot be reproduced deterministically; API drift is invisible | **FR-R3** `mock_api` + `network_contract_test` |
-| ISSUE-31 | **TalkBack and focus-order verification** | Static rules in `a11y_audit` | Labels can exist while focus order, grouping, and announcements are still wrong | **FR-R15** `talkback_walkthrough` |
+| ISSUE-31 | **TalkBack and focus-order verification** | Planned `a11y_audit` static rules (not registered); Roborazzi ATF covers rendered semantics | Labels can exist while focus order, grouping, and announcements are still wrong | **FR-R15** `talkback_walkthrough` |
 | ISSUE-32 | **Platform verticals** — maps/location, payments, push, camera, background work | Nothing first-class | These *are* the product in a real app; each needs keys, permissions, and an emulator test | **FR-R5** integration recipes |
 | ISSUE-33 | **Design research tooling** — reference boards, fast previews, token codegen | Skills only (critique, tokens, UX research) | The prescribed "study 10–30 references" loop has no tooling, so it gets skipped | **FR-R9** + **FR-A1** + **FR-C1** |
 | ISSUE-34 | **Nothing is learned from one build to the next.** No memory, pattern library, or feedback loop: every app starts from the same template, and every defect found in a cycle exists only in prose. | Repo-wide check: the only persistent file either system writes is `/tmp/android-mcp-serve.json` (`apk_serve` PID/port). QA artifact paths (`baselinePath`, `outputDir`, `reportPath`) are caller-supplied and overwritten. `.opencode/<session>/` is a session-scoped copy of `skills/`, not a store. `examples/` holds 2 apps and no gallery. | Each new app re-pays for the same lessons; research is re-done or skipped, never reused | **FR-R16** `learn` loop |
@@ -119,6 +120,12 @@ should exist.
 | ISSUE-37 | **No visibility during a build — the user is a spectator.** Tools are silent until they finish, there is no plan, no phase, no progress, and no live status. | `logged()` writes only to `console.error` (server stderr, not the client). Zero uses of `sendNotification`, `notifications/progress`, `progressToken`, `logging/setLevel`, or `elicit` in `src/`. `gradle_task` buffers and returns `stdout.slice(-8000)` on completion, so a 5-minute build is 5 minutes of silence. `new-app.sh` prints two lines. No `BUILD_STATUS.md`, no `progress.jsonl`, no task ledger, no approval gate before expensive or irreversible steps. | For a user without Android knowledge, silence is indistinguishable from a hang; and without a visible plan, a wrong direction is only discovered after it is built | **FR-R19** `build_transparency` |
 
 ### 2.4 Defects found and **fixed** in this cycle (kept for the record)
+
+> Historical note (ISSUE-22): these findings were produced during a design cycle
+> with prototype tooling that is **not part of this repository**. The specific
+> `screenshot_diff`, `design_qa_matrix` and `a11y_audit` tools named below are
+> not registered and cannot be called. Keep the defect outcomes as rationale,
+> not as evidence of current tool availability.
 
 App defects (`hello-app`), all verified fixed:
 
@@ -184,12 +191,17 @@ the maintainer's pre-existing Gradle cache.
 
 ### 3.2 Visual verification ("the beauty engine")
 
+> Status correction (ISSUE-22): the MCP tools named in this table are planned,
+> not implemented. None of `screenshot_diff`, `design_qa_matrix` or `a11y_audit`
+> is registered. Only `compose_preview_render` and `adb_screenshot` exist today;
+> app-level visual and accessibility checks run through Roborazzi tests.
+
 | ID | Request | Priority | Status | Notes |
 |---|---|---|---|---|
 | FR-A1 | Make `compose_preview_render` real (headless preview → PNG) | P0 | ✅ **Shipped** | Wraps `compose-preview show --json`, verifies PNGs, reports id/module/path/sha256/elapsed, inlines up to 6 images (8 MiB cap). Measured 10.7 s after toolchain warm-up, 3.4 s on repeat (warm <3 s is host-dependent). See `docs/compose-preview.md`. |
-| FR-A2 | `screenshot_diff` with golden baselines | P0 | ✅ **Shipped** | Actual API uses `baselinePath` + `ignoreRegions`; see `docs/visual-qa-tools.md`. |
-| FR-A3 | `design_qa_matrix` (light/dark/XL/landscape contact sheet) | P0 | ✅ **Shipped** | 5 variants, focus verification, settings restoration, animation freeze. |
-| FR-A4 | `a11y_audit` (contrast, tap targets, semantics) | P1 | ✅ **Shipped** | 4 rules; blocking/warning severities; JSON report. |
+| FR-A2 | `screenshot_diff` with golden baselines | P0 | 🟠 Open | Not implemented and not registered. Capture with `adb_screenshot`; compare with Roborazzi verify in app tests. Tracked in #16 and #18. |
+| FR-A3 | `design_qa_matrix` (light/dark/XL/landscape contact sheet) | P0 | 🟠 Open | Not implemented and not registered. Use Robolectric/Roborazzi variants in app tests. Tracked in #18. |
+| FR-A4 | `a11y_audit` (contrast, tap targets, semantics) | P1 | 🟠 Open | Not implemented and not registered. Use Roborazzi accessibility checks in app tests. Tracked in #18. |
 | FR-A5 | `motion_capture` (record a flow → frame times, jank, flash frames, keyframes) | P1 | 🟠 Open | `adb_screenrecord` exists but produces no evidence. Proposed output: `{mp4, p95FrameMs, jankFrames, flashFrames, keyframes[]}`.  Authoring half is missing: see §11.11. |
 | FR-R10 | `design_critique` as a tool (run matrix + a11y + diff, emit a report keyed to the critique checklist) | P1 | 🟠 Open | Turns human review into evidence-first review. |
 | FR-R9 | Reference research tooling (capture 10–30 reference screens → contact sheet), token codegen, icon subsetting | P2 | 🟡 Open | Repair the "study → build → look" loop. |
@@ -349,13 +361,13 @@ Nine layers; a product is only as shippable as its weakest layer.
 | # | Layer | Status | Evidence / gap |
 |---|---|---|---|
 | L1 | Build & run | **PARTIAL** | `gradle_task`, `build_variant`, `adb_install`, emulator tools work. `--offline` fails on a fresh app (ISSUE-14); `new-app.sh` writes no `local.properties` (ISSUE-13); no flavor/module scaffold. |
-| L2 | UI system | **YES** | 29 skills + M3 starter; `screenshot_diff`, `design_qa_matrix`, `a11y_audit` make quality measurable. Verified light/dark/font1.3/font1.5/landscape at 0 blocking findings. |
+| L2 | UI system | **PARTIAL** | 30 skills + M3 starter; `adb_screenshot` and `compose_preview_render` provide captures, and the template's Roborazzi screenshot test verifies one golden. The planned `screenshot_diff`, `design_qa_matrix` and `a11y_audit` tools are not registered. |
 | L3 | Navigation & state | **NO** | `androidx.navigation` and `lifecycle-viewmodel-compose` not cached; template has no nav, no ViewModel. |
 | L4 | Data & offline | **NO** | `androidx.room`, `datastore`, `work`, `paging` missing offline. |
 | L5 | Network | **NO** | `retrofit2`, `okhttp3`, `kotlinx-serialization` missing offline; no mock server or contract testing. |
 | L6 | Platform | **NO** | No maps/location/payments/push templates; no permission-flow or Play Services harness. |
 | L7 | Security | **PARTIAL** | Strong RE/dynamic analysis (Frida, mitmproxy, decompile). Missing build-time security: signing, exported-component checks, cleartext/TLS policy, R8 config, backup review and secret scanning. Certificate pinning is optional and threat-model-driven, not a blanket requirement. |
-| L8 | Quality gates | **PARTIAL** | Tools: `a11y_audit`, `design_qa_matrix`, `screenshot_diff`, `maestro_run`, `perfetto_trace`, `macrobenchmark`, `test_coverage`, `startup_time`. Missing: template test deps, CI job running any of it. |
+| L8 | Quality gates | **PARTIAL** | Available tools: `maestro_run`, `perfetto_trace`, `macrobenchmark`, `test_coverage`, `startup_time`. Template unit tests include Roborazzi screenshot and accessibility checks, but there is no MCP-level `screenshot_diff`/`design_qa_matrix`/`a11y_audit` gate. |
 | L9 | Release | **NO** | No signing, no versioning automation, no rollout path. |
 
 **Hard evidence (this machine):**
@@ -391,9 +403,9 @@ requires shipping dependencies, not more prose.
 A screen is done when `make verify` (to be built, FR-E1) passes:
 
 - [ ] Builds; lint has zero errors; unit tests pass
-- [ ] `design_qa_matrix` captured light, dark, font 1.3×, landscape — sheet attached
-- [ ] `screenshot_diff` matches committed goldens (or goldens updated deliberately), clock masked
-- [ ] `a11y_audit` zero blocking: contrast ≥ 4.5:1 (3:1 large), targets ≥ 48dp, every actionable node labelled
+- [ ] Roborazzi screenshot verify passes for committed goldens; clock masked where needed
+- [ ] Roborazzi accessibility check passes; contrast ≥ 4.5:1 (3:1 large), targets ≥ 48dp, every actionable node labelled
+- [ ] `design_qa_matrix` variants captured manually — tool pending, #18
 - [ ] `motion_capture` no jank above budget, no flash frames, reduced motion respected *(tool pending, FR-A5)*
 - [ ] `perf_report` startup within budget on the slowest supported device *(tool pending, FR-B4)*
 - [ ] States designed: loading, empty, error, long content
@@ -402,17 +414,17 @@ A screen is done when `make verify` (to be built, FR-E1) passes:
 If a check cannot run on the host (no KVM, no emulator), it must report **skipped with a reason**,
 never silently pass.
 
-**Current mechanical status of the 9 gates:** 3 pass, 3 are partial/manual, and 3 fail. Tool
+**Current mechanical status of the 9 gates:** 2 pass, 4 are partial/manual, and 3 fail. Tool
 availability is not equivalent to a passing gate; a gate is green only when its executable check
 runs against the target template/app and fails on a deliberate regression.
 
 | Gate | Command | Today |
 |---|---|---|
 | Offline build | `./gradlew assembleDebug --offline` | ❌ fails on a fresh app |
-| Unit + UI tests | `./gradlew test connectedDebugAndroidTest` | ❌ no test deps in template |
-| Visual regression | `screenshot_diff` × N screens | ✅ |
-| Design matrix | `design_qa_matrix` | ✅ |
-| Accessibility | `a11y_audit` → 0 blocking | ✅ |
+| Unit + UI tests | `./gradlew test connectedDebugAndroidTest` | ⚠️ partial: template has JVM/Roborazzi tests and a committed instrumented test; fresh-app gate still incomplete |
+| Visual regression | `gradle :app:testDebugUnitTest -Proborazzi.test.verify=true` | ✅ Roborazzi golden in the template |
+| Design matrix | `design_qa_matrix` | ❌ planned tool, not registered (#18) |
+| Accessibility | Roborazzi ATF check in `GreetingA11yTest` | ✅ template JVM gate; planned `a11y_audit` MCP tool is not registered (#18) |
 | Motion | `adb_screenrecord` + frame stats | ⚠️ partial: manual capture, no measured gate |
 | Performance | `macrobenchmark` + `startup_time` | ⚠️ partial: tools exist, no benchmark module/budget |
 | Release artifact | `assembleRelease` signed | ❌ no signing |
@@ -479,15 +491,17 @@ a signed release additionally requires a maintainer-provisioned keystore.
 4. **Emulator strategy in CI:** KVM runners (cost) or JVM screenshot tests plus a nightly emulator
    job? *Recommendation:* JVM on PR, emulator nightly.
 5. **Where should `a11y_audit` live** — MCP tool (agent-callable) or Gradle plugin (CI without an
-   agent)? *Current answer:* MCP tool shipped; a shared core module would allow both.
+   agent)? *Current answer:* neither exists yet. The template uses Roborazzi accessibility checks;
+   the MCP tool is tracked in #18.
 6. **Windows support scope:** first-class (`make` alternatives, `npm`-free scripts) or "use WSL"?
    Three issues in §2.2 exist only because this is unresolved.
 
 ---
 
-## 9. Appendix: shipped and proposed tool schemas
+## 9. Appendix: prototype tool schemas
 
-**Shipped** (full reference: [`docs/visual-qa-tools.md`](docs/visual-qa-tools.md)):
+**Prototype only** (these tools are not registered and the referenced document does not exist;
+the checked-in output contract is [`docs/tool-catalogue.md`](docs/tool-catalogue.md)):
 
 ```jsonc
 // screenshot_diff
@@ -577,7 +591,7 @@ platform, release) and the template that makes "well tested" true by default.
 |---|---|---|---|
 | Build, install, launch, emulator | ✅ | 27 of 65 tools are ADB/emulator plumbing; `hello-app` builds and runs | — |
 | Diagnose bugs | ✅ | logcat, crash, ANR, perfetto, memory, Frida, mitmproxy | — |
-| Measure UI quality | ✅ | `design_qa_matrix`, `a11y_audit`, `screenshot_diff`; verified 0 blocking findings, 5 variants, deterministic diffs | — |
+| Measure UI quality | 🟡 | Roborazzi screenshot + ATF accessibility gates in the template; planned `design_qa_matrix`/`a11y_audit`/`screenshot_diff` are not registered (#16, #18) | — |
 | Design method | 🟡 | Skills: critique, tokens, UX research, usability, WCAG, microcopy, Figma | Nothing mechanical behind them |
 | Design velocity | 🟡 | `compose_preview_render` renders previews headlessly (FR-A1) | No reference boards (FR-R9), no token codegen (FR-C1), no asset pipeline (ISSUE-27) |
 | Navigation and state | 🔴 | — | `androidx.navigation` not cached; no ViewModel/nav in the template |
@@ -589,7 +603,7 @@ platform, release) and the template that makes "well tested" true by default.
 | Localization and RTL | 🔴 | — | No locale switching, pseudo-locale, string lint, or RTL capture (ISSUE-26) |
 | Release | 🔴 | `build_variant`, `apk_info` | No signing, bundle analysis, versioning, rollout, or symbolication (ISSUE-20, ISSUE-29) |
 | Security | 🟡 | Strong RE/runtime tooling | No build-time checks: secrets, exported components, debuggable flag, cleartext policy, TLS configuration and backup rules (FR-R6); pinning is optional and threat-model-driven |
-| Accessibility depth | 🟡 | `a11y_audit` static rules + contrast sampling | No TalkBack/focus-order walkthrough (ISSUE-31) |
+| Accessibility depth | 🟡 | Roborazzi ATF checks on rendered template screens; planned `a11y_audit` MCP tool is not registered | No TalkBack/focus-order walkthrough (ISSUE-31) |
 | Learning from builds | 🔴 | — | No memory or pattern store (ISSUE-34); the 11 defects fixed in this cycle exist only as prose in §2.4 |
 | Reusable code library | 🔴 | Template copy only (`new-app.sh` = `cp -r` + `sed`) | No component module, no published artifact; fixes do not propagate (ISSUE-35) |
 | Design documentation | 🔴 | `docs/architecture.md` (8 lines of prose) | No user-flow, DFD, class, ER, sequence or navigation diagrams; no app-level README/ADR (ISSUE-36) |
@@ -698,7 +712,7 @@ libs/
     theme/             # tokens, contrast-safe schemes, dark by default
     component/         # HeroMark, ShimmerText, PillButton, TwoPane, EmptyState, ErrorState
     motion/            # LocalReduceMotion, entrance presets
-  testing/             # compose rules, a11y assertions (same 4 rules as a11y_audit), screenshot helpers
+  testing/             # compose rules, a11y assertions (same 4 rules as planned a11y_audit), screenshot helpers
   screens/             # optional: proven full screens (hero, feed, detail) as copy-in recipes
 ```
 
@@ -777,7 +791,7 @@ means direction is corrected only after it is expensive.
 **What FR-R19 should produce:**
 
 1. **Progress notifications** — every long tool (`gradle_task`, `emulator_boot`, `maestro_run`,
-   `design_qa_matrix`) reports `{ step, total, message }` through the MCP progress token.
+   a future `design_qa_matrix`) reports `{ step, total, message }` through the MCP progress token.
 2. **Streamed output** — line-buffered Gradle/ADB output instead of a trailing `slice(-8000)`.
 3. **A plan first** — `plan.md` in the project before the first source file, with an approval gate.
 4. **A live ledger** — `BUILD_STATUS.md` (human, rewritten per phase) and `progress.jsonl`
@@ -859,28 +873,29 @@ source set anywhere in this repository. Searched 2026-11-05:
 |---|---|---|
 | `androidx.test.espresso:*` | present in a template's test deps | **absent** — no build file mentions it |
 | `androidx.compose.ui:ui-test-junit4` | present for Compose screens | **absent** |
-| `androidTest/` source sets | one per app | **0 in the repo** (only `hello-app/app/src/main` + `src/test`) |
-| Robolectric / Paparazzi / Roborazzi | JVM UI + goldens | **absent** |
+| `androidTest/` source sets | one per app | **template only** (`templates/compose-starter/app/src/androidTest`) |
+| Robolectric / Paparazzi / Roborazzi | JVM UI + goldens | **template only** (`GreetingScreenshotTest`, `GreetingA11yTest`) |
 | The only existing app test source | JVM unit test | `hello-app/.../GreetingTest.kt` — 5 JUnit cases on the pure function `timeGreeting()`; no UI, no device |
 | `instrumented_test` MCP tool | runs UI tests | runs `:app:connectedAndroidTest` in projects that **have no instrumented tests**, so it is a hollow pass/fail |
 | `maestro_run` MCP tool | runs flows | the tool works, but **0 flow YAMLs are committed** (the only YAMLs in the repo are `.github/workflows/*`) |
-| CI (`.github/workflows/ci.yml`) | gate on app tests | `npm ci`, `npm run build`, `npm test`, one `assembleDebug` — **never runs an Android test** |
+| CI (`.github/workflows/ci.yml`) | gate on app tests | builds all three apps, runs template JVM/Roborazzi checks, and runs the instrumented Compose test on API 35 |
 | Gradle cache | test deps warm | `androidx.test.espresso` and `androidx.test.ext` are **MISSING** (ISSUE-17) |
 
-What is called "UI testing" today is **post-hoc observation**, not testing:
+What "UI testing" looked like in the original design cycle was **post-hoc observation**,
+not testing. The checked-in template now adds two JVM gates, but the MCP-level tools remain
+planned:
 
-| Tool | What it really does | Can it fail a build? |
+| Capability | What it really does | Can it fail a build? |
 |---|---|---|
-| `screenshot_diff` | pixel-diffs a capture against a golden PNG | no — it reports |
-| `design_qa_matrix` | captures light/dark/font 1.3x/1.5x/landscape | no — it reports |
-| `a11y_audit` | uiautomator tap-target + label rules, sampled contrast | no — it reports |
+| `adb_screenshot` | captures the current device screen | no — it reports |
+| Roborazzi screenshot test (template) | pixel-diffs against a committed golden on the JVM | yes |
+| Roborazzi ATF accessibility check (template) | asserts label, target and traversal rules on the JVM | yes |
+| `screenshot_diff` / `design_qa_matrix` / `a11y_audit` | planned MCP tools, not registered (#16, #18) | not available |
 
-These produced the evidence for the a11y/contrast fixes in `hello-app`, and they are genuinely
-useful — but **there is no assertion inside the app and no gate in CI**. Delete a semantics label,
-break the two-pane breakpoint, or crash on rotation and every one of these still "passes", because
-nothing fails. The 21 passing Node tests in `test/` verify the MCP server and the PNG-diff algorithm;
-3 additional POSIX-only tests are skipped on this Windows host. None of these Node tests is an
-Android UI test.
+Delete a semantics label, break the two-pane breakpoint, or crash on rotation and the
+template's Roborazzi gates cover only the screens they render; device-level behavior still needs
+instrumented or Maestro coverage. The 297 Node tests in `test/` verify the MCP server and scripts,
+not Android UI behavior.
 
 **Which tool belongs at which layer**
 
@@ -893,7 +908,8 @@ request is worth using precisely — for the layers where it is the only option:
 | JVM-fast screen tests + goldens | Robolectric + Roborazzi (or Paparazzi) | run on CI with no device; screenshot regression without an emulator |
 | Espresso | `espresso-core`, `espresso-intents`, `espresso-web` | `AndroidView` interop, WebView, intents/stubs, and legacy View screens in third-party code |
 | Maestro | `maestro_run` + committed flows | black-box end-to-end: cold start, permissions, deep links, process death; can drive a **release** build |
-| `screenshot_diff` / `design_qa_matrix` / `a11y_audit` | this repo's tools | visual and accessibility **evidence**, after the above catch behaviour |
+| `adb_screenshot` / `compose_preview_render` | this repo's tools | visual capture; Roborazzi or app tests provide the pass/fail assertion |
+| `screenshot_diff` / `design_qa_matrix` / `a11y_audit` | planned, not registered (#16, #18) | visual and accessibility **evidence**, after the above catch behaviour |
 
 **Why it is blocked, precisely:** adding Espresso or Compose UI test is not a one-line change
 offline. `espresso-core`, `androidx.test:runner`, `androidx.test.ext:junit` and
@@ -1183,8 +1199,8 @@ be assessed per product: a capability can be `not_applicable` without being a re
 | Build | Compile, install, launch, logcat | `gradle_task`, `adb_install`, `adb_launch`, `adb_logcat` | `hello-app` builds and runs | partial (ISSUE-13/14 fixed; fresh offline build proven by `offline-proof.sh`, real warm run pending a provisioned toolchain) |
 | UI authoring | Compose screens, previews | `compose_preview_render` (headless PNG) | `hello-app` | partial (screen authoring works; previews render headlessly, real-device fidelity still needs the emulator, FR-A1) |
 | Design tokens | Colour/type/shape/spacing source of truth | — | hardcoded values | no (FR-C1) |
-| Visual QA | Screenshot diff, design matrix | `screenshot_diff`, `design_qa_matrix` | — | partial (tools produce repeatable evidence; CI regression gates and committed goldens are missing) |
-| Accessibility | Static rules + contrast | `a11y_audit` | semantics only in `hello-app` | partial (issues 01/02, 31) |
+| Visual QA | Screenshot capture + golden diff | `compose_preview_render`, `adb_screenshot`; Roborazzi screenshot test | template golden | partial (capture and one JVM golden; planned `screenshot_diff`/`design_qa_matrix` are not registered, #16/#18) |
+| Accessibility | Static rules + contrast | Roborazzi ATF check; planned `a11y_audit` | semantics in `hello-app` + template test | partial (JVM rules on rendered screens; planned `a11y_audit` is not registered, #18) |
 | UI testing | Compose UI test / Espresso interop / Maestro | `instrumented_test`, `maestro_run` | **none** | **no** (§11.10; Compose UI is primary, Espresso is supplementary) |
 | Motion | Authoring, presets, tokens | — | hand-written, one file | no (§11.11; FR-A5 measures motion; FR-C5 proposes a shared motion system) |
 | Brand / logo / icons | Mark, wordmark, adaptive icon, splash | — | placeholder icon shared with template | no (§11.11; FR-C3/FR-R13 process assets; FR-C4 proposes brand identity creation) |
@@ -1402,7 +1418,7 @@ Eight consolidations. Similarity is Jaccard over content words, computed across 
 | 1 | `executing-plans` | `subagent-driven-development` | **0.398 similarity**, 3,222 + 3,246 words — same lifecycle (read plan → dispatch → verify → ledger), differing only in whether a subagent exists | 3.2k words |
 | 2 | `code-review` | `requesting-code-review` + `receiving-code-review` | 473 + 1,012 words; two halves of one loop, always used together, and splitting them means one of the two usually never loads | 1 skill |
 | 3 | `accessibility` | `android-accessibility` + `wcag-audit` | 0.271 similarity, 131 + 95 words; WCAG A/AA is a **section** of an a11y skill, not a separate entry point | 1 skill |
-| 4 | `android-visual-qa` | `android-screenshot-diff` + `android-emulator-smoke` | 60 + 63 words, both 16 lines; both duplicate shipped tools (`screenshot_diff`, `design_qa_matrix`, `maestro_run`) instead of teaching how to use them | 1 skill |
+| 4 | `android-visual-qa` | `android-screenshot-diff` + `android-emulator-smoke` | 60 + 63 words, both 16 lines; both duplicate available capture tools and planned-but-unimplemented tools (`screenshot_diff`, `design_qa_matrix`, `maestro_run`) instead of teaching how to use them | 1 skill |
 | 5 | `android-build-perf` | `android-gradle-troubleshoot` + `android-performance` | 54 + 59 words; "build fails" and "app is slow" both route to the same MCP tools (`gradle_task`, `startup_time`, `perfetto_trace`) | 1 skill |
 | 6 | `ux-research` | `ux-research-planning` + `usability-testing` | 0.289 similarity, 85 + 87 words; planning a study and running it is one flow, and neither is long enough to stand alone | 1 skill |
 | 7 | `android-compose-ui-ux` | `design-tokens` | The target already contains a "Material 3 tokens" section; the source is 131 words restating it. Two files, one topic | 1 skill |
@@ -1427,7 +1443,7 @@ it belongs in `AGENTS.md`, the config's `instructions`, or a CI gate.
 | Class | Rule | Mechanism | Why not a skill |
 |---|---|---|---|
 | **Always** | No "done" claim without command output | `AGENTS.md` + CI | a model can skip a skill; it cannot skip a required gate |
-| **Always** | Every UI change checked for labels, 48 dp targets, contrast, reduced motion | `a11y_audit` in CI | same |
+| **Always** | Every UI change checked for labels, 48 dp targets, contrast, reduced motion | Roborazzi ATF/CI now; planned `a11y_audit` when registered | same |
 | **Always** | No hardcoded colour/spacing; tokens only | lint rule (FR-C2) | deterministic, zero tokens |
 | **Always** | No build output, keystore or secret in git | `.gitignore` + CI budget check (FR-R20) | same |
 | **Always** | Reduced motion respected; no infinite animation without a gate | lint rule (FR-C2) | same |

@@ -60,7 +60,10 @@
     "applicability": "required",
     "implementation": "partial",
     "verification": "untested",
-    "evidence": ["src/tools.ts", "test/smoke.test.mjs"],
+    "evidence": [
+      "src/tools.ts",
+      "templates/compose-starter/app/src/test/java/com/example/starter/GreetingScreenshotTest.kt"
+    ],
     "gate": null,
     "condition": null,
     "rationale": null
@@ -71,7 +74,9 @@
     "applicability": "required",
     "implementation": "partial",
     "verification": "untested",
-    "evidence": ["src/tools.ts"],
+    "evidence": [
+      "templates/compose-starter/app/src/test/java/com/example/starter/GreetingA11yTest.kt"
+    ],
     "gate": null,
     "condition": null,
     "rationale": null
