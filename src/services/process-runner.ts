@@ -28,12 +28,18 @@ export async function run(cmd: string, args: string[], opts: RunOptions = {}): P
       maxBuffer: 10 * 1024 * 1024,
     });
     return { stdout: stdout ?? "", stderr: stderr ?? "", code: 0 };
-  } catch (error: any) {
-    const stderr = error?.stderr || error?.message || String(error);
+  } catch (error: unknown) {
+    const failure = error as {
+      stdout?: string;
+      stderr?: string;
+      message?: string;
+      code?: number | string;
+    };
+    const stderr = failure.stderr || failure.message || String(error);
     return {
-      stdout: error?.stdout ?? "",
+      stdout: failure.stdout ?? "",
       stderr,
-      code: typeof error?.code === "number" ? error.code : 1,
+      code: typeof failure.code === "number" ? failure.code : 1,
     };
   }
 }

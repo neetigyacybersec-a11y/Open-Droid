@@ -202,6 +202,11 @@ export function createApprovalLedger(limit = MAX_LEDGER_ENTRIES): ApprovalLedger
   });
 }
 
+/** Treat untyped MCP arguments as a plain record without an `any` escape. */
+function argumentRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
 function canonicalJson(value: unknown): string {
   if (value === null) return "null";
   if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
@@ -233,9 +238,10 @@ export function fingerprintRequest(entry: ToolDefinition, args: unknown): string
 }
 
 /** Argument-dependent impact; only Gradle publish-like tasks elevate today. */
-export function resolveImpact(entry: ToolDefinition, args: any): ImpactClass {
+export function resolveImpact(entry: ToolDefinition, args: unknown): ImpactClass {
   if (entry.name === "gradle_task") {
-    const task = typeof args?.task === "string" ? args.task.toLowerCase() : "";
+    const record = argumentRecord(args);
+    const task = typeof record.task === "string" ? record.task.toLowerCase() : "";
     if (
       /(^|:)(publish|upload|deploy|promote|play|sign|release)/.test(task) &&
       !task.includes("mavenlocal")
@@ -247,32 +253,33 @@ export function resolveImpact(entry: ToolDefinition, args: any): ImpactClass {
 }
 
 /** A short, sanitized identity string for results and audit records. */
-export function describeTarget(entry: ToolDefinition, args: any): string | null {
+export function describeTarget(entry: ToolDefinition, args: unknown): string | null {
+  const a = argumentRecord(args);
   const parts: string[] = [];
   const add = (value: string) => {
     if (!parts.includes(value)) parts.push(value);
   };
-  if (typeof args?.deviceId === "string" && args.deviceId) add(`device:${args.deviceId}`);
-  if (Array.isArray(args?.deviceIds)) {
-    const ids = args.deviceIds.filter((id: unknown) => typeof id === "string" && id.length > 0);
+  if (typeof a.deviceId === "string" && a.deviceId) add(`device:${a.deviceId}`);
+  if (Array.isArray(a.deviceIds)) {
+    const ids = a.deviceIds.filter((id: unknown) => typeof id === "string" && id.length > 0);
     if (ids.length > 0) add(`devices:${ids.join(",")}`);
   }
-  if (typeof args?.avdName === "string" && args.avdName) add(`avd:${args.avdName}`);
-  if (typeof args?.packageName === "string" && args.packageName) add(`package:${args.packageName}`);
-  if (typeof args?.projectPath === "string" && args.projectPath) {
-    add(`project:${args.projectPath}`);
+  if (typeof a.avdName === "string" && a.avdName) add(`avd:${a.avdName}`);
+  if (typeof a.packageName === "string" && a.packageName) add(`package:${a.packageName}`);
+  if (typeof a.projectPath === "string" && a.projectPath) {
+    add(`project:${a.projectPath}`);
   }
-  if (typeof args?.task === "string" && args.task) add(`task:${args.task}`);
+  if (typeof a.task === "string" && a.task) add(`task:${a.task}`);
   for (const spec of entry.paths) {
-    const value = args?.[spec.field];
+    const value = a[spec.field];
     if (typeof value === "string" && value.length > 0) add(`path:${value}`);
   }
   return parts.length > 0 ? parts.join(" ") : null;
 }
 
 /** Best-effort operation preview for the approval step. Never executes anything. */
-export function previewOperation(entry: ToolDefinition, args: any): string {
-  const a = args ?? {};
+export function previewOperation(entry: ToolDefinition, args: unknown): string {
+  const a = argumentRecord(args);
   const text = (value: unknown): string =>
     typeof value === "string" || typeof value === "number" ? String(value) : "";
   const list = (value: unknown): string =>
@@ -450,44 +457,36 @@ function isIsoDate(value: unknown): value is string {
   return typeof value === "string" && Number.isFinite(Date.parse(value));
 }
 
+function isImpactClass(value: unknown): value is ImpactClass {
+  return typeof value === "string" && IMPACT_CLASSES.some((impact) => impact === value);
+}
+
+const ApprovalRequestSchema = z.object({
+  version: z.literal(1),
+  id: z.string().min(1),
+  instanceId: z.string().min(1),
+  tool: z.string().min(1),
+  policyKey: z.string(),
+  impact: z.custom<ImpactClass>(isImpactClass),
+  fingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+  target: z.union([z.string(), z.null()]),
+  issuedAt: z.string().refine(isIsoDate),
+  expiresAt: z.string().refine(isIsoDate),
+});
+
 export function decodeApprovalRequest(encoded: string): ApprovalRequest {
   if (typeof encoded !== "string" || encoded.length === 0 || encoded.length > MAX_TOKEN_LENGTH) {
     invalid("invalid approval request encoding");
   }
-  let parsed: any;
+  let value: unknown;
   try {
-    parsed = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+    value = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
   } catch {
     invalid("invalid approval request encoding");
   }
-  if (
-    !parsed ||
-    parsed.version !== 1 ||
-    typeof parsed.id !== "string" ||
-    typeof parsed.instanceId !== "string" ||
-    typeof parsed.tool !== "string" ||
-    typeof parsed.policyKey !== "string" ||
-    !IMPACT_CLASSES.includes(parsed.impact) ||
-    typeof parsed.fingerprint !== "string" ||
-    !/^[0-9a-f]{64}$/.test(parsed.fingerprint) ||
-    (parsed.target !== null && typeof parsed.target !== "string") ||
-    !isIsoDate(parsed.issuedAt) ||
-    !isIsoDate(parsed.expiresAt)
-  ) {
-    invalid("invalid approval request");
-  }
-  return Object.freeze({
-    version: 1 as const,
-    id: parsed.id,
-    instanceId: parsed.instanceId,
-    tool: parsed.tool,
-    policyKey: parsed.policyKey,
-    impact: parsed.impact as ImpactClass,
-    fingerprint: parsed.fingerprint,
-    target: parsed.target,
-    issuedAt: parsed.issuedAt,
-    expiresAt: parsed.expiresAt,
-  });
+  const parsed = ApprovalRequestSchema.safeParse(value);
+  if (!parsed.success) invalid("invalid approval request");
+  return Object.freeze({ ...parsed.data });
 }
 
 function hmac(secret: string, payload: string): string {
@@ -667,7 +666,7 @@ export function evaluateToolPolicy(options: EvaluatePolicyOptions): ToolPolicyDe
   }
 
   const preview = previewOperation(entry, args);
-  const token = (args as any)?.[APPROVAL_TOKEN_FIELD];
+  const token = argumentRecord(args)[APPROVAL_TOKEN_FIELD];
   if (token === undefined || token === null || token === "") {
     const request = buildApprovalRequest(entry, args, policy, now);
     return blocked("approval-required", "approval-required: this operation needs a bound token", {
@@ -714,9 +713,13 @@ export function evaluateToolPolicy(options: EvaluatePolicyOptions): ToolPolicyDe
  * normal argument so every MCP client can supply it, and the boundary strips it
  * before the handler runs.
  */
+type ExtendableSchema = {
+  extend(shape: z.ZodRawShape): z.ZodTypeAny;
+};
+
 export function extendSchemaWithApprovalToken(schema: z.ZodTypeAny): z.ZodTypeAny {
-  const extendable = schema as z.ZodObject<any>;
-  if (!extendable || typeof extendable.extend !== "function") {
+  const extendable = schema as unknown as Partial<ExtendableSchema>;
+  if (typeof extendable.extend !== "function") {
     throw new Error("tool schema must be an object schema to accept an approval token");
   }
   return extendable.extend({
@@ -730,10 +733,12 @@ export function extendSchemaWithApprovalToken(schema: z.ZodTypeAny): z.ZodTypeAn
 }
 
 /** Merge a token supplied through MCP request metadata into normal arguments. */
-export function withApprovalToken(args: any, meta?: unknown): any {
-  if (!args || typeof args !== "object") return args;
+export function withApprovalToken(
+  args: Record<string, unknown>,
+  meta?: unknown,
+): Record<string, unknown> {
   if (typeof args[APPROVAL_TOKEN_FIELD] === "string") return args;
-  const token = (meta as Record<string, unknown> | undefined)?.[APPROVAL_TOKEN_FIELD];
+  const token = argumentRecord(meta)[APPROVAL_TOKEN_FIELD];
   if (typeof token === "string" && token.length > 0) {
     return { ...args, [APPROVAL_TOKEN_FIELD]: token };
   }

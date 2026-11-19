@@ -1,0 +1,136 @@
+{
+  "src/boundary.ts::blockedResult": {
+    "cyclomatic": 18
+  },
+  "src/boundary.ts::runWithBoundary": {
+    "cyclomatic": 32,
+    "lines": 129
+  },
+  "src/executionPolicy.ts::decodeApprovalRequest": {
+    "cyclomatic": 18
+  },
+  "src/executionPolicy.ts::describeTarget": {
+    "cyclomatic": 17
+  },
+  "src/executionPolicy.ts::evaluateToolPolicy": {
+    "cyclomatic": 21,
+    "lines": 127
+  },
+  "src/executionPolicy.ts::previewOperation": {
+    "cyclomatic": 62,
+    "lines": 150
+  },
+  "src/executionPolicy.ts::verifyApprovalToken": {
+    "cyclomatic": 19
+  },
+  "src/frida.ts::ensureServer": {
+    "lines": 100
+  },
+  "src/frida.ts::ensureServer.anonymous": {
+    "cyclomatic": 26,
+    "lines": 95
+  },
+  "src/manifestAudit.ts::auditProjectManifest": {
+    "cyclomatic": 29,
+    "lines": 260
+  },
+  "src/netCapture.ts::captureProcessInfo": {
+    "cyclomatic": 13
+  },
+  "src/netCapture.ts::handleNetCapture": {
+    "lines": 205
+  },
+  "src/netCapture.ts::handleNetCapture.anonymous#2": {
+    "cyclomatic": 17,
+    "lines": 141
+  },
+  "src/netCapture.ts::installMitmCa": {
+    "cyclomatic": 15
+  },
+  "src/netCapture.ts::isCaptureSession": {
+    "cyclomatic": 18
+  },
+  "src/privacy.ts::buildFindings": {
+    "cyclomatic": 20,
+    "lines": 137
+  },
+  "src/privacy.ts::declarationCheck": {
+    "cyclomatic": 31,
+    "lines": 84
+  },
+  "src/privacy.ts::extractCallArguments": {
+    "nesting": 5
+  },
+  "src/privacy.ts::extractTemplateParts": {
+    "cyclomatic": 16,
+    "nesting": 7
+  },
+  "src/privacy.ts::linePrefixIsCode": {
+    "nesting": 5
+  },
+  "src/privacy.ts::renderPrivacyReport": {
+    "cyclomatic": 34,
+    "lines": 151
+  },
+  "src/privacy.ts::scanPrivacyProject": {
+    "cyclomatic": 35,
+    "nesting": 6,
+    "lines": 177
+  },
+  "src/registry.ts::validateToolRegistry": {
+    "cyclomatic": 52,
+    "nesting": 5,
+    "lines": 103
+  },
+  "src/secretScan.ts::scanProjectSecrets": {
+    "lines": 137
+  },
+  "src/secretScan.ts::scanProjectSecrets.anonymous": {
+    "cyclomatic": 15
+  },
+  "src/tools.ts::findApks": {
+    "cyclomatic": 13,
+    "nesting": 5
+  },
+  "src/tools.ts::handleAdbInput": {
+    "cyclomatic": 14
+  },
+  "src/tools.ts::handleAdbLogcat": {
+    "cyclomatic": 14
+  },
+  "src/tools.ts::handleApkServe": {
+    "cyclomatic": 39,
+    "lines": 190
+  },
+  "src/tools.ts::handleAvdWipe": {
+    "cyclomatic": 28,
+    "lines": 116
+  },
+  "src/tools.ts::handleComposePreviewRender": {
+    "cyclomatic": 29,
+    "lines": 147
+  },
+  "src/tools.ts::handleEmulatorBoot": {
+    "cyclomatic": 35,
+    "lines": 110
+  },
+  "src/tools.ts::handleEnvCheck": {
+    "cyclomatic": 14
+  },
+  "src/tools.ts::handleStartupTime": {
+    "cyclomatic": 23,
+    "lines": 81
+  },
+  "src/workspace.ts::canonicalizePath": {
+    "nesting": 5
+  },
+  "src/workspace.ts::checkWorkspacePath": {
+    "cyclomatic": 13
+  },
+  "src/workspace.ts::createWorkspacePolicy": {
+    "cyclomatic": 24
+  },
+  "src/workspace.ts::validatePathGrant": {
+    "cyclomatic": 14
+  }
+}

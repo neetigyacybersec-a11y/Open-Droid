@@ -7,6 +7,7 @@
 // layer; execution policy and workspace boundaries remain the authorization
 // boundary.
 
+import type { CallToolResult, ContentBlock } from "@modelcontextprotocol/sdk/types.js";
 import { TOOL_SOURCES } from "./registry.js";
 
 export type SourceCategory =
@@ -25,7 +26,7 @@ export interface SanitizedText {
 type RedactionRule = {
   name: string;
   pattern: RegExp;
-  replace: string | ((substring: string, ...args: any[]) => string);
+  replace: string | ((substring: string, ...groups: string[]) => string);
 };
 
 const REDACTION_RULES: RedactionRule[] = [
@@ -91,10 +92,10 @@ export function redactSecrets(text: string): { text: string; redacted: number } 
   let redacted = 0;
   let out = text;
   for (const rule of REDACTION_RULES) {
-    out = out.replace(rule.pattern, (...args) => {
+    out = out.replace(rule.pattern, (match: string, ...groups: string[]) => {
       redacted += 1;
       if (typeof rule.replace === "function") {
-        return rule.replace(args[0], ...args.slice(1));
+        return rule.replace(match, ...groups);
       }
       return rule.replace;
     });
@@ -143,15 +144,19 @@ export interface ResultOptions {
  * trusted and unframed; everything project/device/subprocess-derived is
  * sanitized and framed as data.
  */
-export function presentResult(tool: string, result: any, opts: ResultOptions = {}): any {
+export function presentResult(
+  tool: string,
+  result: CallToolResult,
+  opts: ResultOptions = {},
+): CallToolResult {
   const source = opts.source ?? TOOL_SOURCES[tool] ?? "mixed";
   const now = opts.now ?? new Date();
   const trusted = source === "mcp";
   let truncated = false;
   let redacted = 0;
 
-  const content = Array.isArray(result?.content)
-    ? result.content.map((block: any) => {
+  const content = Array.isArray(result.content)
+    ? result.content.map((block: ContentBlock) => {
         if (block?.type !== "text" || typeof block.text !== "string") return block;
         if (trusted) return block;
         const sanitized = sanitizeUntrusted(block.text, {
@@ -166,7 +171,7 @@ export function presentResult(tool: string, result: any, opts: ResultOptions = {
           text: frameUntrusted(sanitized.text, { tool, source, target: opts.target }),
         };
       })
-    : result?.content;
+    : result.content;
 
   return {
     ...result,

@@ -37,3 +37,8 @@ export function validatePackageName(p: string): boolean {
 export function notOptionLike(v: string): boolean {
   return typeof v === "string" && v !== "" && !v.startsWith("-");
 }
+
+/** Stable message extraction for unknown thrown values (#95). */
+export function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}

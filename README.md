@@ -142,7 +142,7 @@ Refresh registration any time with `make register`.
 | `examples/packs-reference/` | Reference consumer that builds every dependency pack offline (FR-R1) |
 | `skills/` | 30 OpenCode skills |
 | `docker/` | Dockerfile + entrypoint |
-| `docs/` | Quickstart, architecture, offline contract, publishing, lifecycle coverage, compose previews, troubleshooting |
+| `docs/` | Quickstart, architecture, quality gates, offline contract, publishing, lifecycle coverage, compose previews, troubleshooting |
 | `manifest/` | Lifecycle stages, capability status, and CI gate allowlist (FR-R22) |
 | `.github/workflows/` | CI + release pipelines |
 | `Makefile` | Common tasks |
@@ -261,7 +261,8 @@ npm run build        # compile TypeScript
 npm test             # smoke test (67 tools)
 npm run architecture # enforce approved process/ADB boundaries
 npm run catalogue    # verify docs/tool-catalogue.md matches src/registry.ts
-npm run lint         # eslint
+npm run lint         # one timed, type-aware eslint pass
+npm run quality      # complexity ratchet + suppression policy
 npm run format       # prettier
 make doctor          # toolchain + registration checks
 ```

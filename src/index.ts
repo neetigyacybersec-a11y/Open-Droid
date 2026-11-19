@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { STARTUP_BUILD } from "./buildInfo.js";
 import * as H from "./tools.js";
 import { TOOL_REGISTRY } from "./registry.js";
@@ -27,15 +28,19 @@ const server = new McpServer(
   { capabilities: { tools: {} } },
 );
 
-function logged(name: string, fn: (args: any) => Promise<unknown>) {
-  return async (args: any, extra?: any) => {
+function asRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+function logged(name: string, fn: (args: Record<string, unknown>) => Promise<CallToolResult>) {
+  return async (args: unknown, extra?: unknown): Promise<CallToolResult> => {
     // ISSUE-102: a fresh immutable workspace policy per request. ISSUE-105:
     // correlation, truthful outcome and sanitized diagnostics per invocation.
     // ISSUE-50: one process-wide execution policy and single-use approval ledger.
     const policy = createWorkspacePolicy({ env: process.env });
     return runInstrumentedTool({
       name,
-      args: withApprovalToken(args, extra?._meta),
+      args: withApprovalToken(asRecord(args), asRecord(extra)._meta),
       handler: fn,
       policy,
       execution: executionPolicy,

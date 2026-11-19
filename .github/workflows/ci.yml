@@ -27,6 +27,7 @@ jobs:
       # developers running them locally.
       - run: npm run typecheck
       - run: npm run lint
+      - run: npm run quality
       - run: npm run format:check
       - run: node --test test/privacy.test.mjs
       - run: bash scripts/check-readme.sh
@@ -95,6 +96,8 @@ jobs:
       - run: npm.cmd ci
       - run: node scripts/build.mjs
       - run: node scripts/test.mjs
+      - run: node scripts/lint.mjs
+      - run: node scripts/quality.mjs
       - run: bash scripts/check-readme.sh
 
   # FR-B6 / ISSUE-22: CI builds and tests every app the repo ships, not just one.

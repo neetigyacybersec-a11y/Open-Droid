@@ -6,6 +6,7 @@
 
 import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
 import {
   checkWorkspacePath,
@@ -70,7 +71,7 @@ export function blockedResult(
   details: Omit<BoundaryBlock, "tool" | "reason">,
   now: Date,
   options: BlockedResultOptions = {},
-): any {
+): CallToolResult {
   const encodedApproval = options.approval ? encodeApprovalRequest(options.approval) : undefined;
   const lines = [
     "status=blocked",
@@ -145,10 +146,10 @@ function configuredMaxChars(env: NodeJS.ProcessEnv): number | undefined {
  */
 export async function runWithBoundary(
   name: string,
-  args: any,
-  handler: (args: any) => Promise<any>,
+  args: Record<string, unknown>,
+  handler: (args: Record<string, unknown>) => Promise<CallToolResult>,
   options: BoundaryOptions,
-): Promise<any> {
+): Promise<CallToolResult> {
   const specs = TOOL_PATH_SPECS[name];
   const now = options.now?.() ?? new Date();
   const policy = options.policy;

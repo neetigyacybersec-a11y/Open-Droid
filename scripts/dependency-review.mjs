@@ -152,9 +152,9 @@ function listTracked(cwd, revision) {
 function sanitizeText(value, limit = MAX_TEXT_CHARS) {
   if (value === null || value === undefined) return null;
   let text = String(value)
-    // eslint-disable-next-line no-control-regex
+    // eslint-disable-next-line no-control-regex -- ANSI escape matching needs control ranges
     .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "")
-    // eslint-disable-next-line no-control-regex
+    // eslint-disable-next-line no-control-regex -- C0/C1 filtering needs control ranges
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, "")
     .replace(/\u202a-\u202e|\u2066-\u2069/g, "")
     .replace(/:\/\/[^/\s@]+@/g, "://[redacted]@")

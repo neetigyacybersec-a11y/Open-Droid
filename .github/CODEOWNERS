@@ -60,3 +60,15 @@ pom.xml
 .github/workflows/*.yml
 .github/workflows/*.yaml
 .github/CODEOWNERS
+
+# ISSUE-93 / ISSUE-95: quality, lint and suppression policy are self-protecting.
+eslint.config.mjs
+tsconfig.json
+scripts/lint.mjs
+scripts/quality.mjs
+scripts/check-complexity.mjs
+scripts/check-suppressions.mjs
+scripts/quality-baseline.json
+scripts/check-architecture.mjs
+test/quality.test.mjs
+test/fixtures/quality/**

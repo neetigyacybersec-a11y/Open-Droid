@@ -12,6 +12,7 @@ import {
   validatePackageName,
   notOptionLike,
   serveStatePath,
+  errorMessage,
 } from "./util.js";
 import { run, which } from "./services/process-runner.js";
 import { spawnManaged } from "./services/managed-process.js";
@@ -750,6 +751,22 @@ function tailText(text: string, limit = 4000): string {
   return trimmed.length > limit ? `…${trimmed.slice(-limit)}` : trimmed;
 }
 
+function parseComposePreviewManifest(stdout: string): Array<Record<string, unknown>> | null {
+  let manifest: unknown;
+  try {
+    manifest = JSON.parse(stdout);
+  } catch {
+    return null;
+  }
+  if (!manifest || typeof manifest !== "object") return [];
+  const previews = (manifest as Record<string, unknown>).previews;
+  if (!Array.isArray(previews)) return [];
+  return previews.filter(
+    (preview): preview is Record<string, unknown> =>
+      Boolean(preview) && typeof preview === "object",
+  );
+}
+
 export async function handleComposePreviewRender(
   args: z.infer<typeof ToolSchemas.composePreviewRender>,
 ) {
@@ -792,10 +809,8 @@ export async function handleComposePreviewRender(
     };
   }
 
-  let manifest: any;
-  try {
-    manifest = JSON.parse(r.stdout);
-  } catch {
+  const previews = parseComposePreviewManifest(r.stdout);
+  if (previews === null) {
     return {
       content: [
         {
@@ -806,8 +821,6 @@ export async function handleComposePreviewRender(
       isError: true,
     };
   }
-
-  const previews: any[] = Array.isArray(manifest?.previews) ? manifest.previews : [];
   if (previews.length === 0) {
     const selection = [
       args.module ? `--module ${args.module}` : "",
@@ -1007,11 +1020,9 @@ export async function handleAdbLogcat(args: z.infer<typeof ToolSchemas.adbLogcat
     let re: RegExp;
     try {
       re = new RegExp(args.pattern, "m");
-    } catch (e: any) {
+    } catch (error) {
       return {
-        content: [
-          { type: "text" as const, text: `Invalid pattern regex: ${e?.message ?? String(e)}` },
-        ],
+        content: [{ type: "text" as const, text: `Invalid pattern regex: ${errorMessage(error)}` }],
         isError: true,
       };
     }
@@ -1153,8 +1164,8 @@ async function readHookSource(args: { script?: string; scriptPath?: string }): P
   }
   try {
     return await readFile(args.scriptPath, "utf8");
-  } catch (e: any) {
-    throw new Error(`failed to read scriptPath '${args.scriptPath}': ${e?.message ?? String(e)}`);
+  } catch (error) {
+    throw new Error(`failed to read scriptPath '${args.scriptPath}': ${errorMessage(error)}`);
   }
 }
 
@@ -1173,9 +1184,9 @@ export async function handleFridaTraceMethods(args: z.infer<typeof ToolSchemas.f
   let lib: string;
   try {
     lib = await readFile(HOOK_METHOD_SCRIPT, "utf8");
-  } catch (e: any) {
+  } catch (error) {
     throw new Error(
-      `built-in trace script not found at frida-scripts/hook-method.js: ${e?.message ?? String(e)}`,
+      `built-in trace script not found at frida-scripts/hook-method.js: ${errorMessage(error)}`,
     );
   }
   // JSON.stringify keeps an odd className/regex from breaking out of the JS literal.

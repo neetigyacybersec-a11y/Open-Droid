@@ -5,6 +5,8 @@
 
 import { randomUUID } from "node:crypto";
 
+import type { CallToolResult, TextContent } from "@modelcontextprotocol/sdk/types.js";
+
 import { STARTUP_BUILD } from "./buildInfo.js";
 import { runWithBoundary, type BoundaryOptions } from "./boundary.js";
 import { TOOL_SOURCES } from "./registry.js";
@@ -26,11 +28,22 @@ export type Outcome = (typeof OUTCOMES)[number];
 
 const OUTCOME_SET = new Set<string>(OUTCOMES);
 
-function resultText(result: any, maxChars = 4000): string {
-  if (!Array.isArray(result?.content)) return "";
+/** Normalize an untyped metadata or thrown-value object without leaking `any`. */
+function asRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+function isOutcome(value: unknown): value is Outcome {
+  return typeof value === "string" && OUTCOME_SET.has(value);
+}
+
+function resultText(result: CallToolResult, maxChars = 4000): string {
+  if (!Array.isArray(result.content)) return "";
   return result.content
-    .filter((block: any) => block?.type === "text" && typeof block.text === "string")
-    .map((block: any) => block.text as string)
+    .filter(
+      (block): block is TextContent => block.type === "text" && typeof block.text === "string",
+    )
+    .map((block) => block.text)
     .join("\n")
     .slice(0, maxChars);
 }
@@ -39,14 +52,15 @@ function resultText(result: any, maxChars = 4000): string {
  * Classify a returned MCP result. Explicit MCP-owned metadata wins over text
  * heuristics; heuristics only refine an already-failed result.
  */
-export function classifyResult(result: any): Outcome {
-  const explicit = result?._meta?.outcome;
-  if (typeof explicit === "string" && OUTCOME_SET.has(explicit) && explicit !== "success") {
-    return explicit as Outcome;
+export function classifyResult(result: CallToolResult): Outcome {
+  const meta = asRecord(result._meta);
+  const explicit = meta.outcome;
+  if (isOutcome(explicit) && explicit !== "success") {
+    return explicit;
   }
 
-  if (result?._meta?.provenance?.trust === "mcp-policy") return "blocked";
-  if (result?.isError !== true) return "success";
+  if (asRecord(meta.provenance).trust === "mcp-policy") return "blocked";
+  if (result.isError !== true) return "success";
 
   const text = resultText(result);
   if (/\bpartial\b|\bmeasured-with-cleanup-failure\b/i.test(text)) return "partial";
@@ -63,10 +77,11 @@ export function classifyResult(result: any): Outcome {
 }
 
 /** Classify a thrown exception without trusting its message as success. */
-export function classifyException(error: any): Outcome {
-  const code = String(error?.code ?? "");
-  const name = String(error?.name ?? "");
-  const message = String(error?.message ?? "");
+export function classifyException(error: unknown): Outcome {
+  const record = asRecord(error);
+  const code = String(record.code ?? "");
+  const name = String(record.name ?? "");
+  const message = String(record.message ?? "");
   if (code === "ETIMEDOUT" || name === "TimeoutError" || /\btimed? ?out\b/i.test(message)) {
     return "timeout";
   }
@@ -111,12 +126,14 @@ export function sanitizeDiagnostic(value: unknown, maxChars = 300): string {
   );
 }
 
-function resultDiagnostic(result: any): string | undefined {
-  if (result?._meta?.provenance?.trust === "mcp-policy") {
-    return sanitizeDiagnostic(result._meta.provenance.reason ?? "blocked");
+function resultDiagnostic(result: CallToolResult): string | undefined {
+  const meta = asRecord(result._meta);
+  const provenance = asRecord(meta.provenance);
+  if (provenance.trust === "mcp-policy") {
+    return sanitizeDiagnostic(provenance.reason ?? "blocked");
   }
-  if (typeof result?._meta?.diagnostic === "string") {
-    return sanitizeDiagnostic(result._meta.diagnostic);
+  if (typeof meta.diagnostic === "string") {
+    return sanitizeDiagnostic(meta.diagnostic);
   }
   const text = resultText(result, 2000);
   const firstLine = text
@@ -142,8 +159,8 @@ function logLine(event: string, fields: Array<[string, unknown]>): string {
 
 export interface InstrumentedToolOptions {
   name: string;
-  args: any;
-  handler: (args: any) => Promise<any>;
+  args: Record<string, unknown>;
+  handler: (args: Record<string, unknown>) => Promise<CallToolResult>;
   policy: WorkspacePolicy;
   execution: ExecutionPolicy;
   approvals: ApprovalLedger;
@@ -158,7 +175,9 @@ export interface InstrumentedToolOptions {
  * start/end records. The MCP result is returned with `_meta.correlationId`;
  * correlation IDs are unique per invocation.
  */
-export async function runInstrumentedTool(options: InstrumentedToolOptions): Promise<any> {
+export async function runInstrumentedTool(
+  options: InstrumentedToolOptions,
+): Promise<CallToolResult> {
   const correlationId = options.correlationId ?? randomUUID();
   const log = options.logger ?? ((line: string) => console.error(line));
   const clock = options.now ?? (() => Date.now());
@@ -184,9 +203,11 @@ export async function runInstrumentedTool(options: InstrumentedToolOptions): Pro
     });
     const outcome = classifyResult(result);
     const durationMs = Math.max(0, clock() - started);
-    const policyMeta = result?._meta?.policy;
+    const metaRecord = asRecord(result._meta);
+    const policyMeta = asRecord(metaRecord.policy);
+    const provenanceMeta = asRecord(metaRecord.provenance);
     const meta = {
-      ...(result?._meta ?? {}),
+      ...metaRecord,
       correlationId,
     };
     const enriched = { ...result, _meta: meta };
@@ -198,16 +219,19 @@ export async function runInstrumentedTool(options: InstrumentedToolOptions): Pro
         ["outcome", outcome],
         ["duration_ms", durationMs],
         ["source", source],
-        ["exit_code", result?._meta?.exitCode],
-        ["signal", result?._meta?.signal],
-        ["policy", policyMeta?.mode],
-        ["impact", policyMeta?.impact],
-        ["decision", policyMeta?.decision],
-        ["target", policyMeta?.target],
-        ["policy_reason", policyMeta?.reason],
-        ["approval_id", policyMeta?.approvalId ?? policyMeta?.approvalRequestId],
-        ["policy_warnings", policyMeta?.warnings?.length],
-        ["policy_decision", result?._meta?.provenance?.decisionId],
+        ["exit_code", metaRecord.exitCode],
+        ["signal", metaRecord.signal],
+        ["policy", policyMeta.mode],
+        ["impact", policyMeta.impact],
+        ["decision", policyMeta.decision],
+        ["target", policyMeta.target],
+        ["policy_reason", policyMeta.reason],
+        ["approval_id", policyMeta.approvalId ?? policyMeta.approvalRequestId],
+        [
+          "policy_warnings",
+          Array.isArray(policyMeta.warnings) ? policyMeta.warnings.length : undefined,
+        ],
+        ["policy_decision", provenanceMeta.decisionId],
         ["diagnostic", outcome === "success" ? undefined : resultDiagnostic(result)],
         ["timestamp", new Date(started + durationMs).toISOString()],
       ]),

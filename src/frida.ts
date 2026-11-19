@@ -403,7 +403,7 @@ export function pidRunning(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch (e: any) {
-    return e?.code === "EPERM";
+  } catch (error) {
+    return (error as NodeJS.ErrnoException | undefined)?.code === "EPERM";
   }
 }

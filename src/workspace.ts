@@ -89,8 +89,8 @@ export function canonicalizePath(
     try {
       const real = realpathSync(current);
       return suffix.length > 0 ? api.join(real, ...suffix.reverse()) : real;
-    } catch (error: any) {
-      if (error?.code !== "ENOENT") return null;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException | undefined)?.code !== "ENOENT") return null;
       try {
         // A broken symlink exists here; resolving it would follow caller
         // control outside the workspace. Fail closed instead.

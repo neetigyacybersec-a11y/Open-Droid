@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import { PIDFILE, ensureRoot, pidRunning, resolveDeviceSerial, resolveMitmDump } from "./frida.js";
 import { run } from "./services/process-runner.js";
 import { spawnManaged, type ManagedProcess } from "./services/managed-process.js";
+import { errorMessage } from "./util.js";
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -361,8 +362,8 @@ async function recordRecoveryFailure(
   try {
     await writeCaptureState(updated);
     return null;
-  } catch (e: any) {
-    return `could not persist recovery details: ${e?.message ?? String(e)}`;
+  } catch (error) {
+    return `could not persist recovery details: ${errorMessage(error)}`;
   }
 }
 
@@ -629,8 +630,8 @@ export async function handleNetCapture(args: NetCaptureArgs) {
     try {
       await ensureRoot(serial);
       rooted = true;
-    } catch (e: any) {
-      warnings.push(`device root/profile skipped: ${e?.message ?? String(e)}`);
+    } catch (error) {
+      warnings.push(`device root/profile skipped: ${errorMessage(error)}`);
     }
 
     const sessionId = randomUUID();

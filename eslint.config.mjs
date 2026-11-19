@@ -8,9 +8,19 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   {
     files: ["**/*.ts"],
-    languageOptions: { ecmaVersion: 2022, sourceType: "module" },
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "module",
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
     rules: {
-      "@typescript-eslint/no-explicit-any": "off",
+      "@typescript-eslint/no-explicit-any": "error",
+      "@typescript-eslint/no-floating-promises": "error",
+      "@typescript-eslint/no-misused-promises": "error",
+      "@typescript-eslint/no-unnecessary-type-assertion": "error",
     },
   },
   {

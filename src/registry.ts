@@ -7,6 +7,7 @@
 // malformed registry fails startup instead of silently defaulting a destructive
 // tool to read-only or unattended.
 import { z } from "zod";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
 import { ToolSchemas } from "./tools.js";
 import * as H from "./tools.js";
@@ -88,7 +89,7 @@ export interface ToolDefinition {
   readonly name: string;
   readonly description: string;
   readonly schema: z.ZodTypeAny;
-  readonly handler: (args: any) => Promise<unknown>;
+  readonly handler: (args: Record<string, unknown>) => Promise<CallToolResult>;
   readonly category: ToolCategory;
   readonly risk: RiskClass;
   /** Approval-policy key consumed by #50; null only for read-only tools. */
@@ -112,7 +113,7 @@ export interface ToolDefinitionInput<S extends z.ZodTypeAny> {
   name: string;
   description: string;
   schema: S;
-  handler: (args: z.infer<S>) => Promise<unknown>;
+  handler: (args: z.infer<S>) => Promise<CallToolResult>;
   category: ToolCategory;
   risk: RiskClass;
   policyKey: string | null;
@@ -166,8 +167,11 @@ function path(field: string, operation: PathOperation): ToolPathSpec {
 function defineTool<S extends z.ZodTypeAny>(input: ToolDefinitionInput<S>): ToolDefinition {
   return Object.freeze({
     ...input,
-    schema: input.schema as z.ZodTypeAny,
-    handler: input.handler as (args: any) => Promise<unknown>,
+    schema: input.schema,
+    // The registry erases each tool's concrete Zod-inferred argument type to a
+    // common callable shape. Callers only pass schema-validated arguments, so
+    // this single checked-in assertion is the documented type-erasure seam.
+    handler: input.handler as unknown as (args: Record<string, unknown>) => Promise<CallToolResult>,
     sideEffects: Object.freeze([...input.sideEffects]),
     preconditions: Object.freeze([...input.preconditions]),
     paths: Object.freeze(input.paths.map(freezeSpec)),
