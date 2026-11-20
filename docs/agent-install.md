@@ -76,7 +76,8 @@ What `make setup` does (idempotent; safe to re-run):
 4. Warms the Gradle dependency cache (one online build).
 5. Runs `scripts/register.sh`:
    - registers the MCP server **globally** (`opencode mcp add android-mcp --global`) if not already present;
-   - copies all skills from `skills/` into `~/.config/opencode/skills/` (refreshed every run);
+   - copies every skill directory from `skills/` into `~/.config/opencode/skills/`, including `references/**`, `templates/**`, examples and scripts (refreshed every run);
+   - fails with a non-zero exit and leaves the manifest unchanged if any skill copy fails;
    - prunes only skills previously installed by this repo (tracked in `~/.config/opencode/skills/.android-mcp-manifest`), plus the eight names dropped by the 2026-10 consolidation. Unrelated user skills are never deleted.
 6. Builds the MCP server (`npm run build`).
 

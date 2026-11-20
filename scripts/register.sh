@@ -9,8 +9,10 @@
 # Idempotent: safe to re-run; refreshes skill copies each time.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SKILLS_SRC="$ROOT/skills"
-SKILLS_DST="$HOME/.config/opencode/skills"
+# Source/destination are overridable for isolated tests; defaults are the repo
+# and the global OpenCode skills directory.
+SKILLS_SRC="${ANDROID_MCP_SKILLS_SRC:-$ROOT/skills}"
+SKILLS_DST="${ANDROID_MCP_SKILLS_DST:-$HOME/.config/opencode/skills}"
 MCP_SCRIPT="$ROOT/scripts/run-mcp.sh"
 ok(){ echo "[register] OK    $*"; }
 warn(){ echo "[register] WARN  $*"; }
@@ -26,20 +28,76 @@ if ! command -v opencode >/dev/null 2>&1; then
 fi
 
 # ---- 1. Skills (global copies, refreshed every run; independent of the CLI) ----
+# Every skill is a directory: SKILL.md plus references, templates, examples and
+# other local resources. Sync the whole tree so linked files exist globally.
+skill_sync() {
+  local src="$1" dst="$2"
+  if [ "${ANDROID_MCP_SKILL_COPY:-auto}" != "copy" ] && command -v rsync >/dev/null 2>&1; then
+    # --checksum: skill edits are usually small and can share an mtime second;
+    # the default size+mtime quick check would then leave a stale global copy.
+    if ! rsync -a --checksum --delete "$src/" "$dst/"; then
+      return 1
+    fi
+    return 0
+  fi
+
+  # Fallback for hosts without rsync (e.g. Windows Git Bash): stage a full
+  # copy, then replace only this owned skill directory. The staged copy means a
+  # failed copy never damages the previously installed skill.
+  local tmp backup
+  tmp="$(mktemp -d "${dst}.tmp.XXXXXX")" || return 1
+  if ! cp -a "$src/." "$tmp/"; then
+    rm -rf "$tmp"
+    return 1
+  fi
+  if [ -e "$dst" ]; then
+    backup="${dst}.old.$$"
+    rm -rf "$backup"
+    if ! mv "$dst" "$backup"; then
+      rm -rf "$tmp"
+      return 1
+    fi
+    if ! mv "$tmp" "$dst"; then
+      mv "$backup" "$dst" || true
+      rm -rf "$tmp"
+      return 1
+    fi
+    rm -rf "$backup"
+  elif ! mv "$tmp" "$dst"; then
+    rm -rf "$tmp"
+    return 1
+  fi
+}
+
 if [ -d "$SKILLS_SRC" ]; then
+  if ! mkdir -p "$SKILLS_DST"; then
+    echo "[register] FAILED cannot create $SKILLS_DST" >&2
+    exit 1
+  fi
+
   count=0
+  failures=0
   for d in "$SKILLS_SRC"/*/; do
+    [ -d "$d" ] || continue
     name="$(basename "$d")"
     [ -f "$d/SKILL.md" ] || continue
-    mkdir -p "$SKILLS_DST/$name"
-    cp -a "$d/SKILL.md" "$SKILLS_DST/$name/SKILL.md"
-    count=$((count+1))
+    if skill_sync "$d" "$SKILLS_DST/$name"; then
+      count=$((count+1))
+    else
+      echo "[register] FAILED could not install skill '$name' from $d" >&2
+      failures=$((failures+1))
+    fi
   done
+
+  if [ "$failures" -gt 0 ]; then
+    echo "[register] FAILED $failures skill(s) were not installed; manifest left unchanged" >&2
+    exit 1
+  fi
   ok "Installed/refreshed $count skills into $SKILLS_DST"
 
   # Prune only skills that were previously installed by THIS repo (tracked in a
   # manifest), so unrelated user skills in the global skills dir are never
-  # deleted. The manifest is rewritten on every run.
+  # deleted. The manifest is rewritten on every successful run.
   MANIFEST="$SKILLS_DST/.android-mcp-manifest"
   pruned=0
   if [ -f "$MANIFEST" ]; then
@@ -74,6 +132,14 @@ if [ -d "$SKILLS_SRC" ]; then
   done
 else
   warn "skills/ not found at $SKILLS_SRC"
+fi
+
+# Tests and non-MCP installs can stop after skills; the default still registers
+# the server below.
+if [ "${ANDROID_MCP_SKIP_MCP_REGISTRATION:-0}" = "1" ]; then
+  ok "skipped MCP registration (ANDROID_MCP_SKIP_MCP_REGISTRATION=1)"
+  echo "[register] done"
+  exit 0
 fi
 
 # ---- 2. MCP server (global) ----
