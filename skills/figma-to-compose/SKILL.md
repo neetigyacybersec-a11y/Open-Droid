@@ -1,6 +1,6 @@
 ---
 name: figma-to-compose
-description: Convert Figma designs to Jetpack Compose using Figma MCP output, mapping variables to tokens and components to composables
+description: Convert Figma designs to Jetpack Compose using Figma MCP output, mapping variables to tokens and components to composables. Use when a Figma design is available or the user asks to translate Figma to Compose.
 license: MIT
 compatibility: opencode
 metadata:

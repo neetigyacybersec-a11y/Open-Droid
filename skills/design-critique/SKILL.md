@@ -1,6 +1,6 @@
 ---
 name: design-critique
-description: Review designs against hierarchy, affordance, states, consistency, and accessibility checklists
+description: Review designs against hierarchy, affordance, states, consistency, and accessibility checklists. Use when reviewing, improving, or polishing an existing screen or app, including before visual QA completion.
 license: MIT
 compatibility: opencode
 metadata:

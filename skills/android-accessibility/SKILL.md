@@ -1,6 +1,6 @@
 ---
 name: android-accessibility
-description: Make and audit Jetpack Compose UI accessibility: semantics, content descriptions, touch targets, focus, TalkBack, reduced motion, contrast, font scaling
+description: Make and audit Jetpack Compose UI accessibility: semantics, content descriptions, touch targets, focus, TalkBack, reduced motion, contrast, font scaling. Use for new or changed UI and review gates, not only explicit accessibility requests.
 license: MIT
 compatibility: opencode
 metadata:

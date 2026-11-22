@@ -1,6 +1,6 @@
 ---
 name: design-tokens
-description: Define and maintain design tokens (color, type, shape, spacing) as the single source of truth for Compose themes, bridging Figma variables
+description: Define and maintain design tokens (color, type, shape, spacing) as the single source of truth for Compose themes, bridging Figma variables. Use when creating or changing a design system, theme, brand, or shared component styling.
 license: MIT
 compatibility: opencode
 metadata:

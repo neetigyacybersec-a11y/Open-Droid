@@ -1,6 +1,6 @@
 ---
 name: android-performance
-description: Improve app performance with baseline profiles, macrobenchmarks, recomposition counts, and image loading
+description: Improve app performance with baseline profiles, macrobenchmarks, recomposition counts, and image loading. Use for animation jank, scrolling or typing latency, startup or asset regressions, or expensive recomposition.
 license: MIT
 compatibility: opencode
 metadata:

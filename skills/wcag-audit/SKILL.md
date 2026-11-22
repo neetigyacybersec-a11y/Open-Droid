@@ -1,6 +1,6 @@
 ---
 name: wcag-audit
-description: Audit UI against WCAG POUR principles and conformance levels (A/AA/AAA) with concrete test procedures
+description: Audit UI against WCAG POUR principles and conformance levels (A/AA/AAA) with concrete test procedures. Use for UI review gates, not only explicit WCAG requests.
 license: MIT
 compatibility: opencode
 metadata:
