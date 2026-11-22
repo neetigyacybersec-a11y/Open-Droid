@@ -93,3 +93,6 @@ You: [Fix progress indicators]
 - Request clarification
 
 See template at: [code-reviewer.md](code-reviewer.md)
+## Minimal-change contract
+
+Follow the Minimal-change engineering contract in the repository `AGENTS.md` and the PR template minimality rationale. Prefer the smallest complete change, reuse existing helpers, and avoid speculative abstractions.

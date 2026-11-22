@@ -319,3 +319,6 @@ Use superpowers:finishing-a-development-branch.
 | "The reviewer said Minor, so it's Minor" | The label graded the spec's silence. Grade what the person gets. Re-grade, then gate. |
 | "The fix is obvious, no need for a failing test first" | The failing test is the only proof the finding was real and is now gone. Without it you have a diff and a hope. |
 | "I'll fix the minors too while I'm in there" | Every minor you fix is a test, a fix, and a suite run your partner did not ask for. Ledger them; your partner decides. |
+## Minimal-change contract
+
+Follow the Minimal-change engineering contract in the repository `AGENTS.md` and the PR template minimality rationale. Prefer the smallest complete change, reuse existing helpers, and avoid speculative abstractions.

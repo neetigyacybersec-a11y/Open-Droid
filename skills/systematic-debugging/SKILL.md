@@ -281,3 +281,6 @@ These techniques are part of systematic debugging and available in this director
 - **`root-cause-tracing.md`** - Trace bugs backward through call stack to find original trigger
 - **`defense-in-depth.md`** - Add validation at multiple layers after finding root cause
 - **`condition-based-waiting.md`** - Replace arbitrary timeouts with condition polling
+## Minimal-change contract
+
+Follow the Minimal-change engineering contract in the repository `AGENTS.md` and the PR template minimality rationale. Prefer the smallest complete change, reuse existing helpers, and avoid speculative abstractions.
