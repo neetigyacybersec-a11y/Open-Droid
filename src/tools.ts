@@ -24,6 +24,13 @@ import {
   validateComponent,
   resolveActivityComponent,
 } from "./services/adb-client.js";
+import {
+  ensureCapturesDir,
+  listBaselines,
+  nextCapturePath,
+  pruneCaptures,
+  saveBaseline,
+} from "./captures.js";
 
 import { ensureServer, resolveFridaCli } from "./frida.js";
 import {
@@ -54,7 +61,19 @@ export const ToolSchemas = {
   adbDevices: z.object({}),
   adbScreenshot: z.object({
     deviceId: z.string().optional(),
-    outputPath: z.string().optional().describe("Where to save PNG; defaults to temp"),
+    packageName: z
+      .string()
+      .optional()
+      .describe("Foreground app package used in the archived capture file name"),
+    outputPath: z
+      .string()
+      .optional()
+      .describe("Where to save PNG; defaults to the persistent captures archive"),
+    transient: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe("Return the PNG inline only, without retaining an archived file"),
     overwrite: z
       .boolean()
       .optional()
@@ -271,10 +290,25 @@ export const ToolSchemas = {
   adbReboot: z.object({ deviceId: z.string().optional() }),
   adbScreenrecord: z.object({
     deviceId: z.string().optional(),
+    packageName: z
+      .string()
+      .optional()
+      .describe("Foreground app package used in the archived recording file name"),
     durationSec: z.number().optional().default(10),
     outputPath: z.string().optional(),
     overwrite: z.boolean().optional().describe("Allow replacing an existing recording file"),
   }),
+  screenshotBaselineSave: z.object({
+    name: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/, "invalid baseline name"),
+    sourcePath: z
+      .string()
+      .optional()
+      .describe("Existing capture to adopt; a fresh screenshot is taken when omitted"),
+    deviceId: z.string().optional(),
+    packageName: z.string().optional(),
+    overwrite: z.boolean().optional(),
+  }),
+  screenshotBaselineList: z.object({}),
   adbInput: z.object({
     deviceId: z.string().optional(),
     action: z.enum(["tap", "swipe", "text", "keyevent"]),
@@ -531,11 +565,11 @@ export async function handleAdbDevices() {
   };
 }
 
-export async function handleAdbScreenshot(args: z.infer<typeof ToolSchemas.adbScreenshot>) {
+async function captureScreenshotTo(
+  args: { deviceId?: string },
+  local: string,
+): Promise<{ data: string } | { error: string }> {
   const base = adbArgs(args.deviceId);
-  const persistent = Boolean(args.outputPath);
-  const dir = persistent ? null : await tmpDir();
-  const local = args.outputPath ?? join(dir!, "screen.png");
   // Unique per capture: overlapping captures must not overwrite each other's
   // device-side file before the pull completes (issue 84).
   const remote = `/sdcard/screen-${process.pid}-${Date.now()}-${Math.random()
@@ -545,44 +579,63 @@ export async function handleAdbScreenshot(args: z.infer<typeof ToolSchemas.adbSc
     let r = await run("adb", [...base, "shell", "screencap", "-p", remote], {
       timeout: 60_000,
     });
-    if (r.code !== 0) {
-      return {
-        content: [{ type: "text" as const, text: `screencap failed: ${r.stderr}` }],
-        isError: true,
-      };
-    }
+    if (r.code !== 0) return { error: `screencap failed: ${r.stderr}` };
     r = await run("adb", [...base, "pull", remote, local], { timeout: 120_000 });
-    if (r.code !== 0) {
-      return {
-        content: [{ type: "text" as const, text: `pull failed: ${r.stderr}` }],
-        isError: true,
-      };
-    }
-    const b64 = await readBase64(local);
-    if (persistent) {
-      return {
-        content: [
-          { type: "image" as const, data: b64, mimeType: "image/png" },
-          { type: "text" as const, text: `Saved screenshot to ${local}` },
-        ],
-        isError: false,
-      };
-    }
-    return {
-      content: [
-        { type: "image" as const, data: b64, mimeType: "image/png" },
-        {
-          type: "text" as const,
-          text: "Screenshot captured inline (transient; no local file retained). Pass outputPath to keep a copy.",
-        },
-      ],
-      isError: false,
-    };
+    if (r.code !== 0) return { error: `pull failed: ${r.stderr}` };
+    return { data: await readBase64(local) };
   } finally {
     // Best-effort remote cleanup; never mask the primary diagnostic.
     await run("adb", [...base, "shell", "rm", "-f", remote], { timeout: 15_000 }).catch(
       () => undefined,
     );
+  }
+}
+
+export async function handleAdbScreenshot(args: z.infer<typeof ToolSchemas.adbScreenshot>) {
+  const transient = args.transient === true && !args.outputPath;
+  let dir: string | null = null;
+  let local: string;
+  if (args.outputPath) {
+    local = args.outputPath;
+  } else if (transient) {
+    dir = await tmpDir();
+    local = join(dir, "screen.png");
+  } else {
+    await ensureCapturesDir();
+    local = nextCapturePath({
+      kind: "screenshot",
+      deviceId: args.deviceId,
+      packageName: args.packageName,
+    });
+  }
+  try {
+    const captured = await captureScreenshotTo(args, local);
+    if ("error" in captured)
+      return {
+        content: [{ type: "text" as const, text: captured.error }],
+        isError: true,
+      };
+    const image = { type: "image" as const, data: captured.data, mimeType: "image/png" };
+    if (dir)
+      return {
+        content: [
+          image,
+          {
+            type: "text" as const,
+            text: "Screenshot captured inline (transient; no local file retained). Pass outputPath to keep a copy.",
+          },
+        ],
+        isError: false,
+      };
+    if (!args.outputPath) await pruneCaptures().catch(() => 0);
+    return {
+      content: [
+        image,
+        { type: "text" as const, text: `Saved screenshot to ${local}\narchive=true` },
+      ],
+      isError: false,
+    };
+  } finally {
     if (dir) await cleanup(dir);
   }
 }
@@ -1572,7 +1625,17 @@ export async function handleAdbReboot(a: z.infer<typeof ToolSchemas.adbReboot>) 
 export async function handleAdbScreenrecord(a: z.infer<typeof ToolSchemas.adbScreenrecord>) {
   const dur = Math.max(1, a.durationSec ?? 10);
   const remote = "/sdcard/screenrecord.mp4";
-  const local = a.outputPath ?? `screenrecord-${Date.now()}.mp4`;
+  let archived = false;
+  let local = a.outputPath;
+  if (!local) {
+    await ensureCapturesDir();
+    local = nextCapturePath({
+      kind: "screenrecord",
+      deviceId: a.deviceId,
+      packageName: a.packageName,
+    });
+    archived = true;
+  }
   const r = await run(
     "adb",
     [...adbArgs(a.deviceId), "shell", "screenrecord", "--time-limit", String(dur), remote],
@@ -1586,11 +1649,83 @@ export async function handleAdbScreenrecord(a: z.infer<typeof ToolSchemas.adbScr
   const r2 = await run("adb", [...adbArgs(a.deviceId), "pull", remote, local], {
     timeout: 120_000,
   });
+  if (r2.code === 0 && archived) await pruneCaptures().catch(() => 0);
+  const suffix = archived ? `\narchive=true` : "";
   return {
-    content: [{ type: "text" as const, text: `saved ${local}\n${r2.stdout + r2.stderr}` }],
+    content: [{ type: "text" as const, text: `saved ${local}${suffix}\n${r2.stdout + r2.stderr}` }],
     isError: r2.code !== 0,
   };
 }
+
+export async function handleScreenshotBaselineSave(
+  args: z.infer<typeof ToolSchemas.screenshotBaselineSave>,
+) {
+  let sourcePath = args.sourcePath;
+  let temp: string | null = null;
+  try {
+    if (!sourcePath) {
+      temp = await tmpDir("android-mcp-baseline-");
+      sourcePath = join(temp, "capture.png");
+      const captured = await captureScreenshotTo({ deviceId: args.deviceId }, sourcePath);
+      if ("error" in captured)
+        return {
+          content: [{ type: "text" as const, text: captured.error }],
+          isError: true,
+        };
+    }
+    const record = await saveBaseline({
+      name: args.name,
+      sourcePath,
+      deviceId: args.deviceId,
+      packageName: args.packageName,
+      sourceCapture: sourcePath,
+      overwrite: args.overwrite,
+    });
+    const lines = [
+      "status=saved",
+      `name=${record.name}`,
+      `path=${record.path}`,
+      `sha256=${record.sha256}`,
+      `deviceId=${record.deviceId}`,
+      `packageName=${record.packageName}`,
+      `bytes=${record.bytes}`,
+    ];
+    return { content: [{ type: "text" as const, text: lines.join("\n") }], isError: false };
+  } catch (error) {
+    return {
+      content: [{ type: "text" as const, text: `status=error\nreason=${errorMessage(error)}` }],
+      isError: true,
+    };
+  } finally {
+    if (temp) await cleanup(temp);
+  }
+}
+
+export async function handleScreenshotBaselineList() {
+  try {
+    const records = await listBaselines();
+    const lines = [`count=${records.length}`];
+    for (const record of records) {
+      lines.push(
+        [
+          `name=${record.name}`,
+          `sha256=${record.sha256}`,
+          `deviceId=${record.deviceId}`,
+          `packageName=${record.packageName}`,
+          `createdAt=${record.createdAt}`,
+          `path=${record.path}`,
+        ].join("\t"),
+      );
+    }
+    return { content: [{ type: "text" as const, text: lines.join("\n") }], isError: false };
+  } catch (error) {
+    return {
+      content: [{ type: "text" as const, text: `status=error\nreason=${errorMessage(error)}` }],
+      isError: true,
+    };
+  }
+}
+
 export async function handleAdbInput(a: z.infer<typeof ToolSchemas.adbInput>) {
   const base = adbArgs(a.deviceId);
   let args: string[] = [];

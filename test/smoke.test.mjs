@@ -94,6 +94,8 @@ setTimeout(() => {
     "secret_scan",
     "security_audit",
     "runtime_dump",
+    "screenshot_baseline_list",
+    "screenshot_baseline_save",
     "sdkmanager_install",
     "startup_time",
     "test_coverage",

@@ -774,7 +774,7 @@ stubbedTests(
     ].join("\n");
     try {
       await withStubs({ adb: stub }, async () => {
-        const transient = await handleAdbScreenshot({});
+        const transient = await handleAdbScreenshot({ transient: true });
         assert.equal(transient.isError, false);
         assert.ok(
           transient.content.some((c) => c.type === "image"),
@@ -830,7 +830,7 @@ stubbedTests(
 
       await withStubs({ adb: stub }, async () => {
         process.env.SCREENCAP_FAIL = "1";
-        const failed = await handleAdbScreenshot({});
+        const failed = await handleAdbScreenshot({ transient: true });
         delete process.env.SCREENCAP_FAIL;
         assert.equal(failed.isError, true);
         assert.match(text(failed), /screencap failed/);

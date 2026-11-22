@@ -25,7 +25,7 @@ No scattered MCP servers. No repeated downloads. No "works on my machine."
 - [Quick start — Clone + setup (automatic registration)](#quick-start--clone--setup-automatic-registration)
 - [What's included](#whats-included)
 - [Skills (30)](#skills-30)
-- [MCP tools (68)](#mcp-tools-68)
+- [MCP tools (70)](#mcp-tools-70)
 - [Create your first app](#create-your-first-app)
 - [Live visual output](#live-visual-output)
 - [Architecture](#architecture)
@@ -173,9 +173,9 @@ See `THIRD-PARTY.md` for attribution.
 
 ---
 
-## MCP tools (68)
+## MCP tools (70)
 
-The server exposes 68 tools grouped by category. The full list with schemas is
+The server exposes 70 tools grouped by category. The full list with schemas is
 returned by `tools/list` (MCP); [`docs/tool-catalogue.md`](docs/tool-catalogue.md)
 is generated from the typed registry and records each tool's risk class,
 approval requirement, path policy and tests. `docs/agent-install.md` covers
@@ -189,7 +189,7 @@ installation, registration, and verification.
 | Emulator / AVD | 6 | `emulator_list_avds`, `emulator_boot`, `avd_create`, `avd_wipe` |
 | Frida (dynamic) | 3 | `frida_ps`, `frida_hook`, `frida_trace_methods` |
 | Network exposure | 2 | `net_capture`, `apk_serve` |
-| UI inspection | 3 | `ui_dump`, `compose_recomposition`, `layout_bounds` |
+| UI inspection | 5 | `ui_dump`, `compose_recomposition`, `layout_bounds` |
 | Static analysis | 5 | `apk_info`, `apk_decompile`, `manifest_inspect`, `native_libs`, `dex_strings` |
 | Testing | 4 | `maestro_run`, `instrumented_test`, `test_coverage`, `macrobenchmark` |
 | Profiling | 3 | `perfetto_trace`, `memory_profile`, `startup_time` |
@@ -206,6 +206,24 @@ planned, not callable. Use `adb_screenshot` and `compose_preview_render` for
 captures today, and Roborazzi screenshot/accessibility checks inside app tests.
 The generated catalogue's [planned section](docs/tool-catalogue.md#planned-not-registered)
 records their tracking issues.
+
+### Capture archive and golden baselines
+
+`adb_screenshot` and `adb_screenrecord` now persist captures by default into a
+server-owned archive instead of the OS temp directory. Names are self-describing
+(`screenshot-<device>-<package>-<epoch>.png`), the saved path is returned with the
+inline image, and the archive is capped so it cannot grow without bound.
+
+- `ANDROID_MCP_CAPTURES_DIR` — archive location (default `~/.android-mcp/captures`).
+- `ANDROID_MCP_CAPTURES_KEEP` — archived captures to retain (default `200`).
+- Pass `transient: true` or an explicit `outputPath` to `adb_screenshot` for the
+  old inline-only or caller-chosen-path behavior.
+
+`adb_screenshot` still returns the PNG inline; `screenshot_baseline_save <name>`
+adopts a capture (or takes a fresh one) as a named baseline with sha256 metadata,
+and `screenshot_baseline_list` reports the stored baselines. Baselines are kept
+separately from the rolling capture archive and are never auto-pruned. The planned
+`screenshot_diff` tool will resolve baselines by name from this archive.
 
 
 ---
@@ -264,7 +282,7 @@ per-agent).
 ```bash
 npm install
 npm run build        # compile TypeScript
-npm test             # smoke test (68 tools)
+npm test             # smoke test (70 tools)
 npm run architecture # enforce approved process/ADB boundaries
 npm run catalogue    # verify docs/tool-catalogue.md matches src/registry.ts
 npm run lint         # one timed, type-aware eslint pass
