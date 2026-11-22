@@ -277,7 +277,7 @@ Force-stop an application process on a device.
 
 ### `adb_input`
 
-Inject a tap, swipe, text or key event into the device input system.
+Tap the screen, swipe, type text, or send a key event on the device (input injection).
 
 - Impact: `device-state`
 - Policy key: `device.input`
@@ -289,7 +289,7 @@ Inject a tap, swipe, text or key event into the device input system.
 
 ### `adb_install`
 
-Install an APK on a connected device or emulator.
+Install an APK (app package) on a connected device or emulator.
 
 - Impact: `device-state`
 - Policy key: `device.app.install`
@@ -302,7 +302,7 @@ Install an APK on a connected device or emulator.
 
 ### `adb_launch`
 
-Launch an app package and optional activity, falling back to a launcher intent.
+Launch an app on the device (am start), with an optional activity, falling back to a launcher intent.
 
 - Impact: `device-state`
 - Policy key: `device.state.write`
@@ -389,7 +389,7 @@ Recursively delete an absolute remote path under an allowed device scope.
 
 ### `adb_screenrecord`
 
-Record the device screen for a bounded duration and pull the MP4 to the host.
+Record the device screen (screenrecord) for a bounded duration and pull the MP4 to the host.
 
 - Impact: `local-reversible`
 - Policy key: `host.file.write`
@@ -401,7 +401,7 @@ Record the device screen for a bounded duration and pull the MP4 to the host.
 
 ### `adb_screenshot`
 
-Capture a device screenshot, save the PNG to an approved path and return the PNG inline as image content.
+Capture a screenshot of the device screen (screencap), save the PNG to an approved path, and return the PNG inline as image content.
 
 - Impact: `local-reversible`
 - Policy key: `host.file.write`
@@ -425,7 +425,7 @@ Start a specific service component with am startservice.
 
 ### `adb_shell`
 
-Run a raw shell command on a device; high-trust, arbitrary and not blocklisted.
+Run a raw shell command on a device (shell passthrough); high-trust, arbitrary and not blocklisted.
 
 - Impact: `destructive`
 - Policy key: `device.shell`

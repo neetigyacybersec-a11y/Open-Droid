@@ -632,7 +632,7 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = Object.freeze([
   defineTool({
     name: "adb_screenshot",
     description:
-      "Capture a device screenshot, save the PNG to an approved path and return the PNG inline as image content.",
+      "Capture a screenshot of the device screen (screencap), save the PNG to an approved path, and return the PNG inline as image content.",
     schema: ToolSchemas.adbScreenshot,
     handler: (args) => H.handleAdbScreenshot(args),
     category: "adb",
@@ -650,7 +650,7 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = Object.freeze([
   }),
   defineTool({
     name: "adb_install",
-    description: "Install an APK on a connected device or emulator.",
+    description: "Install an APK (app package) on a connected device or emulator.",
     schema: ToolSchemas.adbInstall,
     handler: (args) => H.handleAdbInstall(args),
     category: "adb",
@@ -668,7 +668,8 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = Object.freeze([
   }),
   defineTool({
     name: "adb_launch",
-    description: "Launch an app package and optional activity, falling back to a launcher intent.",
+    description:
+      "Launch an app on the device (am start), with an optional activity, falling back to a launcher intent.",
     schema: ToolSchemas.adbLaunch,
     handler: (args) => H.handleAdbLaunch(args),
     category: "adb",
@@ -812,7 +813,8 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = Object.freeze([
   }),
   defineTool({
     name: "adb_screenrecord",
-    description: "Record the device screen for a bounded duration and pull the MP4 to the host.",
+    description:
+      "Record the device screen (screenrecord) for a bounded duration and pull the MP4 to the host.",
     schema: ToolSchemas.adbScreenrecord,
     handler: (args) => H.handleAdbScreenrecord(args),
     category: "adb",
@@ -830,7 +832,8 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = Object.freeze([
   }),
   defineTool({
     name: "adb_input",
-    description: "Inject a tap, swipe, text or key event into the device input system.",
+    description:
+      "Tap the screen, swipe, type text, or send a key event on the device (input injection).",
     schema: ToolSchemas.adbInput,
     handler: (args) => H.handleAdbInput(args),
     category: "adb",
@@ -957,7 +960,8 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = Object.freeze([
   }),
   defineTool({
     name: "adb_shell",
-    description: "Run a raw shell command on a device; high-trust, arbitrary and not blocklisted.",
+    description:
+      "Run a raw shell command on a device (shell passthrough); high-trust, arbitrary and not blocklisted.",
     schema: ToolSchemas.adbShell,
     handler: (args) => H.handleAdbShell(args),
     category: "adb",
