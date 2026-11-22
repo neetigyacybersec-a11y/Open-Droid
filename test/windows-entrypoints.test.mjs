@@ -62,6 +62,18 @@ test("docs/windows.md documents restricted-PowerShell and Git Bash/WSL2 paths", 
   assert.match(text, /PowerShell/i);
 });
 
+test("docs/windows.md documents safe PowerShell shell and screenshot patterns", () => {
+  const text = readFileSync(path.join(REPO, "docs/windows.md"), "utf8");
+  assert.match(text, /multi-line/i, "must call out the silent multi-line PowerShell failure");
+  assert.match(text, /silently/i, "must say the failure is silent, not an error");
+  assert.match(text, /single-line/i, "must recommend single-line pipelines");
+  assert.match(text, />|redirection/i, "must call out > redirection");
+  assert.match(text, /binary/i, "must explain that > corrupts binary streams");
+  assert.match(text, /screencap/, "must show the safe screencap pattern");
+  assert.match(text, /adb pull/, "must show the pull half of the safe pattern");
+  assert.match(text, /one remote path per\s*`?adb pull/i, "must forbid batched pulls");
+});
+
 test("README links the Windows entry points and the Windows CI job uses them", () => {
   const readme = readFileSync(path.join(REPO, "README.md"), "utf8");
   assert.match(readme, /docs\/windows\.md/);

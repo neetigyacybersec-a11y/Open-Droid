@@ -32,6 +32,28 @@ node scripts/build.mjs --noEmit
 `scripts/test.mjs` reads the file list from `package.json`, so it always matches
 the npm suite.
 
+## Shell commands and screenshots from an agent session
+
+Some agent exec layers pass a multi-line script to PowerShell as a single
+command. Two lines that work when pasted by hand can silently do nothing when
+sent that way: the call returns "(no output)" and no command runs. There is no
+error to diagnose. Keep agent-driven shell commands to **single-line pipelines**
+(or `;`-chained commands on one line), and check for real output instead of
+treating an empty result as success.
+
+Do not redirect binary output with `>` in PowerShell. Redirection rewrites line
+endings and corrupts PNG/video bytes, so a screenshot saved that way is
+unusable. Capture on the device and pull one remote path per `adb pull` (a
+single pull with several remote paths fails):
+
+```powershell
+adb shell screencap -p /sdcard/capture.png; adb pull /sdcard/capture.png .\capture.png; adb shell rm -f /sdcard/capture.png
+```
+
+The MCP `adb_screenshot` and `adb_screenrecord` tools already use this safe
+screencap → `/sdcard` → pull → remote-cleanup flow, with one pull per capture,
+and save the result to the persistent capture archive.
+
 ## Toolchain setup and scaffolding (Git Bash or WSL2)
 
 `make setup`, `make doctor`, `make new-app`, and the `.sh` scripts require a
