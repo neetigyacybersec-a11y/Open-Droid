@@ -19,7 +19,7 @@ jobs:
           node-version: 22
       - run: npm ci
       - run: npm run build
-      - run: npm test --if-present
+      - run: npm test
       # ISSUE-96: dangerous primitive imports are an architecture failure, not
       # a review preference.
       - run: npm run architecture
@@ -208,3 +208,33 @@ jobs:
           context: .
           push: false
           tags: android-mcp:ci
+
+  # Stable aggregate required check for branch protection (#98). It runs for
+  # every PR even when an upstream job fails, so a missing/non-green required
+  # job cannot masquerade as success.
+  required:
+    name: required
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - mcp
+      - mcp-windows
+      - android-matrix
+      - android-instrumented
+      - docker
+      - dependency-review
+    steps:
+      - name: Verify every required job succeeded
+        env:
+          NEEDS: ${{ toJson(needs) }}
+        run: |
+          node -e '
+            const needs = JSON.parse(process.env.NEEDS);
+            const bad = Object.entries(needs).filter(([, value]) => value.result !== "success");
+            if (bad.length > 0) {
+              console.error("required job(s) did not succeed:");
+              for (const [name, value] of bad) console.error(` - ${name}: ${value.result}`);
+              process.exit(1);
+            }
+            console.log("all required jobs succeeded");
+          '
