@@ -33,7 +33,7 @@ test("sound design does not add a skill or an MCP tool", () => {
   const dirs = readdirSync(SKILLS).filter((d) => existsSync(path.join(SKILLS, d, "SKILL.md")));
   assert.equal(dirs.length, 30, `expected 30 skills, found ${dirs.length}`);
   assert.ok(!existsSync(path.join(SKILLS, "sound-design")), "no top-level sound skill");
-  assert.equal(TOOL_NAMES.length, 70, "no new MCP tool");
+  assert.equal(TOOL_NAMES.length, 71, "registry count changed deliberately");
   assert.ok(!TOOL_NAMES.some((name) => /sound|audio|sfx/i.test(name)), "no audio MCP tool");
 });
 

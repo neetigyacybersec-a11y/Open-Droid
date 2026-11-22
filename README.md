@@ -25,7 +25,7 @@ No scattered MCP servers. No repeated downloads. No "works on my machine."
 - [Quick start — Clone + setup (automatic registration)](#quick-start--clone--setup-automatic-registration)
 - [What's included](#whats-included)
 - [Skills (30)](#skills-30)
-- [MCP tools (70)](#mcp-tools-70)
+- [MCP tools (71)](#mcp-tools-71)
 - [Create your first app](#create-your-first-app)
 - [Live visual output](#live-visual-output)
 - [Architecture](#architecture)
@@ -173,9 +173,9 @@ See `THIRD-PARTY.md` for attribution.
 
 ---
 
-## MCP tools (70)
+## MCP tools (71)
 
-The server exposes 70 tools grouped by category. The full list with schemas is
+The server exposes 71 tools grouped by category. The full list with schemas is
 returned by `tools/list` (MCP); [`docs/tool-catalogue.md`](docs/tool-catalogue.md)
 is generated from the typed registry and records each tool's risk class,
 approval requirement, path policy and tests. `docs/agent-install.md` covers
@@ -184,7 +184,7 @@ installation, registration, and verification.
 | Category | Count | Examples |
 |---|---|---|
 | Environment | 2 | `android_env_check`, `sdkmanager_install` |
-| Build | 7 | `gradle_task`, `gradle_test`, `build_variant`, `compose_preview_render` |
+| Build | 8 | `gradle_task`, `gradle_test`, `build_variant`, `android_release_notes_generate` |
 | ADB | 26 | `adb_devices`, `adb_screenshot`, `adb_shell`, `adb_logcat`, `adb_parallel` |
 | Emulator / AVD | 6 | `emulator_list_avds`, `emulator_boot`, `avd_create`, `avd_wipe` |
 | Frida (dynamic) | 3 | `frida_ps`, `frida_hook`, `frida_trace_methods` |
@@ -224,6 +224,17 @@ adopts a capture (or takes a fresh one) as a named baseline with sha256 metadata
 and `screenshot_baseline_list` reports the stored baselines. Baselines are kept
 separately from the rolling capture archive and are never auto-pruned. The planned
 `screenshot_diff` tool will resolve baselines by name from this archive.
+
+### Release notes drafts
+
+`android_release_notes_generate <projectPath> <baseRef> [headRef]` drafts notes
+from a real Git ref range. Every item carries a source commit reference, and
+user-facing notes, fixes, breaking changes and engineering summaries are kept
+in separate sections. Subject-only fix/feature claims, unclassified commits and
+empty ranges are flagged for review instead of being invented. Secrets and
+internal hostnames are redacted; `locales` records translation debt rather than
+claiming translated copy. The tool is read-only: it writes no files and never
+publishes to the Play Console.
 
 
 ---
@@ -282,7 +293,7 @@ per-agent).
 ```bash
 npm install
 npm run build        # compile TypeScript
-npm test             # smoke test (70 tools)
+npm test             # smoke test (71 tools)
 npm run architecture # enforce approved process/ADB boundaries
 npm run catalogue    # verify docs/tool-catalogue.md matches src/registry.ts
 npm run lint         # one timed, type-aware eslint pass

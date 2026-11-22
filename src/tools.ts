@@ -43,6 +43,7 @@ import { renderPrivacyReport, scanPrivacyProject } from "./privacy.js";
 import { auditProjectManifest } from "./manifestAudit.js";
 import { scanProjectSecrets } from "./secretScan.js";
 import { renderPolicyPreflight, runPolicyPreflight } from "./policyPreflight.js";
+import { generateReleaseNotes, renderReleaseNotes } from "./releaseNotes.js";
 
 export { handleNetCapture, recoverCaptureSession } from "./netCapture.js";
 
@@ -309,6 +310,18 @@ export const ToolSchemas = {
     overwrite: z.boolean().optional(),
   }),
   screenshotBaselineList: z.object({}),
+  releaseNotesGenerate: z.object({
+    projectPath: z.string().describe("Absolute path to the Git repository"),
+    baseRef: z.string().min(1).describe("Base git ref: tag, branch or commit"),
+    headRef: z.string().min(1).optional().describe("Head git ref; defaults to HEAD"),
+    issueRefs: z.array(z.string().min(1)).optional().describe("Linked issue/PR references"),
+    audience: z.enum(["play", "qa", "engineering"]).optional(),
+    locales: z
+      .array(z.string().min(2))
+      .optional()
+      .describe("Target locales; drafts are English only"),
+    maxLength: z.number().int().positive().optional().describe("Maximum user-facing draft length"),
+  }),
   adbInput: z.object({
     deviceId: z.string().optional(),
     action: z.enum(["tap", "swipe", "text", "keyevent"]),
@@ -1718,6 +1731,23 @@ export async function handleScreenshotBaselineList() {
       );
     }
     return { content: [{ type: "text" as const, text: lines.join("\n") }], isError: false };
+  } catch (error) {
+    return {
+      content: [{ type: "text" as const, text: `status=error\nreason=${errorMessage(error)}` }],
+      isError: true,
+    };
+  }
+}
+
+export async function handleReleaseNotesGenerate(
+  a: z.infer<typeof ToolSchemas.releaseNotesGenerate>,
+) {
+  try {
+    const report = await generateReleaseNotes(a);
+    return {
+      content: [{ type: "text" as const, text: renderReleaseNotes(report) }],
+      isError: report.status === "error",
+    };
   } catch (error) {
     return {
       content: [{ type: "text" as const, text: `status=error\nreason=${errorMessage(error)}` }],

@@ -54,6 +54,7 @@ setTimeout(() => {
     "adb_wifi",
     "adb_window_geometry",
     "android_env_check",
+    "android_release_notes_generate",
     "android_skills_list",
     "android_skills_search",
     "anr_check",

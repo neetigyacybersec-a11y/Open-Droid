@@ -479,6 +479,25 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = Object.freeze([
     alternative: "Install SDK packages through Android Studio's SDK Manager",
   }),
   defineTool({
+    name: "android_release_notes_generate",
+    description:
+      "Draft release notes from a Git ref range with commit-linked items, separate user-facing and engineering notes, and review flags; never publishes or writes files.",
+    schema: ToolSchemas.releaseNotesGenerate,
+    handler: (args) => H.handleReleaseNotesGenerate(args),
+    category: "build",
+    risk: "read-only",
+    policyKey: null,
+    approval: "none",
+    unattended: true,
+    source: "mcp",
+    sideEffects: ["host-read"],
+    preconditions: [WORKSPACE_ROOT],
+    paths: [path("projectPath", "read")],
+    tests: [SMOKE, "test/release-notes.test.mjs"],
+    verification: "npm test — smoke registration and release-notes tests",
+    alternative: "Write release notes by hand from git log",
+  }),
+  defineTool({
     name: "gradle_task",
     description:
       "Run an arbitrary Gradle task in a project directory; the task may publish artefacts or mutate files.",
