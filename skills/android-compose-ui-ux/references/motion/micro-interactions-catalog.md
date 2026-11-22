@@ -2,7 +2,9 @@
 
 The taste encyclopedia. Each entry: **when**, the **spec** (duration/easing/properties), **haptic**, and **accessibility** note. Implement via `references/compose-motion.md` (Compose) or `references/view-system-motion.md` (Views) — specs here are platform-neutral.
 
-Formatting per entry: **Trigger → Spec → Haptic → Notes**.
+Formatting per entry: **Trigger → Spec → Haptic → Notes**. Sound is not a
+default entry here: when a feature includes audio, use the four-way matrix in
+`../sound/sound-design-system.md` and add only semantic, state-driven cues.
 
 ## Contents
 1. Touch feedback (press/release)

@@ -1,6 +1,6 @@
 ---
 name: android-compose-ui-ux
-description: Build high-end Jetpack Compose UI with Material 3, motion design, accessibility, adaptive layouts, design tokens, and foundations. Use whenever the user mentions animations, transitions, screen or navigation transitions, micro-interactions, motion design, spring or tween animations, Compose animation APIs (animate*AsState, AnimatedVisibility, AnimatedContent, SharedTransitionLayout / shared element), MotionLayout, ViewPropertyAnimator, AnimatedVectorDrawable, bottom sheet or FAB motion, press feedback, ripple, loading states, skeletons, splash or onboarding, pull-to-refresh, predictive back, haptics tied to motion, or says the app "feels sluggish", "laggy", "not smooth", "cheap", "basic", or "needs polish". Also use for new or changed Android screens, screen redesigns, visual polish, UI consistency, navigation flows, empty/loading/error states, and requests to make an interface look or feel premium. Covers Material 3 timing and easing tokens, interruption-safe springs, 60–120 fps motion performance, and reduced-motion accessibility. Use this skill even for small touches like a button press animation or a counter change.
+description: Build high-end Jetpack Compose UI with Material 3, motion design, accessibility, adaptive layouts, design tokens, and foundations. Use whenever the user mentions animations, transitions, screen or navigation transitions, micro-interactions, motion design, spring or tween animations, Compose animation APIs (animate*AsState, AnimatedVisibility, AnimatedContent, SharedTransitionLayout / shared element), MotionLayout, ViewPropertyAnimator, AnimatedVectorDrawable, bottom sheet or FAB motion, press feedback, ripple, loading states, skeletons, splash or onboarding, pull-to-refresh, predictive back, haptics tied to motion, sound design, sound effects, SFX, audio feedback, confirmation sounds, or says the app "feels sluggish", "laggy", "not smooth", "cheap", "basic", or "needs polish". Also use for new or changed Android screens, screen redesigns, visual polish, UI consistency, navigation flows, empty/loading/error states, and requests to make an interface look or feel premium. Covers Material 3 timing and easing tokens, interruption-safe springs, 60–120 fps motion performance, and reduced-motion accessibility. Use this skill even for small touches like a button press animation or a counter change.
 license: MIT
 compatibility: opencode
 metadata:
@@ -9,7 +9,7 @@ metadata:
 ---
 ## What I do
 - Guide Compose + Material 3 implementation for premium UI.
-- Cover typography, color roles, motion, haptics, edge-to-edge, adaptive layouts, large screens.
+- Cover typography, color roles, motion, haptics, sound feedback, edge-to-edge, adaptive layouts, large screens.
 - Enforce recomposition hygiene, LazyColumn keys/contentType, animation APIs.
 
 ## Consolidated capabilities (merged from android-material3-design, motion-design, uiux-design-foundations, android-adaptive-layouts)
@@ -152,6 +152,24 @@ use crossfade + rise) · the linear robot (linear easing on enter/exit) · the r
 the jank (animating layout/size per frame) · the ignored setting (motion running with system
 animations off) · magic numbers (`tween(373)` scattered — tokens, always).
 
+### Sound design system (deep layer)
+
+Sound is optional, state-driven feedback inside this hub — never a separate
+skill. **Default to silence**: a polished onboarding flow should consider
+whether a cue helps, but add one only with a justified product reason. For a
+request like "add a satisfying save confirmation", load `references/sound/`
+immediately.
+
+The four-way decision matrix (sound / haptic / both / neither) lives in
+`references/sound/sound-design-system.md`; use it before choosing an asset. Cues
+are tied to committed visual state changes, never to recomposition or animation
+frames, and one cue wins per event. Short one-shots use SoundPool (or a verified
+platform hook); Oboe and other audio dependencies are non-default. User mute,
+system silent/DND/audio focus and equivalent visual feedback are mandatory —
+audio is never the only carrier of information. Record source and license per
+asset in `references/sound/sound-catalog-template.md`, and run
+`references/sound/sound-review-checklist.md` with the full-motion pass.
+
 ### Reference map
 
 | File | Read when |
@@ -163,6 +181,12 @@ animations off) · magic numbers (`tween(373)` scattered — tokens, always).
 | `references/motion/performance-and-accessibility.md` | Perf pass before finishing; reduced-motion wiring. |
 | `references/motion/review-checklist.md` | Final pass on every motion task. Non-negotiable. |
 | `references/motion/MotionTokens.kt` | Drop-in tokens template (durations, M3 easings, springs, reduced-motion provider). |
+| `references/sound/sound-design-system.md` | Deciding whether sound belongs at all; four-way sound/haptic/both/neither matrix. |
+| `references/sound/sound-tokens.md` | Naming semantic cues, gain/duration starting points, priority and cooldown. |
+| `references/sound/android-audio-implementation.md` | Choosing a native API; SoundPool default, Oboe non-default, lifecycle release. |
+| `references/sound/sound-accessibility-and-settings.md` | Mute preference, silent/DND, audio focus and equivalent visual feedback. |
+| `references/sound/sound-review-checklist.md` | Final sound pass, together with the motion review checklist. |
+| `references/sound/sound-catalog-template.md` | Per-cue asset inventory with source and license provenance. |
 
 ### Foundations
 - Establish type scale, color roles, spacing grid (8dp), shape tokens, elevation, iconography.

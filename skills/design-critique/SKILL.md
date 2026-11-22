@@ -15,6 +15,7 @@ metadata:
 - Motion is part of the critique: run the motion review checklist
   (android-compose-ui-ux -> `references/motion/review-checklist.md`) — durations, one hero,
   interruption safety, reduced motion, RTL, dark mode — before calling motion done.
+- Audio is reviewed only when the feature includes sound or the brief calls for it: check semantic intent, mute behavior, equivalent visual feedback and provenance via android-compose-ui-ux -> `references/sound/sound-review-checklist.md`.
 
 ## When to use me
 Use during PR/design review.

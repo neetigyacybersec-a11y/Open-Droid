@@ -36,6 +36,7 @@ For a small visual change, use a lightweight version of this flow. Do not force 
 | Whole-app visual refresh | `design-tokens`, `android-compose-ui-ux`, `design-critique` |
 | Figma to Compose | `figma-to-compose`, `design-tokens`, `android-compose-ui-ux` |
 | Animation or micro-interaction refinement | `android-compose-ui-ux` |
+| Sound or haptic feedback design | `android-compose-ui-ux` (loads `references/sound/` only when sound is justified) |
 | Design-system or token change | `design-tokens`, `android-compose-ui-ux` |
 | Asset, icon, or illustration refresh | `android-compose-ui-ux` plus existing asset workflow |
 | Accessibility or visual review | `android-accessibility`, `wcag-audit`, `design-critique` |

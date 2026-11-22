@@ -38,6 +38,7 @@ Run this end-to-end before declaring any motion task done. Every "no" is a fix, 
 - [ ] Reduced-motion provider wired for Compose (Compose ignores the system scale by itself).
 - [ ] No information exists only in motion; static final layout carries all meaning.
 - [ ] Focus/TalkBack order stable during animations; content descriptions correct at state-change time (play/pause morph etc.).
+- [ ] If the feature includes sound: cue fires on the committed visual state change, is coordinated (not duplicated) with any haptic, is silent on cancel/reverse, and passes `../sound/sound-review-checklist.md`.
 - [ ] Both light and dark themes verified (scrims, glows, crossfade contrast).
 - [ ] RTL verified (offsets mirrored, stagger follows reading order).
 
