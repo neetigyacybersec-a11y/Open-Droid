@@ -14,17 +14,27 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.tooling.preview.Preview
+import com.example.starter.BuildConfig
 import com.example.starter.ui.theme.StarterTheme
 
 class MainActivity : ComponentActivity() {
+    @OptIn(ExperimentalComposeUiApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             StarterTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+                // ISSUE-7: expose Compose testTags as resource-ids in debug builds so
+                // Maestro can target them by id (release builds stay unchanged).
+                val rootModifier =
+                    if (BuildConfig.DEBUG) Modifier.semantics { testTagsAsResourceId = true }
+                    else Modifier
+                Scaffold(modifier = rootModifier.fillMaxSize()) { innerPadding ->
                     Greeting(
                         name = "Android",
                         modifier = Modifier.padding(innerPadding)

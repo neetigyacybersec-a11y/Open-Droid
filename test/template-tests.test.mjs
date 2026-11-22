@@ -118,6 +118,29 @@ test("template ships an ATF accessibility-check test", () => {
   );
 });
 
+// ISSUE-7: Maestro (or any UI-testing tool) can target Compose testTags by
+// resource-id only when Compose exposes tags — enabled at the app root in debug
+// builds, while release builds keep the default (text-only matching).
+test("template exposes Compose testTags as resource IDs in debug builds", () => {
+  const src = firstKtUnder("main");
+  assert.match(src, /BuildConfig\.DEBUG/, "the flag is gated on BuildConfig.DEBUG");
+  assert.match(
+    src,
+    /Modifier\.semantics\s*\{\s*testTagsAsResourceId\s*=\s*true\s*\}/,
+    "the debug root must set semantics { testTagsAsResourceId = true }",
+  );
+  assert.match(
+    src,
+    /import androidx\.compose\.ui\.semantics\.testTagsAsResourceId/,
+    "the public extension property must be imported",
+  );
+  assert.match(
+    src,
+    /@OptIn\(\s*ExperimentalComposeUiApi::class\s*\)/,
+    "ExperimentalComposeUiApi must be opted into (it is ERROR-level experimental)",
+  );
+});
+
 // FR-B5: the template theme respects the system — dark follows the system
 // setting, and reduced motion is wired via the MotionTokens helper so a user
 // who disables system animations gets instant states in Compose too.

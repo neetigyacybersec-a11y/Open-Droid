@@ -66,6 +66,10 @@ android {
     buildFeatures {
         compose = true
     }
+    // ISSUE-7: BuildConfig.DEBUG gates testTagsAsResourceId in debug builds.
+    buildFeatures {
+        buildConfig = true
+    }
 }
 
 // Fail closed: a release task without a signing config would silently produce an
