@@ -25,7 +25,7 @@ No scattered MCP servers. No repeated downloads. No "works on my machine."
 - [Quick start — Clone + setup (automatic registration)](#quick-start--clone--setup-automatic-registration)
 - [What's included](#whats-included)
 - [Skills (30)](#skills-30)
-- [MCP tools (67)](#mcp-tools-67)
+- [MCP tools (68)](#mcp-tools-68)
 - [Create your first app](#create-your-first-app)
 - [Live visual output](#live-visual-output)
 - [Architecture](#architecture)
@@ -173,9 +173,9 @@ See `THIRD-PARTY.md` for attribution.
 
 ---
 
-## MCP tools (67)
+## MCP tools (68)
 
-The server exposes 67 tools grouped by category. The full list with schemas is
+The server exposes 68 tools grouped by category. The full list with schemas is
 returned by `tools/list` (MCP); [`docs/tool-catalogue.md`](docs/tool-catalogue.md)
 is generated from the typed registry and records each tool's risk class,
 approval requirement, path policy and tests. `docs/agent-install.md` covers
@@ -185,7 +185,7 @@ installation, registration, and verification.
 |---|---|---|
 | Environment | 2 | `android_env_check`, `sdkmanager_install` |
 | Build | 7 | `gradle_task`, `gradle_test`, `build_variant`, `compose_preview_render` |
-| ADB | 25 | `adb_devices`, `adb_screenshot`, `adb_shell`, `adb_logcat`, `adb_parallel` |
+| ADB | 26 | `adb_devices`, `adb_screenshot`, `adb_shell`, `adb_logcat`, `adb_parallel` |
 | Emulator / AVD | 6 | `emulator_list_avds`, `emulator_boot`, `avd_create`, `avd_wipe` |
 | Frida (dynamic) | 3 | `frida_ps`, `frida_hook`, `frida_trace_methods` |
 | Network exposure | 2 | `net_capture`, `apk_serve` |
@@ -264,7 +264,7 @@ per-agent).
 ```bash
 npm install
 npm run build        # compile TypeScript
-npm test             # smoke test (67 tools)
+npm test             # smoke test (68 tools)
 npm run architecture # enforce approved process/ADB boundaries
 npm run catalogue    # verify docs/tool-catalogue.md matches src/registry.ts
 npm run lint         # one timed, type-aware eslint pass

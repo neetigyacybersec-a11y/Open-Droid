@@ -128,6 +128,36 @@ export const ToolSchemas = {
   sdkmanagerInstall: z.object({
     packages: z.array(z.string()).describe("sdkmanager package ids"),
   }),
+  adbWindowGeometry: z
+    .object({
+      deviceId: z.string().optional(),
+      action: z.enum(["get", "set", "reset"]).optional().default("get"),
+      size: z
+        .string()
+        .regex(/^\d{3,5}x\d{3,5}$/, "expected WIDTHxHEIGHT, e.g. 1080x2400")
+        .refine((value) => {
+          const [w, h] = value.split("x").map(Number);
+          return w >= 200 && w <= 10000 && h >= 200 && h <= 10000;
+        }, "size must be between 200x200 and 10000x10000")
+        .optional(),
+      density: z.number().int().min(72).max(1000).optional(),
+    })
+    .superRefine((value, ctx) => {
+      if (value.action === "set" && value.size === undefined && value.density === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "set requires size and/or density",
+          path: ["action"],
+        });
+      }
+      if (value.action !== "set" && (value.size !== undefined || value.density !== undefined)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "size and density are only valid with action=set",
+          path: ["action"],
+        });
+      }
+    }),
   adbShell: z.object({
     deviceId: z.string().optional(),
     command: z.string().min(1).describe("Raw shell command, e.g. dumpsys activity top"),
@@ -987,6 +1017,132 @@ export async function handleAdbShell(args: z.infer<typeof ToolSchemas.adbShell>)
 }
 
 const LOGCAT_MAX_LINES = 4_000;
+
+interface WmGeometry {
+  physical: string | null;
+  override: string | null;
+}
+
+function parseWmSize(text: string): WmGeometry {
+  return {
+    physical: /Physical size:\s*(\d+x\d+)/i.exec(text)?.[1] ?? null,
+    override: /Override size:\s*(\d+x\d+)/i.exec(text)?.[1] ?? null,
+  };
+}
+
+function parseWmDensity(text: string): WmGeometry {
+  return {
+    physical: /Physical density:\s*(\d+(?:\.\d+)?)/i.exec(text)?.[1] ?? null,
+    override: /Override density:\s*(\d+(?:\.\d+)?)/i.exec(text)?.[1] ?? null,
+  };
+}
+
+async function runWmCommand(
+  base: string[],
+  wmArgs: string[],
+): Promise<import("./services/process-runner.js").RunResult> {
+  return run("adb", [...base, "shell", "wm", ...wmArgs], { timeout: 30_000 });
+}
+
+async function applyWindowGeometry(
+  base: string[],
+  args: z.infer<typeof ToolSchemas.adbWindowGeometry>,
+): Promise<string | null> {
+  if (args.size) {
+    const result = await runWmCommand(base, ["size", args.size]);
+    if (result.code !== 0)
+      return `status=error\naction=set\nreason=wm size failed (exit ${result.code}): ${result.stderr.trim() || result.stdout.trim()}`;
+  }
+  if (args.density !== undefined) {
+    const result = await runWmCommand(base, ["density", String(args.density)]);
+    if (result.code !== 0)
+      return `status=error\naction=set\nreason=wm density failed (exit ${result.code}): ${result.stderr.trim() || result.stdout.trim()}`;
+  }
+  return null;
+}
+
+async function resetWindowGeometry(base: string[]): Promise<string | null> {
+  const sizeReset = await runWmCommand(base, ["size", "reset"]);
+  const densityReset = await runWmCommand(base, ["density", "reset"]);
+  if (sizeReset.code !== 0 || densityReset.code !== 0)
+    return `status=error\naction=reset\nreason=wm reset failed: ${sizeReset.stderr.trim() || densityReset.stderr.trim()}`;
+  return null;
+}
+
+function valueOrUnknown(value: string | null): string {
+  return value === null ? "unknown" : value;
+}
+
+function noneOrValue(value: string | null): string {
+  return value === null ? "none" : value;
+}
+
+function statusForAction(action: string): string {
+  if (action === "get") return "current";
+  if (action === "set") return "applied";
+  return "reset";
+}
+
+function verifySetGeometry(
+  args: z.infer<typeof ToolSchemas.adbWindowGeometry>,
+  observedSize: WmGeometry,
+  observedDensity: WmGeometry,
+): string | null {
+  if (args.size && observedSize.override !== args.size)
+    return `status=unverified\naction=set\nreason=wm size read-back did not match: requested ${args.size}, observed ${observedSize.override ?? "none"}`;
+  if (args.density !== undefined && observedDensity.override !== String(args.density))
+    return `status=unverified\naction=set\nreason=wm density read-back did not match: requested ${args.density}, observed ${observedDensity.override ?? "none"}`;
+  return null;
+}
+
+function verifyResetGeometry(observedSize: WmGeometry, observedDensity: WmGeometry): string | null {
+  if (observedSize.override !== null || observedDensity.override !== null)
+    return `status=unverified\naction=reset\nreason=override remains after reset: size=${observedSize.override ?? "none"}, density=${observedDensity.override ?? "none"}`;
+  return null;
+}
+
+export async function handleAdbWindowGeometry(
+  args: z.infer<typeof ToolSchemas.adbWindowGeometry>,
+): Promise<{ content: { type: "text"; text: string }[]; isError: boolean }> {
+  const base = adbArgs(args.deviceId);
+  const fail = (text: string) => ({ content: [{ type: "text" as const, text }], isError: true });
+  const action = args.action ?? "get";
+
+  if (action === "set") {
+    const error = await applyWindowGeometry(base, args);
+    if (error) return fail(error);
+  } else if (action === "reset") {
+    const error = await resetWindowGeometry(base);
+    if (error) return fail(error);
+  }
+
+  const sizeResult = await runWmCommand(base, ["size"]);
+  const densityResult = await runWmCommand(base, ["density"]);
+  if (sizeResult.code !== 0 || densityResult.code !== 0)
+    return fail(
+      `status=error\naction=${action}\nreason=wm read-back failed: ${sizeResult.stderr.trim() || densityResult.stderr.trim()}`,
+    );
+
+  const observedSize = parseWmSize(sizeResult.stdout);
+  const observedDensity = parseWmDensity(densityResult.stdout);
+  let verificationError: string | null = null;
+  if (action === "set") verificationError = verifySetGeometry(args, observedSize, observedDensity);
+  else if (action === "reset")
+    verificationError = verifyResetGeometry(observedSize, observedDensity);
+  if (verificationError) return fail(verificationError);
+
+  const lines = [
+    `status=${statusForAction(action)}`,
+    `action=${action}`,
+    `physicalSize=${valueOrUnknown(observedSize.physical)}`,
+    `overrideSize=${noneOrValue(observedSize.override)}`,
+    `physicalDensity=${valueOrUnknown(observedDensity.physical)}`,
+    `overrideDensity=${noneOrValue(observedDensity.override)}`,
+    `rawSize=${JSON.stringify(sizeResult.stdout.trim())}`,
+    `rawDensity=${JSON.stringify(densityResult.stdout.trim())}`,
+  ];
+  return { content: [{ type: "text" as const, text: lines.join("\n") }], isError: false };
+}
 
 export async function handleAdbLogcat(args: z.infer<typeof ToolSchemas.adbLogcat>) {
   const base = adbArgs(args.deviceId);

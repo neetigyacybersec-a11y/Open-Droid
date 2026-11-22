@@ -19,7 +19,8 @@ import path from "node:path";
 const REPO = path.resolve(import.meta.dirname, "..");
 const posixTest = process.platform === "win32" ? (name, fn) => skip(name, fn) : test;
 
-const { ToolSchemas, handleEmulatorBoot } = await import("../dist/tools.js");
+const { ToolSchemas, handleEmulatorBoot, handleAdbWindowGeometry } =
+  await import("../dist/tools.js");
 
 // --- schema -----------------------------------------------------------------
 test("emulator_boot accepts validated scale and windowSize overrides", () => {
@@ -194,6 +195,193 @@ exec sleep 30
       process.kill(pid, "SIGKILL");
     } catch {
       /* not started or already gone */
+    }
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+// --- window geometry tool ----------------------------------------------------
+test("adb window geometry validates action, size and density", () => {
+  const parsed = ToolSchemas.adbWindowGeometry.parse({
+    action: "set",
+    size: "1080x2400",
+    density: 420,
+  });
+  assert.equal(parsed.action, "set");
+  assert.equal(parsed.size, "1080x2400");
+  assert.equal(parsed.density, 420);
+
+  assert.throws(() => ToolSchemas.adbWindowGeometry.parse({ action: "set" }));
+  assert.throws(() => ToolSchemas.adbWindowGeometry.parse({ action: "get", size: "1080x2400" }));
+  assert.throws(() => ToolSchemas.adbWindowGeometry.parse({ size: "1080x2400", density: 420 }));
+  assert.throws(() => ToolSchemas.adbWindowGeometry.parse({ action: "set", size: "big" }));
+  assert.throws(() => ToolSchemas.adbWindowGeometry.parse({ action: "set", density: 0 }));
+});
+
+posixTest("adb window geometry reads current size and density", async () => {
+  const work = mkdtempSync(path.join(tmpdir(), "wm-get-"));
+  const bin = path.join(work, "bin");
+  mkdirSync(bin, { recursive: true });
+  const record = path.join(work, "record.txt");
+  const adbStub = String.raw`#!/bin/sh
+printf '%s\n' "$*" >> "$RECORD"
+if [ "$1" = "-s" ]; then shift 2; fi
+if [ "$1" = "shell" ] && [ "$2" = "wm" ]; then
+  shift 2
+  if [ "$1" = "size" ]; then printf 'Physical size: 1080x2400\n'; exit 0; fi
+  if [ "$1" = "density" ]; then printf 'Physical density: 420\n'; exit 0; fi
+fi
+exit 0
+`;
+  writeFileSync(path.join(bin, "adb"), adbStub);
+  chmodSync(path.join(bin, "adb"), 0o755);
+  const previous = {};
+  const values = { PATH: `${bin}:${process.env.PATH ?? ""}`, RECORD: record };
+  for (const [key, value] of Object.entries(values)) {
+    previous[key] = process.env[key];
+    process.env[key] = value;
+  }
+  try {
+    const result = await handleAdbWindowGeometry({ deviceId: "emulator-5554", action: "get" });
+    assert.equal(result.isError, false, result.content[0].text);
+    const text = result.content[0].text;
+    assert.match(text, /status=current/);
+    assert.match(text, /physicalSize=1080x2400/);
+    assert.match(text, /overrideSize=none/);
+    assert.match(text, /physicalDensity=420/);
+    assert.match(text, /overrideDensity=none/);
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+posixTest("adb window geometry sets and verifies wm size and density", async () => {
+  const work = mkdtempSync(path.join(tmpdir(), "wm-set-"));
+  const bin = path.join(work, "bin");
+  mkdirSync(bin, { recursive: true });
+  const record = path.join(work, "record.txt");
+  const adbStub = String.raw`#!/bin/sh
+printf '%s\n' "$*" >> "$RECORD"
+if [ "$1" = "-s" ]; then shift 2; fi
+if [ "$1" = "shell" ] && [ "$2" = "wm" ]; then
+  shift 2
+  if [ "$1" = "size" ] && [ -n "$2" ]; then exit 0; fi
+  if [ "$1" = "density" ] && [ -n "$2" ]; then exit 0; fi
+  if [ "$1" = "size" ]; then printf 'Physical size: 1080x2400\nOverride size: 1080x2400\n'; exit 0; fi
+  if [ "$1" = "density" ]; then printf 'Physical density: 420\nOverride density: 420\n'; exit 0; fi
+fi
+exit 0
+`;
+  writeFileSync(path.join(bin, "adb"), adbStub);
+  chmodSync(path.join(bin, "adb"), 0o755);
+  const previous = {};
+  const values = { PATH: `${bin}:${process.env.PATH ?? ""}`, RECORD: record };
+  for (const [key, value] of Object.entries(values)) {
+    previous[key] = process.env[key];
+    process.env[key] = value;
+  }
+  try {
+    const result = await handleAdbWindowGeometry({
+      deviceId: "emulator-5554",
+      action: "set",
+      size: "1080x2400",
+      density: 420,
+    });
+    assert.equal(result.isError, false, result.content[0].text);
+    assert.match(result.content[0].text, /status=applied/);
+    const calls = readFileSync(record, "utf8");
+    assert.match(calls, /shell wm size 1080x2400/);
+    assert.match(calls, /shell wm density 420/);
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+posixTest("adb window geometry resets and verifies wm overrides", async () => {
+  const work = mkdtempSync(path.join(tmpdir(), "wm-reset-"));
+  const bin = path.join(work, "bin");
+  mkdirSync(bin, { recursive: true });
+  const record = path.join(work, "record.txt");
+  const adbStub = String.raw`#!/bin/sh
+printf '%s\n' "$*" >> "$RECORD"
+if [ "$1" = "-s" ]; then shift 2; fi
+if [ "$1" = "shell" ] && [ "$2" = "wm" ]; then
+  shift 2
+  if [ "$1" = "size" ] && [ "$2" = "reset" ]; then exit 0; fi
+  if [ "$1" = "density" ] && [ "$2" = "reset" ]; then exit 0; fi
+  if [ "$1" = "size" ]; then printf 'Physical size: 1080x2400\n'; exit 0; fi
+  if [ "$1" = "density" ]; then printf 'Physical density: 420\n'; exit 0; fi
+fi
+exit 0
+`;
+  writeFileSync(path.join(bin, "adb"), adbStub);
+  chmodSync(path.join(bin, "adb"), 0o755);
+  const previous = {};
+  const values = { PATH: `${bin}:${process.env.PATH ?? ""}`, RECORD: record };
+  for (const [key, value] of Object.entries(values)) {
+    previous[key] = process.env[key];
+    process.env[key] = value;
+  }
+  try {
+    const result = await handleAdbWindowGeometry({ deviceId: "emulator-5554", action: "reset" });
+    assert.equal(result.isError, false, result.content[0].text);
+    assert.match(result.content[0].text, /status=reset/);
+    const calls = readFileSync(record, "utf8");
+    assert.match(calls, /shell wm size reset/);
+    assert.match(calls, /shell wm density reset/);
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+posixTest("adb window geometry reports a failed wm command", async () => {
+  const work = mkdtempSync(path.join(tmpdir(), "wm-fail-"));
+  const bin = path.join(work, "bin");
+  mkdirSync(bin, { recursive: true });
+  const record = path.join(work, "record.txt");
+  const adbStub = String.raw`#!/bin/sh
+printf '%s\n' "$*" >> "$RECORD"
+if [ "$1" = "-s" ]; then shift 2; fi
+if [ "$1" = "shell" ] && [ "$2" = "wm" ]; then
+  shift 2
+  if [ "$1" = "size" ] && [ -n "$2" ]; then exit 1; fi
+  if [ "$1" = "size" ]; then printf 'Physical size: 1080x2400\n'; exit 0; fi
+  if [ "$1" = "density" ]; then printf 'Physical density: 420\n'; exit 0; fi
+fi
+exit 0
+`;
+  writeFileSync(path.join(bin, "adb"), adbStub);
+  chmodSync(path.join(bin, "adb"), 0o755);
+  const previous = {};
+  const values = { PATH: `${bin}:${process.env.PATH ?? ""}`, RECORD: record };
+  for (const [key, value] of Object.entries(values)) {
+    previous[key] = process.env[key];
+    process.env[key] = value;
+  }
+  try {
+    const result = await handleAdbWindowGeometry({
+      deviceId: "emulator-5554",
+      action: "set",
+      size: "1080x2400",
+    });
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /wm size failed/);
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
     }
     rmSync(work, { recursive: true, force: true });
   }
