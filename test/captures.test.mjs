@@ -1,5 +1,5 @@
 // Issue 16: persistent capture archive + managed golden baselines.
-import { afterEach, test } from "node:test";
+import { afterEach, skip, test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
