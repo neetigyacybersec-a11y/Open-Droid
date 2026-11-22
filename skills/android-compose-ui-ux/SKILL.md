@@ -96,7 +96,7 @@ Every animation must satisfy at least one; if it satisfies none, delete it.
 5. **Polish** — run `references/motion/review-checklist.md` end to end; hunt: too-long
    durations, double-bounce, simultaneous equal animations, missing retargets, leftover magic
    numbers, animations firing on rotation/first composition.
-6. **Verify** — build, run the flows touched, then enable Developer options → Remove animations
+6. **Verify** — build, run the flows touched, record the evidence record below, then enable Developer options → Remove animations
    and re-run: every screen reaches its final state instantly. Perf: no per-frame recomposition
    of large subtrees; if jank is reported, measure with JankStats before tuning.
 
@@ -187,6 +187,9 @@ asset in `references/sound/sound-catalog-template.md`, and run
 | `references/sound/sound-accessibility-and-settings.md` | Mute preference, silent/DND, audio focus and equivalent visual feedback. |
 | `references/sound/sound-review-checklist.md` | Final sound pass, together with the motion review checklist. |
 | `references/sound/sound-catalog-template.md` | Per-cue asset inventory with source and license provenance. |
+| `references/interaction-evidence/evidence-record.md` | Per-flow record schema: environment, artifacts, settings, statuses, defects. |
+| `references/interaction-evidence/deterministic-scenarios.md` | Repeatable interruption, rapid-input, reduced-motion and sound on/off scenarios. |
+| `references/interaction-evidence/verification-discipline.md` | Distinguishing visual / motion / haptic / audio evidence; honest unavailable reports. |
 
 ### Foundations
 - Establish type scale, color roles, spacing grid (8dp), shape tokens, elevation, iconography.
@@ -414,6 +417,19 @@ Watch twice: once full speed for feel, once scrubbing frame by frame. Hunt:
 
 One glitchy frame means the flow is not done.
 
+#### Interaction evidence (per flow)
+
+Motion judgement is not a gut feel. For each flow in the full-motion pass, write
+a compact record alongside the existing capture archive / baseline metadata:
+`references/interaction-evidence/evidence-record.md`. Use the deterministic
+scenarios in `references/interaction-evidence/deterministic-scenarios.md`
+(rapid input, gesture cancel/retarget, back/predictive back, sheet drag/cancel,
+loading success/failure, reduced motion, sound on/off, lifecycle) and apply the
+claim rules in `references/interaction-evidence/verification-discipline.md`.
+Reuse `screenshot_baseline_save` / `screenshot_baseline_list` for visuals — this
+adds interaction evidence, never a second baseline store. If audio capture is
+unavailable, report `unavailable`; do not claim waveform analysis.
+
 ### Definition of done, per screen
 
 - [ ] Studied 10+ real reference screens for this screen type and can name the
@@ -426,6 +442,12 @@ One glitchy frame means the flow is not done.
 - [ ] Motion: full flow recorded and scrubbed — entrances, presses, transitions,
       modals, keyboard — native feel, zero glitch/wrong-color frames; Reduce Motion
       respected; 60 fps measured on a release build on the slowest supported device
+- [ ] Audio/haptic policy stated for this screen (not used, or which semantic cues
+      and events apply); sound/haptic fire only on committed state changes, never
+      on recomposition, animation frames, polling or background refresh; mute,
+      system settings and equivalent non-audio feedback verified when present
+- [ ] Interaction evidence record written for each tested flow, linking captures,
+      settings, statuses and defects (see `references/interaction-evidence/`)
 - [ ] Font scaling XL doesn't break layout; text selectable where useful
 - [ ] All tap targets ≥ 48 dp; contrast passes in both themes
 - [ ] Assets: single style family, crisp, no compositing halos

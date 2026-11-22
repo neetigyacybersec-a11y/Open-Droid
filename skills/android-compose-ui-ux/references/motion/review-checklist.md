@@ -27,6 +27,19 @@ Run this end-to-end before declaring any motion task done. Every "no" is a fix, 
 - [ ] No entrance replays on rotation, theme change, or back-navigation (gated by first-reveal state).
 - [ ] Gesture motions track the finger 1:1; animation only on release, seeded with velocity.
 
+## Haptics & conditional sound
+- [ ] Audio/haptic policy stated for the flow: not used, or the specific semantic
+      cues/events that apply. No cue on scroll, continuous animation, polling,
+      recomposition, animation frames or background refresh.
+- [ ] Single haptic per user action, fired on the committed state change (not at
+      arbitrary tap start); no haptics during continuous motion or gestures.
+- [ ] User/system haptic and audio settings honored; mute removes every in-app
+      cue, and the outcome remains visually and semantically perceivable.
+- [ ] Cancel/reverse paths are silent; sound and haptic are coordinated at one
+      semantic moment, never duplicated or stacked.
+- [ ] When custom sound exists: sound preference on/off tested, audio focus and
+      lifecycle release verified for longer audio, and asset provenance recorded.
+
 ## Performance
 - [ ] Only transform/opacity/elevation animated; no per-frame layout (no animated `padding`/`width`/`height` outside `animateContentSize`).
 - [ ] Compose: animation state read in `graphicsLayer { }` (draw phase), not composition; Layout Inspector shows no steady-state recomposition during animations.
@@ -39,6 +52,7 @@ Run this end-to-end before declaring any motion task done. Every "no" is a fix, 
 - [ ] No information exists only in motion; static final layout carries all meaning.
 - [ ] Focus/TalkBack order stable during animations; content descriptions correct at state-change time (play/pause morph etc.).
 - [ ] If the feature includes sound: cue fires on the committed visual state change, is coordinated (not duplicated) with any haptic, is silent on cancel/reverse, and passes `../sound/sound-review-checklist.md`.
+- [ ] Interaction evidence record written for the flow (`../interaction-evidence/evidence-record.md`); unavailable capabilities reported as unavailable, not passed.
 - [ ] Both light and dark themes verified (scrims, glows, crossfade contrast).
 - [ ] RTL verified (offsets mirrored, stagger follows reading order).
 

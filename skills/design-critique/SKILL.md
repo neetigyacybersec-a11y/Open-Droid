@@ -16,6 +16,7 @@ metadata:
   (android-compose-ui-ux -> `references/motion/review-checklist.md`) — durations, one hero,
   interruption safety, reduced motion, RTL, dark mode — before calling motion done.
 - Audio is reviewed only when the feature includes sound or the brief calls for it: check semantic intent, mute behavior, equivalent visual feedback and provenance via android-compose-ui-ux -> `references/sound/sound-review-checklist.md`.
+- Haptic behavior is inspected when present: single cue on the committed state change, absent on scrolling/recomposition, settings honored. Motion, sound and haptics are reviewed as separate evidence, never substituted for one another (android-compose-ui-ux -> `references/interaction-evidence/verification-discipline.md`).
 
 ## When to use me
 Use during PR/design review.

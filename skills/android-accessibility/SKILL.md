@@ -13,6 +13,7 @@ metadata:
 - Support TalkBack, switch access, large text, RTL.
 - Respect reduced motion and font scaling up to 200%.
 - When a feature includes sound, verify mute/preference, silent/DND behavior and equivalent visual/semantic feedback via android-compose-ui-ux -> `references/sound/sound-accessibility-and-settings.md`; audio is never the only carrier.
+- Verify non-audio feedback and user controls for haptics too: one cue per committed state change, none on scrolling or recomposition, system haptic settings honored. See android-compose-ui-ux -> `references/interaction-evidence/deterministic-scenarios.md` for the reduced-motion and feedback on/off passes.
 - Reduced-motion wiring is a build requirement, not a review finding: Views honor
   `ANIMATOR_DURATION_SCALE == 0` automatically, Compose does not — wire the helper from
   android-compose-ui-ux -> `references/motion/MotionTokens.kt` and the rules in
