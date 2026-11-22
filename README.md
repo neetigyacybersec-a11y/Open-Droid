@@ -25,7 +25,7 @@ No scattered MCP servers. No repeated downloads. No "works on my machine."
 - [Quick start — Clone + setup (automatic registration)](#quick-start--clone--setup-automatic-registration)
 - [What's included](#whats-included)
 - [Skills (30)](#skills-30)
-- [MCP tools (76)](#mcp-tools-76)
+- [MCP tools (77)](#mcp-tools-77)
 - [Create your first app](#create-your-first-app)
 - [Live visual output](#live-visual-output)
 - [Architecture](#architecture)
@@ -173,9 +173,9 @@ See `THIRD-PARTY.md` for attribution.
 
 ---
 
-## MCP tools (76)
+## MCP tools (77)
 
-The server exposes 76 tools grouped by category. The full list with schemas is
+The server exposes 77 tools grouped by category. The full list with schemas is
 returned by `tools/list` (MCP); [`docs/tool-catalogue.md`](docs/tool-catalogue.md)
 is generated from the typed registry and records each tool's risk class,
 approval requirement, path policy and tests. `docs/agent-install.md` covers
@@ -191,7 +191,7 @@ installation, registration, and verification.
 | Network exposure | 2 | `net_capture`, `apk_serve` |
 | UI inspection | 5 | `ui_dump`, `compose_recomposition`, `layout_bounds` |
 | Static analysis | 5 | `apk_info`, `apk_decompile`, `manifest_inspect`, `native_libs`, `dex_strings` |
-| Testing | 8 | `maestro_run`, `instrumented_test`, `android_test_failure_analyze`, `android_flaky_test_history`, `android_test_plan` |
+| Testing | 9 | `maestro_run`, `instrumented_test`, `android_test_failure_analyze`, `android_flaky_test_history`, `android_test_plan`, `android_test_suite_run` |
 | Profiling | 3 | `perfetto_trace`, `memory_profile`, `startup_time` |
 | Privacy | 1 | `privacy_scan` |
 | Security | 3 | `secret_scan`, `security_audit`, `policy_preflight` |
@@ -279,6 +279,25 @@ computes a device/API matrix from module SDKs. Read-only by default; pass
 `saveArtifact: true` to write `TEST_PLAN.md` at the project root. All static —
 no builds, no installs.
 
+### Test suite execution
+
+`android_test_suite_run` runs configured test suites discovered from the
+project structure and reports results honestly: per-suite exit codes, duration,
+passed/failed/skipped counts from parsed JUnit XML (`parseJUnitXml` reuse), and
+bounded failure summaries (`testId`, message, stack lines) that separate
+evidence from interpretation. Suites are discovered: `unit` (module `src/test`
+or `testImplementation` → `:app:testDebugUnitTest`), `instrumented` (`src/androidTest`
+or `androidTestImplementation` → `:app:connectedDebugAndroidTest`; `ui` is an
+alias), `coverage` (JaCoCo or `createDebugCoverageReport` → `:app:createDebugCoverageReport`),
+and `maestro` (YAML files with `appId:`). Raw evidence stays in predictable
+directories (`build/test-results/**`, coverage reports, flows). Missing suites
+are reported as skipped with a reason; suites never get a fake "passed" label
+when no XML was produced. Runs Gradle with `--offline` when `offline: true`,
+passes `gradleArgs`, honors per-suite `timeoutMs`, and runs suites sequentially
+by default. Expert/destructive — every run shells out via the approved argv
+runner with Gradle/Maestro, may write build outputs. `benchmark` is not
+implemented yet and reports as skipped.
+
 
 ---
 
@@ -336,7 +355,7 @@ per-agent).
 ```bash
 npm install
 npm run build        # compile TypeScript
-npm test             # smoke test (76 tools)
+npm test             # smoke test (77 tools)
 npm run architecture # enforce approved process/ADB boundaries
 npm run catalogue    # verify docs/tool-catalogue.md matches src/registry.ts
 npm run lint         # one timed, type-aware eslint pass

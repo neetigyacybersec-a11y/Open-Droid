@@ -47,6 +47,7 @@ import { generateReleaseNotes, renderReleaseNotes } from "./releaseNotes.js";
 import { analyzeTestFailure, buildFailureBundle, flakyTestHistory } from "./testDiagnostics.js";
 import { inspectProject } from "./projectInspect.js";
 import { generateTestPlan, renderTestPlan } from "./testPlan.js";
+import { renderTestSuiteRun, runSuite } from "./testSuiteRunner.js";
 
 export { handleNetCapture, recoverCaptureSession } from "./netCapture.js";
 
@@ -357,6 +358,31 @@ export const ToolSchemas = {
     riskLevel: z.enum(["low", "medium", "high"]).optional(),
     saveArtifact: z.boolean().optional(),
     artifactName: z.string().min(1).optional().describe("Artifact filename, default TEST_PLAN.md"),
+  }),
+  testSuiteRun: z.object({
+    projectPath: z.string().describe("Absolute path to the Android project root"),
+    suite: z
+      .enum(["unit", "instrumented", "ui", "maestro", "coverage", "benchmark", "all"])
+      .optional()
+      .describe(
+        "Test suite to run; 'ui' is an alias of 'instrumented'; 'benchmark' is not implemented",
+      ),
+    module: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Restrict to one module (gradle path like :app or app)"),
+    flowPaths: z.array(z.string().min(1)).optional().describe("Explicit Maestro flows to run"),
+    gradleArgs: z
+      .array(z.string())
+      .optional()
+      .describe("Extra args appended to gradle unit/instrumented commands"),
+    offline: z.boolean().optional(),
+    timeoutMs: z.number().int().positive().optional().describe("Per-suite timeout, default 300000"),
+    continueOnFailure: z
+      .boolean()
+      .optional()
+      .describe("Run remaining suites even when one fails (default true)"),
   }),
   releaseNotesGenerate: z.object({
     projectPath: z.string().describe("Absolute path to the Git repository"),
@@ -1828,6 +1854,31 @@ export async function handleTestPlan(a: z.infer<typeof ToolSchemas.testPlan>) {
     return {
       content: [{ type: "text" as const, text: renderTestPlan(report) }],
       isError: false,
+    };
+  } catch (error) {
+    return {
+      content: [{ type: "text" as const, text: `status=error\nreason=${errorMessage(error)}` }],
+      isError: true,
+    };
+  }
+}
+
+export async function handleTestSuiteRun(a: z.infer<typeof ToolSchemas.testSuiteRun>) {
+  if (!notOptionLike(a.projectPath))
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: `Invalid project path: must not start with '-': ${a.projectPath}`,
+        },
+      ],
+      isError: true,
+    };
+  try {
+    const report = await runSuite(a);
+    return {
+      content: [{ type: "text" as const, text: renderTestSuiteRun(report) }],
+      isError: report.status === "failed",
     };
   } catch (error) {
     return {

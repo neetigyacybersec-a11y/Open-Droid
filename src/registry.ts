@@ -560,6 +560,27 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = Object.freeze([
     outputLimitBytes: 24_000,
   }),
   defineTool({
+    name: "android_test_suite_run",
+    description:
+      "Run a configured Android test suite or all configured suites (unit, instrumented, coverage, maestro flows) discovered from the project; per-suite exit codes, durations, failure summaries and bounded evidence summaries; missing suites reported as skipped with reasons.",
+    schema: ToolSchemas.testSuiteRun,
+    handler: (args) => H.handleTestSuiteRun(args),
+    category: "testing",
+    risk: "destructive",
+    policyKey: "gradle.task",
+    approval: "expert",
+    unattended: false,
+    source: "project",
+    sideEffects: ["host-read", "host-write", "process-spawn"],
+    preconditions: [WORKSPACE_ROOT],
+    paths: [path("projectPath", "read")],
+    tests: [SMOKE, "test/test-suite-run.test.mjs"],
+    verification: "npm test — smoke registration and suite-runner tests",
+    alternative: "Run the suite's Gradle task or Maestro flow directly",
+    timeoutMs: 600_000,
+    outputLimitBytes: 24_000,
+  }),
+  defineTool({
     name: "android_test_plan",
     description:
       "Plan tests for a feature or changed files: detect frameworks, inventory existing tests, map feature-spec requirements to unit/integration/e2e/manual test cases with risk levels, and separate existing coverage from additions.",
