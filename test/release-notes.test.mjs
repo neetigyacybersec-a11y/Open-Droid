@@ -2,6 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { run } from "../dist/services/process-runner.js";
 import {
@@ -24,7 +25,7 @@ const commit = (overrides) => ({
 });
 
 const baseInput = {
-  projectPath: "/tmp/opencode",
+  projectPath: process.cwd(),
   baseRef: "v1.0.0",
   headRef: "HEAD",
   audience: "play",
@@ -163,7 +164,7 @@ test("generated report redacts sensitive text before rendering", () => {
 });
 
 test("generateReleaseNotes reads a real ref range without modifying the repository", async () => {
-  const dir = mkdtempSync("/tmp/opencode/od-relnotes-");
+  const dir = mkdtempSync(join(tmpdir(), "od-relnotes-"));
   try {
     const git = (args) => run("git", ["-C", dir, ...args]);
     assert.equal((await git(["init", "-q"])).code, 0);
