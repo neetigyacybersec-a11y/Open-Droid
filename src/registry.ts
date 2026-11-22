@@ -539,6 +539,27 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = Object.freeze([
     outputLimitBytes: 24_000,
   }),
   defineTool({
+    name: "android_project_inspect",
+    description:
+      "Inventory a Gradle Android project: modules, SDK/namespace/build-type fields, source sets and manifests; read-only, never runs builds or returns secret values.",
+    schema: ToolSchemas.projectInspect,
+    handler: (args) => H.handleProjectInspect(args),
+    category: "build",
+    risk: "read-only",
+    policyKey: null,
+    approval: "none",
+    unattended: true,
+    source: "project",
+    sideEffects: ["host-read"],
+    preconditions: [WORKSPACE_ROOT],
+    paths: [path("projectPath", "read")],
+    tests: [SMOKE, "test/project-inspect.test.mjs"],
+    verification: "npm test — smoke registration and project-inspect tests",
+    alternative: "Run gradlew tasks or read the Gradle files by hand",
+    timeoutMs: 120_000,
+    outputLimitBytes: 24_000,
+  }),
+  defineTool({
     name: "android_release_notes_generate",
     description:
       "Draft release notes from a Git ref range with commit-linked items, separate user-facing and engineering notes, and review flags; never publishes or writes files.",

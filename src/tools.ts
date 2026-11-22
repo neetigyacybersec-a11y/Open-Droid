@@ -45,6 +45,7 @@ import { scanProjectSecrets } from "./secretScan.js";
 import { renderPolicyPreflight, runPolicyPreflight } from "./policyPreflight.js";
 import { generateReleaseNotes, renderReleaseNotes } from "./releaseNotes.js";
 import { analyzeTestFailure, buildFailureBundle, flakyTestHistory } from "./testDiagnostics.js";
+import { inspectProject } from "./projectInspect.js";
 
 export { handleNetCapture, recoverCaptureSession } from "./netCapture.js";
 
@@ -333,6 +334,13 @@ export const ToolSchemas = {
     emulatorPath: z.string().optional(),
     screenshotPath: z.string().optional(),
     metadata: z.record(z.string(), z.string()).optional(),
+  }),
+  projectInspect: z.object({
+    projectPath: z.string().describe("Absolute path to the Android/Gradle project root"),
+    maxDepth: z.number().int().min(1).max(64).optional(),
+    includeSourceSets: z.boolean().optional(),
+    includeBuildVariants: z.boolean().optional(),
+    includeDependencies: z.boolean().optional(),
   }),
   releaseNotesGenerate: z.object({
     projectPath: z.string().describe("Absolute path to the Git repository"),
@@ -1755,6 +1763,31 @@ export async function handleScreenshotBaselineList() {
       );
     }
     return { content: [{ type: "text" as const, text: lines.join("\n") }], isError: false };
+  } catch (error) {
+    return {
+      content: [{ type: "text" as const, text: `status=error\nreason=${errorMessage(error)}` }],
+      isError: true,
+    };
+  }
+}
+
+export async function handleProjectInspect(a: z.infer<typeof ToolSchemas.projectInspect>) {
+  if (!notOptionLike(a.projectPath))
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: `Invalid project path: must not start with '-': ${a.projectPath}`,
+        },
+      ],
+      isError: true,
+    };
+  try {
+    const report = inspectProject(a);
+    return {
+      content: [{ type: "text" as const, text: renderDiagnostics(report) }],
+      isError: false,
+    };
   } catch (error) {
     return {
       content: [{ type: "text" as const, text: `status=error\nreason=${errorMessage(error)}` }],

@@ -25,7 +25,7 @@ No scattered MCP servers. No repeated downloads. No "works on my machine."
 - [Quick start — Clone + setup (automatic registration)](#quick-start--clone--setup-automatic-registration)
 - [What's included](#whats-included)
 - [Skills (30)](#skills-30)
-- [MCP tools (74)](#mcp-tools-74)
+- [MCP tools (75)](#mcp-tools-75)
 - [Create your first app](#create-your-first-app)
 - [Live visual output](#live-visual-output)
 - [Architecture](#architecture)
@@ -173,9 +173,9 @@ See `THIRD-PARTY.md` for attribution.
 
 ---
 
-## MCP tools (74)
+## MCP tools (75)
 
-The server exposes 74 tools grouped by category. The full list with schemas is
+The server exposes 75 tools grouped by category. The full list with schemas is
 returned by `tools/list` (MCP); [`docs/tool-catalogue.md`](docs/tool-catalogue.md)
 is generated from the typed registry and records each tool's risk class,
 approval requirement, path policy and tests. `docs/agent-install.md` covers
@@ -184,7 +184,7 @@ installation, registration, and verification.
 | Category | Count | Examples |
 |---|---|---|
 | Environment | 2 | `android_env_check`, `sdkmanager_install` |
-| Build | 8 | `gradle_task`, `gradle_test`, `build_variant`, `android_release_notes_generate` |
+| Build | 9 | `gradle_task`, `gradle_test`, `build_variant`, `android_project_inspect`, `android_release_notes_generate` |
 | ADB | 26 | `adb_devices`, `adb_screenshot`, `adb_shell`, `adb_logcat`, `adb_parallel` |
 | Emulator / AVD | 6 | `emulator_list_avds`, `emulator_boot`, `avd_create`, `avd_wipe` |
 | Frida (dynamic) | 3 | `frida_ps`, `frida_hook`, `frida_trace_methods` |
@@ -253,6 +253,17 @@ nothing is sent to an external service. Outcome history and bundles live under
 `ANDROID_MCP_TEST_EXCLUDE_IDS` accepting comma-separated test IDs or `*` globs
 to exclude from flaky evaluation.
 
+### Project inventory
+
+`android_project_inspect` inventories a Gradle Android project: module paths
+and types, SDK levels and namespace, application ID, version codes, product
+flavors, build types, source-set directories, manifests and dependency
+summaries — plus version-catalog location and malformed-config errors, all as
+read-only evidence. Fields that cannot be statically parsed are reported as
+unknowns with their source file rather than guessed. Only file names (not
+contents) of sensitive files like `local.properties`, keystores and `.env` are
+listed. The tool never runs builds, resolves dependencies, or modifies files.
+
 
 ---
 
@@ -310,7 +321,7 @@ per-agent).
 ```bash
 npm install
 npm run build        # compile TypeScript
-npm test             # smoke test (74 tools)
+npm test             # smoke test (75 tools)
 npm run architecture # enforce approved process/ADB boundaries
 npm run catalogue    # verify docs/tool-catalogue.md matches src/registry.ts
 npm run lint         # one timed, type-aware eslint pass
