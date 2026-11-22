@@ -25,7 +25,7 @@ No scattered MCP servers. No repeated downloads. No "works on my machine."
 - [Quick start — Clone + setup (automatic registration)](#quick-start--clone--setup-automatic-registration)
 - [What's included](#whats-included)
 - [Skills (30)](#skills-30)
-- [MCP tools (75)](#mcp-tools-75)
+- [MCP tools (76)](#mcp-tools-76)
 - [Create your first app](#create-your-first-app)
 - [Live visual output](#live-visual-output)
 - [Architecture](#architecture)
@@ -173,9 +173,9 @@ See `THIRD-PARTY.md` for attribution.
 
 ---
 
-## MCP tools (75)
+## MCP tools (76)
 
-The server exposes 75 tools grouped by category. The full list with schemas is
+The server exposes 76 tools grouped by category. The full list with schemas is
 returned by `tools/list` (MCP); [`docs/tool-catalogue.md`](docs/tool-catalogue.md)
 is generated from the typed registry and records each tool's risk class,
 approval requirement, path policy and tests. `docs/agent-install.md` covers
@@ -191,7 +191,7 @@ installation, registration, and verification.
 | Network exposure | 2 | `net_capture`, `apk_serve` |
 | UI inspection | 5 | `ui_dump`, `compose_recomposition`, `layout_bounds` |
 | Static analysis | 5 | `apk_info`, `apk_decompile`, `manifest_inspect`, `native_libs`, `dex_strings` |
-| Testing | 7 | `maestro_run`, `instrumented_test`, `android_test_failure_analyze`, `android_flaky_test_history` |
+| Testing | 8 | `maestro_run`, `instrumented_test`, `android_test_failure_analyze`, `android_flaky_test_history`, `android_test_plan` |
 | Profiling | 3 | `perfetto_trace`, `memory_profile`, `startup_time` |
 | Privacy | 1 | `privacy_scan` |
 | Security | 3 | `secret_scan`, `security_audit`, `policy_preflight` |
@@ -264,6 +264,21 @@ unknowns with their source file rather than guessed. Only file names (not
 contents) of sensitive files like `local.properties`, keystores and `.env` are
 listed. The tool never runs builds, resolves dependencies, or modifies files.
 
+### Test plan generation
+
+`android_test_plan` produces a prioritized test strategy. It detects frameworks
+(JUnit 3/4/5, Robolectric, Espresso, Compose UI test, roborazzi, instrumented),
+inventories existing tests under `src/test` and `src/androidTest` with package
+and framework, parses feature-spec requirements (`##` headings + bullets), and
+maps requirements to unit/integration/e2e/manual test cases using risk
+heuristics (permission/runtime-permission → manual; persistence/network
+keywords → integration; UI/compose/snackbar → e2e; everything else → unit). The
+report separates `plan.existing` (tests already covered, heuristic overlap
+≥2 tokens) from `plan.additions`, separates `assumptions` by confidence, and
+computes a device/API matrix from module SDKs. Read-only by default; pass
+`saveArtifact: true` to write `TEST_PLAN.md` at the project root. All static —
+no builds, no installs.
+
 
 ---
 
@@ -321,7 +336,7 @@ per-agent).
 ```bash
 npm install
 npm run build        # compile TypeScript
-npm test             # smoke test (75 tools)
+npm test             # smoke test (76 tools)
 npm run architecture # enforce approved process/ADB boundaries
 npm run catalogue    # verify docs/tool-catalogue.md matches src/registry.ts
 npm run lint         # one timed, type-aware eslint pass

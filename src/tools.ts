@@ -46,6 +46,7 @@ import { renderPolicyPreflight, runPolicyPreflight } from "./policyPreflight.js"
 import { generateReleaseNotes, renderReleaseNotes } from "./releaseNotes.js";
 import { analyzeTestFailure, buildFailureBundle, flakyTestHistory } from "./testDiagnostics.js";
 import { inspectProject } from "./projectInspect.js";
+import { generateTestPlan, renderTestPlan } from "./testPlan.js";
 
 export { handleNetCapture, recoverCaptureSession } from "./netCapture.js";
 
@@ -341,6 +342,21 @@ export const ToolSchemas = {
     includeSourceSets: z.boolean().optional(),
     includeBuildVariants: z.boolean().optional(),
     includeDependencies: z.boolean().optional(),
+  }),
+  testPlan: z.object({
+    projectPath: z.string().describe("Absolute path to the Android project root"),
+    featureSpecPath: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Path to the feature spec / requirements markdown file"),
+    changedFiles: z
+      .array(z.string().min(1))
+      .optional()
+      .describe("Changed project files (relative or absolute paths)"),
+    riskLevel: z.enum(["low", "medium", "high"]).optional(),
+    saveArtifact: z.boolean().optional(),
+    artifactName: z.string().min(1).optional().describe("Artifact filename, default TEST_PLAN.md"),
   }),
   releaseNotesGenerate: z.object({
     projectPath: z.string().describe("Absolute path to the Git repository"),
@@ -1786,6 +1802,31 @@ export async function handleProjectInspect(a: z.infer<typeof ToolSchemas.project
     const report = inspectProject(a);
     return {
       content: [{ type: "text" as const, text: renderDiagnostics(report) }],
+      isError: false,
+    };
+  } catch (error) {
+    return {
+      content: [{ type: "text" as const, text: `status=error\nreason=${errorMessage(error)}` }],
+      isError: true,
+    };
+  }
+}
+
+export async function handleTestPlan(a: z.infer<typeof ToolSchemas.testPlan>) {
+  if (!notOptionLike(a.projectPath))
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: `Invalid project path: must not start with '-': ${a.projectPath}`,
+        },
+      ],
+      isError: true,
+    };
+  try {
+    const report = generateTestPlan(a);
+    return {
+      content: [{ type: "text" as const, text: renderTestPlan(report) }],
       isError: false,
     };
   } catch (error) {

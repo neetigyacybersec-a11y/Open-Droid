@@ -560,6 +560,27 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = Object.freeze([
     outputLimitBytes: 24_000,
   }),
   defineTool({
+    name: "android_test_plan",
+    description:
+      "Plan tests for a feature or changed files: detect frameworks, inventory existing tests, map feature-spec requirements to unit/integration/e2e/manual test cases with risk levels, and separate existing coverage from additions.",
+    schema: ToolSchemas.testPlan,
+    handler: (args) => H.handleTestPlan(args),
+    category: "testing",
+    risk: "read-only",
+    policyKey: null,
+    approval: "none",
+    unattended: true,
+    source: "project",
+    sideEffects: ["host-read"],
+    preconditions: [WORKSPACE_ROOT],
+    paths: [path("projectPath", "read")],
+    tests: [SMOKE, "test/test-plan.test.mjs"],
+    verification: "npm test — smoke registration and test-plan tests",
+    alternative: "Derive a test list by hand from the feature spec",
+    timeoutMs: 120_000,
+    outputLimitBytes: 24_000,
+  }),
+  defineTool({
     name: "android_release_notes_generate",
     description:
       "Draft release notes from a Git ref range with commit-linked items, separate user-facing and engineering notes, and review flags; never publishes or writes files.",

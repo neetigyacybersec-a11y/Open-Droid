@@ -61,6 +61,7 @@ setTimeout(() => {
     "android_skills_search",
     "android_test_failure_analyze",
     "android_test_failure_bundle",
+    "android_test_plan",
     "anr_check",
     "apk_decompile",
     "apk_info",

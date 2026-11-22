@@ -24,7 +24,7 @@ const readEvidence = (name) =>
 test("interaction evidence adds no top-level skill or MCP tool", () => {
   const dirs = readdirSync(SKILLS).filter((d) => existsSync(path.join(SKILLS, d, "SKILL.md")));
   assert.equal(dirs.length, 30, `expected 30 skills, found ${dirs.length}`);
-  assert.equal(TOOL_NAMES.length, 75, "registry count changed deliberately");
+  assert.equal(TOOL_NAMES.length, 76, "registry count changed deliberately");
   assert.ok(
     !TOOL_NAMES.some((name) => /evidence|waveform|audio/i.test(name)),
     "no audio/evidence MCP tool",
