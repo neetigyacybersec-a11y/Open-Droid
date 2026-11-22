@@ -25,7 +25,7 @@ No scattered MCP servers. No repeated downloads. No "works on my machine."
 - [Quick start — Clone + setup (automatic registration)](#quick-start--clone--setup-automatic-registration)
 - [What's included](#whats-included)
 - [Skills (30)](#skills-30)
-- [MCP tools (71)](#mcp-tools-71)
+- [MCP tools (74)](#mcp-tools-74)
 - [Create your first app](#create-your-first-app)
 - [Live visual output](#live-visual-output)
 - [Architecture](#architecture)
@@ -173,9 +173,9 @@ See `THIRD-PARTY.md` for attribution.
 
 ---
 
-## MCP tools (71)
+## MCP tools (74)
 
-The server exposes 71 tools grouped by category. The full list with schemas is
+The server exposes 74 tools grouped by category. The full list with schemas is
 returned by `tools/list` (MCP); [`docs/tool-catalogue.md`](docs/tool-catalogue.md)
 is generated from the typed registry and records each tool's risk class,
 approval requirement, path policy and tests. `docs/agent-install.md` covers
@@ -191,7 +191,7 @@ installation, registration, and verification.
 | Network exposure | 2 | `net_capture`, `apk_serve` |
 | UI inspection | 5 | `ui_dump`, `compose_recomposition`, `layout_bounds` |
 | Static analysis | 5 | `apk_info`, `apk_decompile`, `manifest_inspect`, `native_libs`, `dex_strings` |
-| Testing | 4 | `maestro_run`, `instrumented_test`, `test_coverage`, `macrobenchmark` |
+| Testing | 7 | `maestro_run`, `instrumented_test`, `android_test_failure_analyze`, `android_flaky_test_history` |
 | Profiling | 3 | `perfetto_trace`, `memory_profile`, `startup_time` |
 | Privacy | 1 | `privacy_scan` |
 | Security | 3 | `secret_scan`, `security_audit`, `policy_preflight` |
@@ -235,6 +235,23 @@ empty ranges are flagged for review instead of being invented. Secrets and
 internal hostnames are redacted; `locales` records translation debt rather than
 claiming translated copy. The tool is read-only: it writes no files and never
 publishes to the Play Console.
+
+### Test failure diagnosis
+
+`android_test_failure_analyze` parses JUnit XML and correlates optional logcat,
+Gradle, emulator and screenshot evidence. Its report separates observed failure
+and stack lines from confidence-labelled hypotheses and explicit unknowns, and
+returns an "insufficient evidence" state rather than guessing a root cause.
+`android_flaky_test_history` keeps outcomes in a local, bounded store and calls
+a test flaky only after repeated inconsistent results under the same test ID and
+environment dimensions. `android_test_failure_bundle` writes a redacted,
+inspectable markdown bundle with metadata and evidence paths for issue/PR
+attachment. Tokens, internal hosts and user home paths are redacted by default;
+nothing is sent to an external service. Outcome history and bundles live under
+`ANDROID_MCP_TEST_HISTORY_DIR` (default `~/.android-mcp/test-history`), with
+`ANDROID_MCP_TEST_HISTORY_KEEP` bounding retained outcomes and
+`ANDROID_MCP_TEST_EXCLUDE_IDS` accepting comma-separated test IDs or `*` globs
+to exclude from flaky evaluation.
 
 
 ---
@@ -293,7 +310,7 @@ per-agent).
 ```bash
 npm install
 npm run build        # compile TypeScript
-npm test             # smoke test (71 tools)
+npm test             # smoke test (74 tools)
 npm run architecture # enforce approved process/ADB boundaries
 npm run catalogue    # verify docs/tool-catalogue.md matches src/registry.ts
 npm run lint         # one timed, type-aware eslint pass

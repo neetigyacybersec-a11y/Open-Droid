@@ -44,6 +44,7 @@ import { auditProjectManifest } from "./manifestAudit.js";
 import { scanProjectSecrets } from "./secretScan.js";
 import { renderPolicyPreflight, runPolicyPreflight } from "./policyPreflight.js";
 import { generateReleaseNotes, renderReleaseNotes } from "./releaseNotes.js";
+import { analyzeTestFailure, buildFailureBundle, flakyTestHistory } from "./testDiagnostics.js";
 
 export { handleNetCapture, recoverCaptureSession } from "./netCapture.js";
 
@@ -310,6 +311,29 @@ export const ToolSchemas = {
     overwrite: z.boolean().optional(),
   }),
   screenshotBaselineList: z.object({}),
+  testFailureAnalyze: z.object({
+    reportPath: z.string().min(1).describe("Path to a JUnit XML or Gradle test report"),
+    testId: z.string().optional().describe("Focus on one failing test ID"),
+    logcatPath: z.string().optional(),
+    gradlePath: z.string().optional(),
+    emulatorPath: z.string().optional(),
+    screenshotPath: z.string().optional(),
+    metadata: z.record(z.string(), z.string()).optional(),
+  }),
+  flakyTestHistory: z.object({
+    testId: z.string().optional(),
+    minRuns: z.number().int().min(2).max(100).optional(),
+    excludeTestIds: z.array(z.string()).optional(),
+  }),
+  testFailureBundle: z.object({
+    reportPath: z.string().min(1),
+    testId: z.string().optional(),
+    logcatPath: z.string().optional(),
+    gradlePath: z.string().optional(),
+    emulatorPath: z.string().optional(),
+    screenshotPath: z.string().optional(),
+    metadata: z.record(z.string(), z.string()).optional(),
+  }),
   releaseNotesGenerate: z.object({
     projectPath: z.string().describe("Absolute path to the Git repository"),
     baseRef: z.string().min(1).describe("Base git ref: tag, branch or commit"),
@@ -1747,6 +1771,69 @@ export async function handleReleaseNotesGenerate(
     return {
       content: [{ type: "text" as const, text: renderReleaseNotes(report) }],
       isError: report.status === "error",
+    };
+  } catch (error) {
+    return {
+      content: [{ type: "text" as const, text: `status=error\nreason=${errorMessage(error)}` }],
+      isError: true,
+    };
+  }
+}
+
+function renderDiagnostics(value: unknown): string {
+  return JSON.stringify(value, null, 2).slice(0, 24_000);
+}
+
+function invalidReportPath(path: string) {
+  return {
+    content: [
+      { type: "text" as const, text: `Invalid report path: must not start with '-': ${path}` },
+    ],
+    isError: true,
+  };
+}
+
+export async function handleTestFailureAnalyze(a: z.infer<typeof ToolSchemas.testFailureAnalyze>) {
+  if (!notOptionLike(a.reportPath)) return invalidReportPath(a.reportPath);
+  try {
+    return {
+      content: [{ type: "text" as const, text: renderDiagnostics(analyzeTestFailure(a)) }],
+      isError: false,
+    };
+  } catch (error) {
+    return {
+      content: [{ type: "text" as const, text: `status=error\nreason=${errorMessage(error)}` }],
+      isError: true,
+    };
+  }
+}
+
+export async function handleFlakyTestHistory(a: z.infer<typeof ToolSchemas.flakyTestHistory>) {
+  try {
+    const history = flakyTestHistory(a);
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: renderDiagnostics({ status: "ok", flakyCount: history.length, history }),
+        },
+      ],
+      isError: false,
+    };
+  } catch (error) {
+    return {
+      content: [{ type: "text" as const, text: `status=error\nreason=${errorMessage(error)}` }],
+      isError: true,
+    };
+  }
+}
+
+export async function handleTestFailureBundle(a: z.infer<typeof ToolSchemas.testFailureBundle>) {
+  if (!notOptionLike(a.reportPath)) return invalidReportPath(a.reportPath);
+  try {
+    return {
+      content: [{ type: "text" as const, text: renderDiagnostics(buildFailureBundle(a)) }],
+      isError: false,
     };
   } catch (error) {
     return {
