@@ -1,7 +1,7 @@
 // ISSUE-20: `make register` must install complete skill directories, not just
 // SKILL.md. Reference-heavy skills (android-compose-ui-ux/references/motion)
 // currently appear installed while their linked files are missing.
-import { test } from "node:test";
+import { test, skip } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -10,6 +10,7 @@ import { dirname, join } from "node:path";
 
 const REPO = join(import.meta.dirname, "..");
 const REGISTER = join(REPO, "scripts", "register.sh");
+const posixTest = process.platform === "win32" ? (name, fn) => skip(name, fn) : test;
 
 function writeTree(root, files) {
   for (const [relative, content] of Object.entries(files)) {
@@ -29,6 +30,8 @@ function fixture(files = {}) {
   return { root, home, src, dst };
 }
 
+const PATH_SEP = process.platform === "win32" ? ";" : ":";
+
 function register(context, extraEnv = {}, pathPrefix = "") {
   return spawnSync("bash", [REGISTER], {
     encoding: "utf8",
@@ -39,7 +42,7 @@ function register(context, extraEnv = {}, pathPrefix = "") {
       ANDROID_MCP_SKILLS_SRC: context.src,
       ANDROID_MCP_SKILLS_DST: context.dst,
       ANDROID_MCP_SKIP_MCP_REGISTRATION: "1",
-      PATH: pathPrefix ? `${pathPrefix}:${process.env.PATH}` : process.env.PATH,
+      PATH: pathPrefix ? `${pathPrefix}${PATH_SEP}${process.env.PATH}` : process.env.PATH,
       ...extraEnv,
     },
   });
@@ -225,7 +228,7 @@ test("a failed sync is reported and never claims success", (t) => {
   );
 });
 
-test("the no-rsync fallback also refuses to claim success when copying fails", (t) => {
+posixTest("the no-rsync fallback also refuses to claim success when copying fails", (t) => {
   const context = fixture({
     "hub/SKILL.md": "hub\n",
   });

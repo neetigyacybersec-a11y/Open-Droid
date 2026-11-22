@@ -9,7 +9,7 @@ has an expected output.
 - Repository: `https://github.com/<owner>/android-mcp.git` (local path assumed below: `$REPO`)
 - MCP server name (registered): `android-mcp`
 - Transport: stdio (local) or Docker (`ghcr.io/.../open-droid`)
-- Tool count contract: exactly **67 tools** (source of truth: `src/registry.ts`; checked by `test/smoke.test.mjs`)
+- Tool count contract: exactly **68 tools** (source of truth: `src/registry.ts`; checked by `test/smoke.test.mjs`)
 
 ---
 
@@ -113,10 +113,10 @@ Expected (abridged):
 
 ```bash
 npm run build
-npm test            # smoke test (67 tools) + tools + frida-scripts + frida helper
+npm test            # smoke test (68 tools) + tools + frida-scripts + frida helper
 ```
 
-Expected: `smoke test passed: 67 tools` and `frida helper test passed`.
+Expected: `smoke test passed: 68 tools` and `frida helper test passed`.
 
 ### 1.6 Configure the execution policy
 
@@ -239,7 +239,7 @@ git pull --ff-only origin main
 ```bash
 npm ci                      # or `npm install` if lockfile changed
 npm run build
-npm test                    # must pass: smoke 67 tools + ...
+npm test                    # must pass: smoke 68 tools + ...
 ```
 
 Restart the MCP client after rebuilding. Clients cache `tools/list` for the
@@ -266,7 +266,7 @@ make register               # copies latest skills, prunes removed ones, verifie
 ```bash
 opencode mcp list           # android-mcp present
 make doctor                 # all OK
-npm test                    # 67 tools
+npm test                    # 68 tools
 ```
 
 ### 3.6 If you are on a feature branch / worktree

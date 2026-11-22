@@ -52,6 +52,7 @@ setTimeout(() => {
     "adb_shell",
     "adb_uninstall",
     "adb_wifi",
+    "adb_window_geometry",
     "android_env_check",
     "android_skills_list",
     "android_skills_search",
