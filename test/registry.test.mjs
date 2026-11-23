@@ -43,7 +43,7 @@ function rejects(entries, pattern) {
 }
 
 test("registry names are unique and every entry has one schema and handler", () => {
-  assert.equal(TOOL_REGISTRY.length, 77, "adding or removing a tool requires a deliberate registry edit");
+  assert.equal(TOOL_REGISTRY.length, 78, "adding or removing a tool requires a deliberate registry edit");
   const names = TOOL_REGISTRY.map((entry) => entry.name);
   assert.equal(new Set(names).size, names.length, "registry names must be unique");
   for (const entry of TOOL_REGISTRY) {
@@ -276,6 +276,7 @@ test("README category counts match the registry", () => {
     Profiling: "profiling",
     Privacy: "privacy",
     Security: "security",
+    Safety: "safety",
     Skills: "skills",
     Catalogue: "catalog",
   };

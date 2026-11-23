@@ -25,7 +25,7 @@ No scattered MCP servers. No repeated downloads. No "works on my machine."
 - [Quick start — Clone + setup (automatic registration)](#quick-start--clone--setup-automatic-registration)
 - [What's included](#whats-included)
 - [Skills (31)](#skills-31)
-- [MCP tools (77)](#mcp-tools-77)
+- [MCP tools (78)](#mcp-tools-78)
 - [Create your first app](#create-your-first-app)
 - [Live visual output](#live-visual-output)
 - [Architecture](#architecture)
@@ -175,9 +175,9 @@ See `THIRD-PARTY.md` for attribution.
 
 ---
 
-## MCP tools (77)
+## MCP tools (78)
 
-The server exposes 77 tools grouped by category. The full list with schemas is
+The server exposes 78 tools grouped by category. The full list with schemas is
 returned by `tools/list` (MCP); [`docs/tool-catalogue.md`](docs/tool-catalogue.md)
 is generated from the typed registry and records each tool's risk class,
 approval requirement, path policy and tests. `docs/agent-install.md` covers
@@ -197,6 +197,7 @@ installation, registration, and verification.
 | Profiling | 3 | `perfetto_trace`, `memory_profile`, `startup_time` |
 | Privacy | 1 | `privacy_scan` |
 | Security | 3 | `secret_scan`, `security_audit`, `policy_preflight` |
+| Safety | 1 | `android_project_checkpoint` |
 | Skills | 2 | `android_skills_list`, `android_skills_search` |
 | Catalogue | 1 | `tool_catalog` (safe-only discovery with risk and approval metadata) |
 
@@ -357,7 +358,7 @@ per-agent).
 ```bash
 npm install
 npm run build        # compile TypeScript
-npm test             # smoke test (77 tools)
+npm test             # smoke test (78 tools)
 npm run architecture # enforce approved process/ADB boundaries
 npm run catalogue    # verify docs/tool-catalogue.md matches src/registry.ts
 npm run lint         # one timed, type-aware eslint pass

@@ -58,6 +58,7 @@ setTimeout(() => {
     "android_project_inspect",
     "android_release_notes_generate",
     "android_skills_list",
+    "android_project_checkpoint",
     "android_skills_search",
     "android_test_failure_analyze",
     "android_test_failure_bundle",

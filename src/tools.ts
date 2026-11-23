@@ -48,6 +48,12 @@ import { analyzeTestFailure, buildFailureBundle, flakyTestHistory } from "./test
 import { inspectProject } from "./projectInspect.js";
 import { generateTestPlan, renderTestPlan } from "./testPlan.js";
 import { renderTestSuiteRun, runSuite } from "./testSuiteRunner.js";
+import {
+  createCheckpoint,
+  diffCheckpoint,
+  listCheckpoints,
+  restoreCheckpoint,
+} from "./projectCheckpoint.js";
 
 export { handleNetCapture, recoverCaptureSession } from "./netCapture.js";
 
@@ -383,6 +389,20 @@ export const ToolSchemas = {
       .boolean()
       .optional()
       .describe("Run remaining suites even when one fails (default true)"),
+  }),
+  projectCheckpoint: z.object({
+    action: z.enum(["create", "list", "diff", "restore"]),
+    name: z.string().min(1).optional().describe("Checkpoint name (default generated for create)"),
+    projectPath: z.string().optional().describe("Project root; defaults to cwd"),
+    excludeDirs: z
+      .array(z.string().min(1))
+      .optional()
+      .describe("Extra directories to exclude (merged with defaults)"),
+    dryRun: z.boolean().optional().describe("Restore: show changes without writing"),
+    confirm: z
+      .boolean()
+      .optional()
+      .describe("Restore: actually overwrite files (required unless dryRun)"),
   }),
   releaseNotesGenerate: z.object({
     projectPath: z.string().describe("Absolute path to the Git repository"),
@@ -1880,6 +1900,65 @@ export async function handleTestSuiteRun(a: z.infer<typeof ToolSchemas.testSuite
       content: [{ type: "text" as const, text: renderTestSuiteRun(report) }],
       isError: report.status === "failed",
     };
+  } catch (error) {
+    return {
+      content: [{ type: "text" as const, text: `status=error\nreason=${errorMessage(error)}` }],
+      isError: true,
+    };
+  }
+}
+
+function jsonOut(value: unknown): { content: [{ type: "text"; text: string }]; isError: boolean } {
+  return {
+    content: [{ type: "text" as const, text: JSON.stringify(value, null, 2).slice(0, 24_000) }],
+    isError: false,
+  };
+}
+
+function errorOut(message: string): {
+  content: [{ type: "text"; text: string }];
+  isError: boolean;
+} {
+  return {
+    content: [{ type: "text" as const, text: `status=error\nreason=${message}` }],
+    isError: true,
+  };
+}
+
+export async function handleProjectCheckpoint(a: z.infer<typeof ToolSchemas.projectCheckpoint>) {
+  try {
+    switch (a.action) {
+      case "create":
+        return jsonOut({
+          status: "ok",
+          action: "create",
+          ...(await createCheckpoint({
+            projectPath: a.projectPath,
+            name: a.name,
+            excludeDirs: a.excludeDirs,
+          })),
+        });
+      case "list":
+        return jsonOut({ status: "ok", action: "list", checkpoints: listCheckpoints() });
+      case "diff": {
+        const name = a.name ?? "";
+        if (!name) return errorOut("project_checkpoint diff requires a checkpoint name");
+        const d = diffCheckpoint({ name, projectPath: a.projectPath, excludeDirs: a.excludeDirs });
+        return jsonOut({ status: d.error ? "error" : "ok", action: "diff", ...d });
+      }
+      case "restore": {
+        const name = a.name ?? "";
+        if (!name) return errorOut("project_checkpoint restore requires a checkpoint name");
+        const r = restoreCheckpoint({
+          name,
+          projectPath: a.projectPath,
+          excludeDirs: a.excludeDirs,
+          dryRun: a.dryRun,
+          confirm: a.confirm,
+        });
+        return jsonOut({ status: r.error ? "error" : "ok", action: "restore", ...r });
+      }
+    }
   } catch (error) {
     return {
       content: [{ type: "text" as const, text: `status=error\nreason=${errorMessage(error)}` }],
