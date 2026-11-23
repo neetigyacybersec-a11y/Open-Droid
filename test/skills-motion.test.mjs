@@ -25,7 +25,7 @@ const motionRefs = [
 
 test('top-level skill count is unchanged by the motion integration', () => {
   const dirs = readdirSync(SKILLS).filter((d) => existsSync(path.join(SKILLS, d, 'SKILL.md')));
-  assert.equal(dirs.length, 30, `expected 30 skills, found ${dirs.length}: ${dirs.join(', ')}`);
+  assert.equal(dirs.length, 31, `expected 31 skills, found ${dirs.length}: ${dirs.join(', ')}`);
   assert.ok(!existsSync(path.join(SKILLS, 'motion-designer')), 'motion-designer must NOT be a top-level skill');
 });
 

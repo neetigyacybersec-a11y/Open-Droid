@@ -24,7 +24,7 @@ No scattered MCP servers. No repeated downloads. No "works on my machine."
 - [Quick start — Docker (zero downloads)](#quick-start--docker-zero-downloads)
 - [Quick start — Clone + setup (automatic registration)](#quick-start--clone--setup-automatic-registration)
 - [What's included](#whats-included)
-- [Skills (30)](#skills-30)
+- [Skills (31)](#skills-31)
 - [MCP tools (77)](#mcp-tools-77)
 - [Create your first app](#create-your-first-app)
 - [Live visual output](#live-visual-output)
@@ -122,7 +122,7 @@ What `make setup` does automatically:
 2. Warms the Gradle cache once so later builds work with `--offline`.
 3. **Registers the MCP server globally** (`opencode mcp add android-mcp --global`), so it
    works from any working directory.
-4. **Installs all 30 skills globally** into `~/.config/opencode/skills/`, so they are
+4. **Installs all 31 skills globally** into `~/.config/opencode/skills/`, so they are
    discovered everywhere.
 5. Creates the project-level `.opencode/` config + skills symlink for repo-local use.
 
@@ -149,7 +149,7 @@ Refresh registration any time with `make register`.
 
 ---
 
-## Skills (30)
+## Skills (31)
 
 **Orchestrator (1):** `start-here` — idea → discovery → design → spec → TDD → review → ship
 
@@ -168,6 +168,8 @@ Refresh registration any time with `make register`.
 `writing-plans`, `writing-skills`
 
 **Reverse engineering (2):** `reverse-engineer-anything`, `android-reverse-engineering`
+
+**CI/testing (1):** `ci-failure-diagnosis` — diagnose CI build/test failures
 
 See `THIRD-PARTY.md` for attribution.
 
