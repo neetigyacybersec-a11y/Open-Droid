@@ -18,7 +18,7 @@
     "repair": "node scripts/repair.mjs",
     "rollback": "node scripts/rollback.mjs list",
     "release:artifacts": "node scripts/release-artifacts.mjs",
-    "uninstall": "node scripts/uninstall.mjs",
+    "uninstall:local": "node scripts/uninstall.mjs",
     "profile": "node scripts/profile.mjs",
     "dev": "tsx src/index.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",

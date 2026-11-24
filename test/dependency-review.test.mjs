@@ -545,6 +545,26 @@ test("package.json hook changes outside dependency sections are reported", () =>
   }
 });
 
+test("explicit script additions are reported without a lifecycle false positive", () => {
+  const f = fixture({ "package.json": `${basePackage}\n` });
+  try {
+    const head = JSON.parse(basePackage);
+    head.scripts = {
+      ...(head.scripts ?? {}),
+      "install:core": "node scripts/install.mjs --profile core",
+      test: `${head.scripts?.test ?? "node --test"} test/installer.test.mjs`,
+    };
+    commit(f.dir, { "package.json": `${JSON.stringify(head, null, 2)}\n` });
+    const report = jsonReview(f.dir, f.base, [], 0);
+    const hook = finding(report, "npm-manifest-hook-change");
+    assert.ok(hook, "script changes remain visible for review");
+    assert.equal(hook.risk, "low");
+    assert.match(hook.reason, /no install\/publish lifecycle hook/);
+  } finally {
+    rmSync(f.dir, { recursive: true, force: true });
+  }
+});
+
 test("fails closed when the requested base cannot be resolved", () => {
   const f = fixture({ "package.json": `${basePackage}\n` });
   try {

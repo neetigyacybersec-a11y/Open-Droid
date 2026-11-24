@@ -211,6 +211,8 @@ jobs:
         with:
           context: .
           push: false
+          # ISSUE-141: the smoke step needs the image in the local daemon.
+          load: true
           tags: open-droid:latest
       - name: Dependency, capability and MCP handler smoke
         run: docker run --rm --entrypoint bash open-droid:latest scripts/docker-smoke.sh

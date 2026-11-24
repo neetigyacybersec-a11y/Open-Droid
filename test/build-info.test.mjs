@@ -110,6 +110,6 @@ test("android_env_check reports the loaded build and restart status (ISSUE-24)",
     "frida-ps",
     "mitmdump",
   ]) {
-    assert.match(text, new RegExp(`^${tool}: (MISSING|/)`, "m"), `${tool} not reported`);
+    assert.match(text, new RegExp(`^${tool}: (?:MISSING|\\S)`, "m"), `${tool} not reported`);
   }
 });

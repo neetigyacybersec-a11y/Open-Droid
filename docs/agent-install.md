@@ -459,7 +459,7 @@ To roll back a package-manager install, install the previous pinned version
 explicitly (`winget install --version` / `brew install` of the older formula) and
 restart the MCP client. `npm run rollback list` shows managed runtime
 generations. Uninstall with the package manager (`winget uninstall`,
-`brew uninstall`) or `npm run uninstall -- --dry-run` for a source checkout;
+`brew uninstall`) or `npm run uninstall:local -- --dry-run` for a source checkout;
 see [section 7](#7-uninstall).
 
 ## 7. Uninstall

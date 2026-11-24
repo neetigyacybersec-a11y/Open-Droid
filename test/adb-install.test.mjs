@@ -21,7 +21,10 @@ chmodSync(join(bin, "adb"), 0o755);
 const basePath = process.env.PATH ?? "";
 process.env.PATH = `${bin}:${basePath}`;
 process.env.STUB_RECORD = record;
-const { test } = await import("node:test");
+const { test: nodeTest, skip } = await import("node:test");
+// POSIX shell stubs cannot be spawned on Windows; full coverage runs in the
+// Linux CI job, matching the convention used by test/tools.test.mjs.
+const test = process.platform === "win32" ? (name, fn) => skip(name, fn) : nodeTest;
 const { handleAdbInstall } = await import("../dist/tools.js");
 function apk(name) {
   const path = join(work, name);

@@ -911,9 +911,25 @@ function analyzeNpmManifest(path, status, oldText, newText, findings) {
   }
 
   const handled = new Set([...NPM_SECTIONS, "overrides", "resolutions"]);
+  const oldScriptMap = oldParsed.value?.scripts ?? {};
+  const newScriptMap = newParsed.value?.scripts ?? {};
   const oldScripts = JSON.stringify(oldParsed.value?.scripts ?? null);
   const newScripts = JSON.stringify(newParsed.value?.scripts ?? null);
   if (oldText !== null && newText !== null && oldScripts !== newScripts) {
+    // Root cause of a false positive: every scripts-object edit was labelled a
+    // lifecycle hook. Only npm lifecycle hooks run automatically on install or
+    // publish; a changed test list or explicit developer command does not.
+    const lifecycle = new Set([
+      "preinstall", "install", "postinstall",
+      "preuninstall", "uninstall", "postuninstall",
+      "prepublish", "prepublishOnly", "publish", "postpublish",
+      "prepack", "pack", "postpack", "prepare",
+    ]);
+    const changedKeys = new Set([
+      ...Object.keys(oldScriptMap),
+      ...Object.keys(newScriptMap),
+    ].filter((key) => JSON.stringify(oldScriptMap[key]) !== JSON.stringify(newScriptMap[key])));
+    const hooks = [...changedKeys].filter((key) => lifecycle.has(key));
     findings.push(
       makeFinding({
         file: path,
@@ -925,10 +941,12 @@ function analyzeNpmManifest(path, status, oldText, newText, findings) {
         coordinate: "scripts",
         oldValue: oldScripts,
         newValue: newScripts,
-        risk: "high",
-        reason: "npm lifecycle scripts execute commands during install/build and must be reviewed.",
+        risk: hooks.length > 0 ? "high" : "low",
+        reason: hooks.length > 0
+          ? `npm lifecycle scripts (${hooks.join(", ")}) execute automatically and must be reviewed.`
+          : `Explicit scripts changed (${[...changedKeys].join(", ") || "entries"}); no install/publish lifecycle hook was modified.`,
         evidence: { pointer: pointer(["scripts"]) },
-        details: {},
+        details: { hooks },
       }),
     );
   }
