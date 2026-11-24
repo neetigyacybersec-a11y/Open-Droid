@@ -271,7 +271,7 @@ test("concurrent requests cannot leak workspace context", async () => {
 });
 
 test("every registered MCP tool has an explicit path classification", () => {
-  assert.equal(TOOL_NAMES.length, 78, "tool registry changed; update the classification");
+  assert.equal(TOOL_NAMES.length, 79, "tool registry changed; update the classification");
   assert.deepEqual(Object.keys(TOOL_PATH_SPECS).sort(), [...TOOL_NAMES].sort());
   for (const [name, specs] of Object.entries(TOOL_PATH_SPECS)) {
     for (const spec of specs) {

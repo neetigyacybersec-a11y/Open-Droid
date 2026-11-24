@@ -9,7 +9,7 @@ has an expected output.
 - Repository: `https://github.com/<owner>/android-mcp.git` (local path assumed below: `$REPO`)
 - MCP server name (registered): `android-mcp`
 - Transport: stdio (local) or Docker (`ghcr.io/.../open-droid`)
-- Tool count contract: exactly **78 tools** (source of truth: `src/registry.ts`; checked by `test/smoke.test.mjs`)
+- Tool count contract: exactly **79 tools** (source of truth: `src/registry.ts`; checked by `test/smoke.test.mjs`)
 
 ---
 
@@ -113,10 +113,10 @@ Expected (abridged):
 
 ```bash
 npm run build
-npm test            # smoke test (78 tools) + tools + frida-scripts + frida helper
+npm test            # smoke test (79 tools) + tools + frida-scripts + frida helper
 ```
 
-Expected: `smoke test passed: 78 tools` and `frida helper test passed`.
+Expected: `smoke test passed: 79 tools` and `frida helper test passed`.
 
 ### 1.6 Configure the execution policy
 
@@ -239,7 +239,7 @@ git pull --ff-only origin main
 ```bash
 npm ci                      # or `npm install` if lockfile changed
 npm run build
-npm test                    # must pass: smoke 78 tools + ...
+npm test                    # must pass: smoke 79 tools + ...
 ```
 
 Restart the MCP client after rebuilding. Clients cache `tools/list` for the
@@ -320,7 +320,7 @@ node -e "const {spawn}=require('child_process');const p=spawn('node',['dist/inde
 ```
 
 Expected final lines: `BUILD OK`, `TESTS OK`, `SMOKE OK`, all doctor checks `OK`,
-`MCP OK`, skills count `31`, tools `78`, `has net_capture: true`.
+`MCP OK`, skills count `31`, tools `79`, `has net_capture: true`.
 
 ---
 
@@ -328,7 +328,7 @@ Expected final lines: `BUILD OK`, `TESTS OK`, `SMOKE OK`, all doctor checks `OK`
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `npm test` fails at smoke (tool count ≠ 78) | Tool registration drift | Check `src/registry.ts` includes all 78 and matches `test/smoke.test.mjs`; rebuild |
+| `npm test` fails at smoke (tool count ≠ 79) | Tool registration drift | Check `src/registry.ts` includes all 79 and matches `test/smoke.test.mjs`; rebuild |
 | A new/renamed tool is missing after pulling or rebuilding | MCP clients cache `tools/list`; the running server still has the old build | Call `android_env_check`: `restart required: YES` means the on-disk build changed after startup — restart the MCP client/server. If it says `no` but the client still shows old tools, restart the client anyway |
 | `make doctor` reports `frida` missing | Venv not created | `sudo apt install -y python3 python3-venv && make setup` |
 | `make doctor` reports frida-server missing | Download failed | Check network; re-run `make setup` |

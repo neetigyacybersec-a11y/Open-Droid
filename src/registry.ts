@@ -603,6 +603,25 @@ export const TOOL_REGISTRY: readonly ToolDefinition[] = Object.freeze([
     outputLimitBytes: 24_000,
   }),
   defineTool({
+    name: "android_energy_network_audit",
+    description:
+      "Audit package-scoped energy, wake locks, alarms and network stats from device dumps (dumpsys battery/batterystats/jobstats/alarm/power/netstats). Unsupported metrics are marked unavailable, never invented.",
+    schema: ToolSchemas.energyNetworkAudit,
+    handler: (args) => H.handleEnergyNetworkAudit(args),
+    category: "adb",
+    risk: "read-only",
+    policyKey: null,
+    approval: "none",
+    unattended: true,
+    source: "device",
+    sideEffects: ["device-read", "process-spawn"],
+    preconditions: [DEVICE, "dumpsys is available on the connected device"],
+    paths: [],
+    tests: [SMOKE, "test/energy-network-audit.test.mjs"],
+    verification: "npm test — smoke registration and energy/network audit tests",
+    alternative: "Run the specific dumpsys command on the device by hand",
+  }),
+  defineTool({
     name: "android_project_checkpoint",
     description:
       "Create, list, diff and restore named project checkpoints: Git-native snapshots in ~/.android-mcp/checkpoints capturing tracked+untracked changes (never silently discarding them), restore is dry-run by default and requires confirm for real restores; build outputs, caches and secrets are excluded by default.",

@@ -54,6 +54,7 @@ import {
   listCheckpoints,
   restoreCheckpoint,
 } from "./projectCheckpoint.js";
+import { auditEnergyNetwork, renderEnergyReport } from "./energyNetworkAudit.js";
 
 export { handleNetCapture, recoverCaptureSession } from "./netCapture.js";
 
@@ -389,6 +390,17 @@ export const ToolSchemas = {
       .boolean()
       .optional()
       .describe("Run remaining suites even when one fails (default true)"),
+  }),
+  energyNetworkAudit: z.object({
+    packageName: z
+      .string()
+      .min(1)
+      .regex(/^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$/),
+    deviceId: z.string().optional(),
+    includeJobs: z.boolean().optional().describe("Default true"),
+    includeAlarms: z.boolean().optional().describe("Default true"),
+    includeWakeLocks: z.boolean().optional().describe("Default true"),
+    includeNetwork: z.boolean().optional().describe("Default true"),
   }),
   projectCheckpoint: z.object({
     action: z.enum(["create", "list", "diff", "restore"]),
@@ -1923,6 +1935,21 @@ function errorOut(message: string): {
     content: [{ type: "text" as const, text: `status=error\nreason=${message}` }],
     isError: true,
   };
+}
+
+export async function handleEnergyNetworkAudit(a: z.infer<typeof ToolSchemas.energyNetworkAudit>) {
+  try {
+    const report = await auditEnergyNetwork(a);
+    return {
+      content: [{ type: "text" as const, text: renderEnergyReport(report) }],
+      isError: false,
+    };
+  } catch (error) {
+    return {
+      content: [{ type: "text" as const, text: `status=error\nreason=${errorMessage(error)}` }],
+      isError: true,
+    };
+  }
 }
 
 export async function handleProjectCheckpoint(a: z.infer<typeof ToolSchemas.projectCheckpoint>) {
