@@ -4,7 +4,8 @@
 // preserves raw evidence under predictable artifact directories, and reports
 // per-suite exit codes with bounded summaries that separate evidence from
 // interpretation.
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { run, type RunResult, type RunOptions } from "./services/process-runner.js";
 import { inspectProject } from "./projectInspect.js";
@@ -192,17 +193,34 @@ function suiteSpecs(input: TestSuiteRunInput): SuiteSpec[] {
   return [...byName.values()];
 }
 
-function scanXmls(dirs: readonly string[], sinceMs: number): string[] {
+// Content digests, not mtimes: CI filesystems can round mtime to whole seconds,
+// which makes a freshly written XML look older than the run that produced it.
+type XmlDigests = Map<string, string>;
+function xmlDigests(dirs: readonly string[]): XmlDigests {
+  const digests: XmlDigests = new Map();
+  for (const dir of dirs)
+    for (const file of walkFiles(dir))
+      if (/\.xml$/i.test(file))
+        digests.set(
+          file,
+          createHash("sha256")
+            .update(readText(file) ?? "")
+            .digest("hex"),
+        );
+  return digests;
+}
+function scanXmls(dirs: readonly string[], before: XmlDigests): string[] {
   const out: string[] = [];
   for (const dir of dirs)
     out.push(
       ...walkFiles(dir).filter((f) => {
         if (!/\.xml$/i.test(f)) return false;
-        try {
-          return statSync(f).mtimeMs >= sinceMs;
-        } catch {
-          return false;
-        }
+        return (
+          before.get(f) !==
+          createHash("sha256")
+            .update(readText(f) ?? "")
+            .digest("hex")
+        );
       }),
     );
   return out.sort().slice(0, MAX_XMLS);
@@ -310,11 +328,12 @@ async function executeSuite(
   if (spec.name === "unit" && input.gradleArgs?.length) command.push(...input.gradleArgs);
   if (spec.name === "unit" && input.offline) command.push("--offline");
   const started = Date.now();
+  const before = xmlDigests(spec.artifactDirs);
   const result = await runner(command[0], command.slice(1), {
     timeout: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     cwd: input.projectPath,
   });
-  const xmls = scanXmls(spec.artifactDirs, started);
+  const xmls = scanXmls(spec.artifactDirs, before);
   const counts = countStatus(xmls);
   return {
     suite: {
