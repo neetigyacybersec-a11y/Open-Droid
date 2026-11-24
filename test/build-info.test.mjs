@@ -94,4 +94,22 @@ test("android_env_check reports the loaded build and restart status (ISSUE-24)",
   assert.match(text, /^on-disk build: [0-9a-f]{12} \(version \S+\)$/m);
   assert.match(text, /^restart required: no\b/m);
   assert.match(text, /tools\/list/i, "the output explains the client-side tool cache");
+  // ISSUE-141: a registered handler's dependency is reported present or
+  // MISSING; a successful server start is not proof of a complete runtime.
+  for (const tool of [
+    "java",
+    "gradle",
+    "adb",
+    "maestro",
+    "compose-preview",
+    "android CLI",
+    "aapt2",
+    "jadx",
+    "apktool",
+    "frida",
+    "frida-ps",
+    "mitmdump",
+  ]) {
+    assert.match(text, new RegExp(`^${tool}: (MISSING|/)`, "m"), `${tool} not reported`);
+  }
 });

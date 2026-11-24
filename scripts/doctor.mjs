@@ -69,6 +69,9 @@ if (checkPath("maestro")) console.log("OK   maestro");
 else console.log("MISS maestro");
 
 for (const name of ["compose-preview", "android"]) optional(name);
+// ISSUE-141: static-analysis binaries must be reported like any other tool;
+// apk_info and apk_decompile call them directly.
+for (const name of ["aapt2", "jadx", "apktool"]) optional(name);
 for (const name of ["frida", "frida-ps", "mitmdump"]) {
   const found = checkPath(name);
   if (found) console.log(`OK   ${name} (dynamic) -> ${found}`);
@@ -94,11 +97,14 @@ for (const name of ["ANDROID_HOME", "JAVA_HOME", "GRADLE_USER_HOME"]) {
 const npmVersion = spawnSync(IS_WIN ? "npm.cmd" : "npm", ["-v"], { encoding: "utf8" });
 console.log(`node=${process.version}  npm=${(npmVersion.stdout ?? "").trim() || "unavailable"}`);
 
-if (existsSync(join(ROOT, "dist", "index.js"))) console.log("MCP build: present");
-else {
-  console.log("MCP build: MISSING (run 'node scripts/build.mjs' or 'npm run build')");
-  failed = true;
-}
+const build = spawnSync(
+  process.execPath,
+  [join(ROOT, "scripts", "build-state.mjs")],
+  { encoding: "utf8" },
+);
+const buildLine = (build.stdout ?? "").trim() || "build stale: build-state.mjs failed";
+console.log(`MCP ${buildLine}`);
+if (build.status !== 0) failed = true;
 
 if (existsSync(join(ROOT, ".toolchain", "android-skills", ".git"))) {
   console.log("OK   android/skills: cloned");

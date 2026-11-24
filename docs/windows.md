@@ -1,5 +1,23 @@
 # Windows entry points
 
+## First-party installer (PowerShell only)
+
+Open-Droid now ships a native PowerShell installer; Git Bash and WSL2 are **not**
+required. From a checkout (or an extracted release artifact):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -Profile Core -DryRun
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -Profile Core -Yes
+```
+
+`Core` installs the required runtime, `Full` adds every optional capability, and
+`Custom` takes `-Capabilities frida,jadx,...`. The dry run prints the exact plan,
+including optional capabilities that this platform cannot provide. The installer
+downloads a pinned Node release when none is installed, verifies checksums,
+keeps interrupted downloads in `.part` files, and records ownership in
+`.toolchain/install-manifest.json` for doctor, update, export and uninstall.
+Paths with spaces and Unicode are supported.
+
 Two Windows-specific problems are handled here:
 
 - PowerShell's default execution policy can block `npm.ps1`. Running `npm test`

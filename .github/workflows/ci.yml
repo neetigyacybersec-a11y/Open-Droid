@@ -200,6 +200,8 @@ jobs:
             # outright (run 43162090162). 180000 = the intended 180 s.
             MAESTRO_DRIVER_STARTUP_TIMEOUT=180000 PATH="$HOME/.maestro/bin:$PATH" maestro test --driver-host-port 7001 templates/compose-starter/maestro/smoke.yaml || MAESTRO_DRIVER_STARTUP_TIMEOUT=180000 PATH="$HOME/.maestro/bin:$PATH" maestro test --driver-host-port 7001 templates/compose-starter/maestro/smoke.yaml || { echo '=== maestro failed (after retry): device events + crash buffer + TestRunner errors ==='; adb logcat -d -b events 2>/dev/null | grep -E 'maestro|am_anr|am_kill' | tail -20; adb logcat -d -b crash 2>/dev/null | tail -30; adb logcat -d 2>/dev/null | grep -E 'TestRunner|Failed to bind|grpcServer|maestro' | tail -20; exit 1; }
 
+  # ISSUE-141: a green Docker build is not evidence that handlers work. Build
+  # the image, then run the in-container capability + MCP handler smoke.
   docker:
     runs-on: ubuntu-latest
     steps:
@@ -209,7 +211,9 @@ jobs:
         with:
           context: .
           push: false
-          tags: android-mcp:ci
+          tags: open-droid:latest
+      - name: Dependency, capability and MCP handler smoke
+        run: docker run --rm --entrypoint bash open-droid:latest scripts/docker-smoke.sh
 
   # Stable aggregate required check for branch protection (#98). It runs for
   # every PR even when an upstream job fails, so a missing/non-green required

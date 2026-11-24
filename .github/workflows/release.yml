@@ -65,3 +65,28 @@ jobs:
       - run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # ISSUE-152: versioned host-install artifacts. Every publish job still needs
+  # `validate`, so failed tests prevent all publication steps.
+  host-artifacts:
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - name: Build versioned artifacts and package-manager manifests
+        run: node scripts/release-artifacts.mjs --version "$GITHUB_REF_NAME" --commit "$GITHUB_SHA" --out dist/release --packaging
+      - name: Verify checksums before publication
+        run: node scripts/release-artifacts.mjs --verify --out dist/release
+      - name: Publish immutable release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --generate-notes --title "$GITHUB_REF_NAME"
+          gh release upload "$GITHUB_REF_NAME" dist/release/*.tar.gz dist/release/SHA256SUMS dist/release/release-manifest.json --clobber
+          gh release upload "$GITHUB_REF_NAME" dist/release/packaging/homebrew/open-droid.rb dist/release/packaging/linux/install.sh --clobber

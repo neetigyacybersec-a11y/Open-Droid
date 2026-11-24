@@ -109,6 +109,21 @@ Expected (abridged):
 [doctor] OK    android-mcp present in global opencode config
 ```
 
+Agents should read the machine-readable report before proposing a repair:
+
+```bash
+node scripts/doctor-json.mjs            # JSON, schema install/doctor.schema.json
+node scripts/repair.mjs --component gradle --dry-run
+node scripts/repair.mjs --component gradle --yes    # explicit confirmation
+```
+
+The JSON report separates registered tools from runnable capabilities, finds
+managed executables even when they are not on `PATH`, and reports device or
+emulator absence separately from core installation health. `repair` is dry-run
+by default, accepts named components only, and never edits user projects or Git
+state.
+```
+
 ### 1.5 Build the MCP server (if not already built)
 
 ```bash
@@ -186,13 +201,33 @@ For skills, copy manually:
 cp -r "$REPO/skills/"* ~/.claude/skills/   # or ~/.cursor/skills/, etc.
 ```
 
+### 2.2.1 Client registration scopes
+
+`scripts/clients.mjs` registers the MCP server explicitly per client and scope.
+Only adapters with fixture tests are advertised: **OpenCode** (global and
+project-local), **Claude Code** (user) and **Cursor** (user). `inspectClient`,
+`registerClient` and `unregisterClient` are idempotent, preserve unrelated
+configuration and JSONC comments, back up before writing, track copied skills
+and detect stale paths. Doctor reports registration drift and whether an MCP
+client restart is required. No other client is claimed as supported.
+
 ### 2.3 Docker (no host toolchain)
 
 No pre-built image is published yet, so build it locally first:
 
 ```bash
 docker build -t open-droid:latest .
+docker run --rm --entrypoint bash open-droid:latest scripts/docker-smoke.sh
 ```
+
+The image carries every non-device dependency used by registered handlers:
+Gradle, the Android SDK (including `aapt2` in build-tools), JADX, apktool,
+Compose Preview CLI, the Android CLI, Maestro, and a pinned Python venv with
+`frida`, `frida-ps`, `mitmdump` and both ABI-specific `frida-server` assets.
+Versions and upstream SHA-256 digests live in `versions.env`, which is sourced
+by both `scripts/setup.sh` and the Dockerfile. The build runs the same smoke
+script; CI repeats it against the built image. `android_env_check` reports each
+capability as present or MISSING.
 
 MCP config:
 ```jsonc
@@ -221,32 +256,65 @@ into this repo. If you want it, add it separately:
 ```
 See `docs/appllama-integration-analysis.md` for why it was not bundled.
 
+### 2.5 REA provider (optional, external)
+
+The reverse-engineering skills use a separate `rea` MCP for native `.so`,
+Ghidra and packed-asset analysis. Open-Droid does **not** install or start it;
+JADX/apktool static analysis works without it. Install the pinned provider and
+restart the client, otherwise its tools will not appear:
+
+```bash
+npx -y rea-agents@6.3.0 setup --client opencode --yes
+export REA_JADX_MCP_JAR=/absolute/path/to/jadx-headless-mcp.jar  # bring-your-own JAR
+```
+
+`android_env_check` prints `rea provider: unavailable (optional external MCP;
+tools: inspect_android_package, search_android_classes; setup: ...)` when it is
+not configured, including the ids the skills expect. That is a capability
+report, not a broken Open-Droid install. Docker images do not bundle REA or
+Ghidra; run the provider on the host when you need it. The pinned provider is
+`rea-agents@6.3.0` (MIT licence); it requires Java 21+ and an analysis engine
+(Ghidra or a bring-your-own JADX MCP JAR — upstream publishes no fixed JAR URL
+or checksum). Changing provider configuration always requires an MCP client
+restart/reconnect before the new tools appear in `tools/list`.
+
 ---
 
 ## 3. Updating the MCP (existing install)
 
-### 3.1 Pull latest
+### 3.1 Guarded update (recommended)
+
+```bash
+cd "$REPO"
+npm run update              # or `make update`
+```
+
+`npm run update` refuses a dirty tree (staged, unstaged or untracked files),
+detached HEAD, a missing upstream and diverged or ahead branches. It fetches,
+requires a fast-forward, then runs `npm ci`, `npm run build`, `npm run verify`
+and registration in order. The first failing stage stops the command and is
+named in the output. It never runs `git reset --hard`, force-push or rebase.
+Pass `--no-register` to skip the registration refresh.
+
+### 3.2 Manual equivalent
 
 ```bash
 cd "$REPO"
 git fetch origin
-git status --short          # ensure clean working tree (stash if needed)
-git pull --ff-only origin main
-```
-
-### 3.2 Rebuild
-
-```bash
-npm ci                      # or `npm install` if lockfile changed
+git status --short          # must be empty
+git merge --ff-only origin/main
+npm ci
 npm run build
-npm test                    # must pass: smoke 79 tools + ...
+npm run verify
+make register
 ```
 
 Restart the MCP client after rebuilding. Clients cache `tools/list` for the
 lifetime of the session; the running server keeps the code it loaded at startup.
 `android_env_check` prints `server:`, `server build:`, `on-disk build:` and
 `restart required: YES|no`, so an agent can detect a stale process without
-guessing.
+guessing. `scripts/run-mcp.sh` and `npm start` also refuse to launch when
+`dist/` predates the current `src/` tree.
 
 ### 3.3 Refresh toolchain (only if `versions.env` or `scripts/setup.sh` changed)
 
@@ -368,6 +436,31 @@ Global (outside repo, created by `make register`):
 - `~/.config/opencode/skills/<name>/SKILL.md`
 
 ---
+
+## 6.5 Release channels and package managers
+
+Tagged releases produce versioned host-install artifacts for Windows, macOS and
+Linux (x64 and arm64). Each tarball is listed with its SHA-256 in `SHA256SUMS`
+and is associated with the exact source commit in `release-manifest.json`.
+Stable tags look like `v0.1.0`; Preview tags look like `v0.2.0-preview.3` and
+are opt-in — never install a Preview artifact unless you deliberately select
+that channel.
+
+- **Windows:** `winget install Neetigyacybersec.OpenDroid --version <version>`
+  (the generated WinGet manifest pins the immutable release asset and digest).
+  `winget upgrade` moves between pinned versions.
+- **macOS:** the generated Homebrew formula pins the version, URL and SHA-256;
+  `brew install <tap>/open-droid` and `brew upgrade <tap>/open-droid` use only
+  published release assets.
+- **Linux:** use the generated pinned-version installer from the release
+  (`linux/install.sh`); it verifies `sha256sum` before extraction.
+
+To roll back a package-manager install, install the previous pinned version
+explicitly (`winget install --version` / `brew install` of the older formula) and
+restart the MCP client. `npm run rollback list` shows managed runtime
+generations. Uninstall with the package manager (`winget uninstall`,
+`brew uninstall`) or `npm run uninstall -- --dry-run` for a source checkout;
+see [section 7](#7-uninstall).
 
 ## 7. Uninstall
 

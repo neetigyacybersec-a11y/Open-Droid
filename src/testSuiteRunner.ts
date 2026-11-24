@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { run, type RunResult, type RunOptions } from "./services/process-runner.js";
+import { gradleArgv } from "./gradleExecutable.js";
 import { inspectProject } from "./projectInspect.js";
 import { parseJUnitXml } from "./testDiagnostics.js";
 
@@ -329,7 +330,8 @@ async function executeSuite(
   if (spec.name === "unit" && input.offline) command.push("--offline");
   const started = Date.now();
   const before = xmlDigests(spec.artifactDirs);
-  const result = await runner(command[0], command.slice(1), {
+  const argv = command[0] === "gradle" ? gradleArgv(command.slice(1)) : command;
+  const result = await runner(argv[0], argv.slice(1), {
     timeout: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     cwd: input.projectPath,
   });

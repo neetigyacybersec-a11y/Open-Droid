@@ -30,6 +30,7 @@ import {
   handleComposeRecomposition,
   handleAvdCreate,
   handleApkInfo,
+  handleSkillsSearch,
 } from "../dist/tools.js";
 import { validateGradleTask } from "../dist/util.js";
 
@@ -59,6 +60,32 @@ async function withStubAdb(script, fn) {
 }
 
 const text = (res) => res.content.map((c) => c.text).join("\n");
+
+stubbedTests("android_skills_search uses the current CLI subcommand and reports CLI errors honestly (issue 141)", async () => {
+  const record = RECORD();
+  process.env.RECORD = record;
+  const stub = [
+    'printf "%s\\n" "$*" >> "$RECORD"',
+    '[ "$1 $2" = "skills find" ] && { printf "skills: compose\\n"; exit 0; }',
+    'echo "unsupported command" >&2; exit 2',
+  ].join("\n");
+  try {
+    await withStubs({ android: stub }, async () => {
+      const ok = await handleSkillsSearch({ query: "compose" });
+      assert.equal(ok.isError, undefined);
+      assert.match(text(ok), /skills: compose/);
+      assert.deepEqual((await readRecord(record))[0], "skills find compose");
+    });
+    await withStubs({ android: 'echo "unsupported command" >&2; exit 2' }, async () => {
+      const failing = await handleSkillsSearch({ query: "compose" });
+      assert.equal(failing.isError, true);
+      assert.doesNotMatch(text(failing), /Android CLI not found/);
+      assert.match(text(failing), /unsupported command/);
+    });
+  } finally {
+    delete process.env.RECORD;
+  }
+});
 
 test("capOutput leaves output at or under the cap untouched", () => {
   assert.equal(capOutput(""), "");
@@ -127,10 +154,23 @@ async function withStubs(stubs, fn) {
   }
   const oldPath = process.env.PATH;
   process.env.PATH = `${dir}:${oldPath ?? ""}`;
+  // ISSUE-146: handlers resolve Gradle through the shared resolver, which
+  // prefers an explicit home over PATH. Point that at the stub as well.
+  const oldGradleHome = process.env.ANDROID_MCP_GRADLE_HOME;
+  if (stubs.gradle) {
+    const gradleBin = join(dir, "gradle-home", "bin");
+    await mkdir(gradleBin, { recursive: true });
+    const launcher = join(gradleBin, "gradle");
+    await writeFile(launcher, `#!/bin/sh\nexec "${dir}/gradle" "$@"\n`);
+    await chmod(launcher, 0o755);
+    process.env.ANDROID_MCP_GRADLE_HOME = join(dir, "gradle-home");
+  }
   try {
     return await fn();
   } finally {
     process.env.PATH = oldPath;
+    if (oldGradleHome === undefined) delete process.env.ANDROID_MCP_GRADLE_HOME;
+    else process.env.ANDROID_MCP_GRADLE_HOME = oldGradleHome;
     await rm(dir, { recursive: true, force: true });
   }
 }

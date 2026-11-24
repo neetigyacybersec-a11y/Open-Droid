@@ -152,6 +152,35 @@ function toolHandlerArgs(args: Record<string, unknown>): Record<string, unknown>
   return copy;
 }
 
+type PathAuthorization = { ok: true; path: string } | { ok: false; reason: string; path: string };
+
+function authorizePath(
+  policy: WorkspacePolicy,
+  value: string,
+  operation: PathOperation,
+  grants: readonly PathGrant[],
+  consumed: Set<string>,
+  now: Date,
+  requestId: string | undefined,
+): PathAuthorization {
+  const decision = checkWorkspacePath(policy, value, operation);
+  if (decision.ok) return { ok: true, path: decision.path ?? value };
+
+  for (const grant of grants) {
+    if (consumed.has(grant.id)) continue;
+    const check = validatePathGrant(policy, grant, value, operation, { requestId, now });
+    if (check.ok) {
+      consumed.add(grant.id);
+      return { ok: true, path: check.path ?? value };
+    }
+  }
+  return {
+    ok: false,
+    reason: decision.reason ?? "outside-workspace",
+    path: decision.path ?? value,
+  };
+}
+
 export async function runWithBoundary(
   name: string,
   args: Record<string, unknown>,
@@ -178,7 +207,9 @@ export async function runWithBoundary(
   for (const spec of specs) {
     const value = args?.[spec.field];
     if (value === undefined || value === null || value === "") continue;
-    if (typeof value !== "string") {
+    const isList = Array.isArray(value);
+    const values = isList ? value : [value];
+    if (values.length === 0 || values.some((item) => typeof item !== "string")) {
       return blockedResult(
         name,
         "invalid-path",
@@ -187,52 +218,45 @@ export async function runWithBoundary(
       );
     }
 
-    let decision = checkWorkspacePath(policy, value, spec.operation);
-    if (!decision.ok) {
-      let granted = false;
-      for (const grant of grants) {
-        if (consumed.has(grant.id)) continue;
-        const check = validatePathGrant(policy, grant, value, spec.operation, {
-          requestId: options.requestId,
-          now,
-        });
-        if (check.ok) {
-          consumed.add(grant.id);
-          decision = check;
-          granted = true;
-          break;
-        }
-      }
-      if (!granted) {
+    const canonical: string[] = [];
+    for (const item of values as string[]) {
+      const authorization = authorizePath(
+        policy,
+        item,
+        spec.operation,
+        grants,
+        consumed,
+        now,
+        options.requestId,
+      );
+      if (!authorization.ok) {
         return blockedResult(
           name,
-          decision.reason ?? "outside-workspace",
+          authorization.reason,
           {
             field: spec.field,
             operation: spec.operation,
-            path: decision.path ?? value,
+            path: authorization.path,
             workspace: policy.root,
           },
           now,
         );
       }
-    }
 
-    const canonical = decision.path ?? value;
-    handlerArgs[spec.field] = canonical;
-    primaryTarget ??= canonical;
+      const checked = authorization.path;
+      canonical.push(checked);
+      primaryTarget ??= checked;
 
-    if (spec.operation === "write" && !args?.overwrite) {
-      const target = decision.path ?? value;
-      if (existsSync(target)) {
+      if (spec.operation === "write" && !args?.overwrite && existsSync(checked)) {
         return blockedResult(
           name,
           "overwrite-denied",
-          { field: spec.field, operation: spec.operation, path: target, workspace: policy.root },
+          { field: spec.field, operation: spec.operation, path: checked, workspace: policy.root },
           now,
         );
       }
     }
+    handlerArgs[spec.field] = isList ? canonical : canonical[0];
   }
   if (!entry) {
     return blockedResult(name, "unclassified-tool", {}, now);

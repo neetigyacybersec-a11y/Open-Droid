@@ -2,7 +2,7 @@ SHELL := /bin/bash
 ROOT := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 TOOLCHAIN := $(ROOT).toolchain
 
-.PHONY: help setup doctor build-mcp test-mcp run-mcp new-app build-app emulator screenshot warm-cache register clean distclean check-readme check-hygiene check-lifecycle
+.PHONY: help setup doctor build-mcp test-mcp run-mcp new-app build-app emulator screenshot warm-cache register clean distclean check-readme check-hygiene check-lifecycle update
 
 help:
 	@echo "android-mcp product targets:"
@@ -15,6 +15,7 @@ help:
 	@echo "  build-app    Build the app in APP_DIR (default ./my-app)"
 	@echo "  warm-cache   Populate the Gradle cache (enables offline builds)"
 	@echo "  register     Auto-register MCP + skills with OpenCode (global)"
+	@echo "  update       Safe fast-forward update: clean-tree check, install, build, verify"
 	@echo "  check-hygiene Verify source trees, root layout and ignore rules"
 	@echo "  check-lifecycle Validate the lifecycle manifest and coverage table"
 	@echo "  emulator     Boot the default AVD"
@@ -49,6 +50,8 @@ warm-cache:
 
 register:
 	bash scripts/register.sh
+update:
+	npm run update
 
 check-readme:
 	bash scripts/check-readme.sh

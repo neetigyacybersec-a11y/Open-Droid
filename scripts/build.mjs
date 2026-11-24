@@ -15,4 +15,11 @@ if (process.argv.includes("--print-command")) {
 }
 
 const result = spawnSync(process.execPath, args, { cwd: ROOT, stdio: "inherit" });
-process.exit(result.status ?? 1);
+if (result.status !== 0 || noEmit) process.exit(result.status ?? 1);
+// ISSUE-144: keep dist/build-manifest.json in step with the emitted sources.
+const manifest = spawnSync(
+  process.execPath,
+  [join(ROOT, "scripts", "build-manifest.mjs")],
+  { cwd: ROOT, stdio: "inherit" },
+);
+process.exit(manifest.status ?? 1);

@@ -21,12 +21,30 @@ MCP path tools require `ANDROID_MCP_WORKSPACE`; use a request-scoped grant for
 legitimate inputs outside it, and never overwrite a file without inspecting the
 exact target first.
 
+## Optional REA provider
+Open-Droid does not install or start the separate `rea` MCP. The JADX/apktool
+path below works without it, and `android_env_check` prints
+`rea provider: unavailable (optional external MCP; ...)` rather than pretending
+the capability exists. Install it only when a task needs native `.so`, Ghidra or
+packed-asset analysis:
+
+```bash
+npx -y rea-agents@6.3.0 setup --client opencode --yes
+# JADX-headless provider (bring-your-own JAR):
+export REA_JADX_MCP_JAR=/absolute/path/to/jadx-headless-mcp.jar
+```
+
+Restart the MCP client afterwards; a running server does not discover new
+providers. See `skills/reverse-engineer-anything/SKILL.md` for diagnostics and
+the CLI fallback.
+
 ## Phase 1 — Static (no device needed)
 
 - Decompile with `jadx` (Java/Kotlin) and `apktool` (resources/smali).
 - Inspect `AndroidManifest.xml`: package, permissions, components, intents, exported flags.
 - Read smali for the classes the manifest points at; search strings for URLs, keys, endpoints.
-- Use the `rea` MCP (Ghidra/JADX/binwalk) for native `.so` and packed assets.
+- Use the optional `rea` MCP (Ghidra/JADX/binwalk) for native `.so` and packed
+  assets when that provider is installed; JADX/apktool cover Java/Kotlin code.
 - Identify: entry activities, crypto routines, network clients, root/SSL checks, pinning.
 
 ## Phase 2 — Dynamic (emulator + Frida)
@@ -82,7 +100,7 @@ Boot an AVD (`emulator_boot`, `adb wait-for-device`), install the APK
 ## Tools (MCP + shell)
 - `adb_shell`, `adb_logcat`, `runtime_dump`, `frida_ps`, `frida_hook`,
   `frida_trace_methods`, `net_capture` (7 new).
-- `jadx`, `apktool`, `aapt2`, `rea` MCP for static/native.
+- `jadx`, `apktool`, `aapt2`; optional `rea` MCP for native/Ghidra analysis.
 
 ## When to use me
 - Analyzing a third-party or legacy APK.

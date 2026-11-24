@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { constants, readFileSync, unlinkSync } from "node:fs";
+import { constants, readFileSync, statSync, unlinkSync } from "node:fs";
 import { access, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve, basename, sep } from "node:path";
 import { checkWorkspacePath, createWorkspacePolicy } from "./workspace.js";
@@ -16,6 +16,7 @@ import {
   errorMessage,
 } from "./util.js";
 import { run, which } from "./services/process-runner.js";
+import { resolveGradleExecutable, runGradle, type GradleResolution } from "./gradleExecutable.js";
 import { spawnManaged } from "./services/managed-process.js";
 import {
   adbArgs,
@@ -93,7 +94,11 @@ export const ToolSchemas = {
       .describe("Allow replacing an existing outputPath (workspace policy denies by default)"),
   }),
   adbInstall: z.object({
-    apkPath: z.string(),
+    apkPath: z.string().optional().describe("One APK (legacy single-file install)"),
+    apkPaths: z
+      .array(z.string())
+      .optional()
+      .describe("Complete split set: base APK first, then every required split"),
     deviceId: z.string().optional(),
   }),
   adbLaunch: z.object({
@@ -624,30 +629,84 @@ export const ToolSchemas = {
 
 export type ToolName = keyof typeof ToolSchemas;
 
+// ISSUE-142: the REA MCP is an optional external provider. Report it as a
+// capability, not as part of the always-installed server.
+function reaProviderStatus(): string {
+  const jar = process.env.REA_JADX_MCP_JAR;
+  const setup =
+    "setup: npx -y rea-agents@6.3.0 setup --client opencode --yes, then restart the client";
+  // Advertise the tool ids even when unavailable so skills can discover the
+  // capability contract instead of assuming an installed provider (issue 142).
+  const tools = "tools: inspect_android_package, search_android_classes";
+  if (!jar) return `rea provider: unavailable (optional external MCP; ${tools}; ${setup})`;
+  try {
+    if (statSync(jar).isFile()) {
+      return `rea provider: configured (REA_JADX_MCP_JAR=${jar}; ${tools}; reconnect after setup)`;
+    }
+  } catch {
+    // Fall through to the missing-file message.
+  }
+  return `rea provider: unavailable (REA_JADX_MCP_JAR=${jar} is missing; ${tools}; fix the path or unset it)`;
+}
+
+// ISSUE-141: one table of every non-device capability a registered handler
+// invokes. Keeping the formatting here keeps handleEnvCheck simple as the
+// capability list grows.
+function capabilityLines(checks: Array<string | null>, gradle: GradleResolution): string[] {
+  const labels = [
+    "java",
+    "javac",
+    "gradle",
+    "adb",
+    "emulator",
+    "sdkmanager",
+    "maestro",
+    "compose-preview",
+    "android CLI",
+    // ISSUE-141: static analysis and dynamic analysis are handler inputs.
+    "aapt2",
+    "jadx",
+    "apktool",
+    "frida",
+    "frida-ps",
+    "mitmdump",
+  ];
+  const found: Array<string | null> = [
+    checks[0] ?? null,
+    checks[1] ?? null,
+    gradle.ok
+      ? `${gradle.executable.path} (source: ${gradle.executable.source})`
+      : `MISSING (${gradle.attempts.join("; ")})`,
+    ...checks.slice(2),
+  ];
+  return labels.map((label, index) => `${label}: ${found[index] ?? "MISSING"}`);
+}
+
 export async function handleEnvCheck() {
   const checks = await Promise.all([
     which("java"),
     which("javac"),
-    which("gradle"),
     which("adb"),
     which("emulator"),
     which("sdkmanager"),
     which("maestro"),
     which("compose-preview"),
     which("android"),
+    // ISSUE-141: every non-device dependency a registered handler invokes must
+    // be reported, not silently assumed from a successful server start.
+    which("aapt2"),
+    which("jadx"),
+    which("apktool"),
+    which("frida"),
+    which("frida-ps"),
+    which("mitmdump"),
   ]);
+  const gradle = resolveGradleExecutable();
   const lines = [
-    `java: ${checks[0] ?? "MISSING"}`,
-    `javac: ${checks[1] ?? "MISSING"}`,
-    `gradle: ${checks[2] ?? "MISSING"}`,
-    `adb: ${checks[3] ?? "MISSING"}`,
-    `emulator: ${checks[4] ?? "MISSING"}`,
-    `sdkmanager: ${checks[5] ?? "MISSING"}`,
-    `maestro: ${checks[6] ?? "MISSING"}`,
-    `compose-preview: ${checks[7] ?? "MISSING"}`,
-    `android CLI: ${checks[8] ?? "MISSING"}`,
+    ...capabilityLines(checks, gradle),
     `ANDROID_HOME: ${process.env.ANDROID_HOME ?? process.env.ANDROID_SDK_ROOT ?? "unset"}`,
     `JAVA_HOME: ${process.env.JAVA_HOME ?? "unset"}`,
+    reaProviderStatus(),
   ];
   // ISSUE-24: clients cache tools/list, so report the build this process loaded
   // and whether the on-disk build has moved since startup.
@@ -672,7 +731,7 @@ export async function handleGradle(args: z.infer<typeof ToolSchemas.gradle>) {
     };
   }
   const gradleArgs = [args.task, ...(args.offline ? ["--offline"] : []), ...(args.args ?? [])];
-  const r = await run("gradle", gradleArgs, { cwd: args.projectPath, timeout: 600_000 });
+  const r = await runGradle(gradleArgs, { cwd: args.projectPath, timeout: 600_000 });
   const out = `exit=${r.code}\n--- stdout ---\n${r.stdout.slice(-8000)}\n--- stderr ---\n${r.stderr.slice(-4000)}`;
   return { content: [{ type: "text" as const, text: out }], isError: r.code !== 0 };
 }
@@ -760,10 +819,48 @@ export async function handleAdbScreenshot(args: z.infer<typeof ToolSchemas.adbSc
   }
 }
 
+async function validateApkPaths(
+  paths: readonly string[],
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (paths.length === 0) return { ok: false, error: "No APK paths supplied." };
+  const seen = new Set<string>();
+  for (const path of paths) {
+    if (seen.has(path)) return { ok: false, error: `Duplicate APK path: ${path}` };
+    seen.add(path);
+    if (!path.toLowerCase().endsWith(".apk")) {
+      return { ok: false, error: `Not an .apk file: ${path}` };
+    }
+    try {
+      if (!(await stat(path)).isFile()) return { ok: false, error: `Not a file: ${path}` };
+    } catch {
+      return { ok: false, error: `APK not readable: ${path}` };
+    }
+  }
+  return { ok: true };
+}
+
 export async function handleAdbInstall(args: z.infer<typeof ToolSchemas.adbInstall>) {
-  const base = adbArgs(args.deviceId);
-  const r = await run("adb", [...base, "install", "-r", args.apkPath], { timeout: 300_000 });
-  return { content: [{ type: "text" as const, text: r.stdout + r.stderr }], isError: r.code !== 0 };
+  if (args.apkPath !== undefined && args.apkPaths !== undefined) {
+    return {
+      content: [{ type: "text" as const, text: "Pass either apkPath or apkPaths, not both." }],
+      isError: true,
+    };
+  }
+  const paths = args.apkPaths ?? (args.apkPath ? [args.apkPath] : []);
+  const valid = await validateApkPaths(paths);
+  if (!valid.ok) {
+    return { content: [{ type: "text" as const, text: valid.error }], isError: true };
+  }
+  const split = args.apkPaths !== undefined;
+  const command = split ? ["install-multiple", "-r", ...paths] : ["install", "-r", paths[0]];
+  const r = await run("adb", [...adbArgs(args.deviceId), ...command], { timeout: 300_000 });
+  let out = r.stdout + r.stderr;
+  if (!split && /INSTALL_FAILED_MISSING_SPLIT|required split/i.test(out)) {
+    out +=
+      "\nThe base APK declares required splits. Pass the complete base + config set " +
+      "via apkPaths (adb install-multiple -r), or install an .apks archive with bundletool.";
+  }
+  return { content: [{ type: "text" as const, text: out }], isError: r.code !== 0 };
 }
 
 export async function handleAdbLaunch(args: z.infer<typeof ToolSchemas.adbLaunch>) {
@@ -1127,6 +1224,15 @@ export async function handleSkillsList() {
   if (cli) {
     const r = await run(cli, ["skills", "list"]);
     if (r.code === 0) return { content: [{ type: "text" as const, text: r.stdout }] };
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: `Android CLI at ${cli} could not list skills: ${(r.stderr || r.stdout).trim() || `exit ${r.code}`}`,
+        },
+      ],
+      isError: true,
+    };
   }
   // fallback: try npx android-skills-mcp? just report
   return {
@@ -1142,8 +1248,20 @@ export async function handleSkillsList() {
 export async function handleSkillsSearch(args: z.infer<typeof ToolSchemas.skillsSearch>) {
   const cli = await which("android");
   if (cli) {
-    const r = await run(cli, ["skills", "search", args.query]);
+    // The Android CLI renamed `skills search` to `skills find`; keep the
+    // old subcommand as a fallback for installed older versions.
+    let r = await run(cli, ["skills", "find", args.query]);
+    if (r.code !== 0) r = await run(cli, ["skills", "search", args.query]);
     if (r.code === 0) return { content: [{ type: "text" as const, text: r.stdout }] };
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: `Android CLI at ${cli} could not search skills for "${args.query}": ${(r.stderr || r.stdout).trim() || `exit ${r.code}`}`,
+        },
+      ],
+      isError: true,
+    };
   }
   return {
     content: [
@@ -1549,7 +1667,7 @@ export async function handleFridaTraceMethods(args: z.infer<typeof ToolSchemas.f
 
 export async function handleGradleTest(a: z.infer<typeof ToolSchemas.gradleTest>) {
   const args = [":app:test", ...(a.offline ? ["--offline"] : []), ...(a.args ?? [])];
-  const r = await run("gradle", args, { cwd: a.projectPath, timeout: 600_000 });
+  const r = await runGradle(args, { cwd: a.projectPath, timeout: 600_000 });
   return {
     content: [
       {
@@ -1562,7 +1680,7 @@ export async function handleGradleTest(a: z.infer<typeof ToolSchemas.gradleTest>
 }
 export async function handleGradleLint(a: z.infer<typeof ToolSchemas.gradleLint>) {
   const args = [":app:lint", ...(a.offline ? ["--offline"] : []), ...(a.args ?? [])];
-  const r = await run("gradle", args, { cwd: a.projectPath, timeout: 600_000 });
+  const r = await runGradle(args, { cwd: a.projectPath, timeout: 600_000 });
   return {
     content: [
       {
@@ -1574,8 +1692,7 @@ export async function handleGradleLint(a: z.infer<typeof ToolSchemas.gradleLint>
   };
 }
 export async function handleGradleDependencies(a: z.infer<typeof ToolSchemas.gradleDependencies>) {
-  const r2 = await run(
-    "gradle",
+  const r2 = await runGradle(
     ["dependencies", "--configuration", a.configuration || "debugRuntimeClasspath"],
     { cwd: a.projectPath, timeout: 300_000 },
   );
@@ -1614,7 +1731,7 @@ export async function handleBuildVariant(a: z.infer<typeof ToolSchemas.buildVari
   // Discover assemble tasks so an unknown flavor fails before a build is
   // attempted. Discovery is best-effort: a project whose task listing fails
   // still gets the deterministic mapping and Gradle's own task error.
-  const discovery = await run("gradle", [`${module}:tasks`, "--all", "-q"], {
+  const discovery = await runGradle([`${module}:tasks`, "--all", "-q"], {
     cwd: a.projectPath,
     timeout: 180_000,
   });
@@ -1647,7 +1764,7 @@ export async function handleBuildVariant(a: z.infer<typeof ToolSchemas.buildVari
     };
   }
   const args = [task, ...(a.offline ? ["--offline"] : []), ...(a.args ?? [])];
-  const r = await run("gradle", args, { cwd: a.projectPath, timeout: 600_000 });
+  const r = await runGradle(args, { cwd: a.projectPath, timeout: 600_000 });
   return {
     content: [
       {
@@ -1662,7 +1779,7 @@ export async function handleBaselineProfileGenerate(
   a: z.infer<typeof ToolSchemas.baselineProfileGenerate>,
 ) {
   const args = [`${a.module}:connectedAndroidTest`, ...(a.args ?? [])];
-  const r = await run("gradle", args, { cwd: a.projectPath, timeout: 900_000 });
+  const r = await runGradle(args, { cwd: a.projectPath, timeout: 900_000 });
   return {
     content: [
       {
@@ -2823,7 +2940,7 @@ export async function handleInstrumentedTest(a: z.infer<typeof ToolSchemas.instr
     ...(a.offline ? ["--offline"] : []),
     ...(a.args ?? []),
   ];
-  const r = await run("gradle", args, { cwd: a.projectPath, timeout: 900_000 });
+  const r = await runGradle(args, { cwd: a.projectPath, timeout: 900_000 });
   return {
     content: [
       {
@@ -2835,7 +2952,7 @@ export async function handleInstrumentedTest(a: z.infer<typeof ToolSchemas.instr
   };
 }
 export async function handleTestCoverage(a: z.infer<typeof ToolSchemas.testCoverage>) {
-  const r = await run("gradle", [`${a.module}:testDebugUnitTestCoverage`], {
+  const r = await runGradle([`${a.module}:testDebugUnitTestCoverage`], {
     cwd: a.projectPath,
     timeout: 600_000,
   });
@@ -2851,7 +2968,7 @@ export async function handleTestCoverage(a: z.infer<typeof ToolSchemas.testCover
 }
 export async function handleMacrobenchmark(a: z.infer<typeof ToolSchemas.macrobenchmark>) {
   const args = [`${a.module}:connectedAndroidTest`, ...(a.args ?? [])];
-  const r = await run("gradle", args, { cwd: a.projectPath, timeout: 900_000 });
+  const r = await runGradle(args, { cwd: a.projectPath, timeout: 900_000 });
   return {
     content: [
       {

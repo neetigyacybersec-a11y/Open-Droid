@@ -105,11 +105,7 @@ test("workspace checks the nearest existing parent for non-existent outputs", ()
       checkWorkspacePath(policy, join(f.root, "build/reports/new/report.md"), "write").ok,
       true,
     );
-    const escaped = checkWorkspacePath(
-      policy,
-      join(f.outside, "new", "report.md"),
-      "write",
-    );
+    const escaped = checkWorkspacePath(policy, join(f.outside, "new", "report.md"), "write");
     assert.equal(escaped.ok, false);
     assert.equal(escaped.reason, "outside-workspace");
   } finally {
@@ -196,30 +192,48 @@ test("an implicit home or filesystem root is not accepted as a workspace", () =>
 });
 
 test("containment handles Windows drives, UNC paths, case and spaces", () => {
-  assert.equal(isPathInside("C:\\Work", "c:\\work\\app\\Main.kt", {
-    pathApi: win32,
-    caseInsensitive: true,
-  }), true);
-  assert.equal(isPathInside("C:\\Work", "C:\\Work2\\Main.kt", {
-    pathApi: win32,
-    caseInsensitive: true,
-  }), false);
-  assert.equal(isPathInside("C:\\Work", "c:\\work\\app", {
-    pathApi: win32,
-    caseInsensitive: false,
-  }), false);
-  assert.equal(isPathInside("\\\\server\\share", "\\\\server\\share\\a b\\x", {
-    pathApi: win32,
-    caseInsensitive: true,
-  }), true);
-  assert.equal(isPathInside("\\\\server\\share", "\\\\server\\share2\\x", {
-    pathApi: win32,
-    caseInsensitive: true,
-  }), false);
-  assert.equal(isPathInside("/home/user/My Project", "/home/user/My Project/app", {
-    pathApi: posix,
-    caseInsensitive: false,
-  }), true);
+  assert.equal(
+    isPathInside("C:\\Work", "c:\\work\\app\\Main.kt", {
+      pathApi: win32,
+      caseInsensitive: true,
+    }),
+    true,
+  );
+  assert.equal(
+    isPathInside("C:\\Work", "C:\\Work2\\Main.kt", {
+      pathApi: win32,
+      caseInsensitive: true,
+    }),
+    false,
+  );
+  assert.equal(
+    isPathInside("C:\\Work", "c:\\work\\app", {
+      pathApi: win32,
+      caseInsensitive: false,
+    }),
+    false,
+  );
+  assert.equal(
+    isPathInside("\\\\server\\share", "\\\\server\\share\\a b\\x", {
+      pathApi: win32,
+      caseInsensitive: true,
+    }),
+    true,
+  );
+  assert.equal(
+    isPathInside("\\\\server\\share", "\\\\server\\share2\\x", {
+      pathApi: win32,
+      caseInsensitive: true,
+    }),
+    false,
+  );
+  assert.equal(
+    isPathInside("/home/user/My Project", "/home/user/My Project/app", {
+      pathApi: posix,
+      caseInsensitive: false,
+    }),
+    true,
+  );
 });
 
 test("workspace policies are immutable and independent", () => {
@@ -267,6 +281,39 @@ test("concurrent requests cannot leak workspace context", async () => {
   } finally {
     rmSync(a.base, { recursive: true, force: true });
     rmSync(b.base, { recursive: true, force: true });
+  }
+});
+
+test("array path fields are authorized per item and canonicalized for the handler", async () => {
+  const f = fixture();
+  try {
+    const policy = policyFor(f);
+    const first = join(f.root, "app/src/Main.kt");
+    const second = join(f.root, "app/src", "..", "src", "Main.kt");
+    let seen;
+    const handler = async (args) => {
+      seen = args;
+      return { content: [{ type: "text", text: "ok" }], isError: false };
+    };
+    const allowed = await runWithBoundary(
+      "adb_install",
+      { apkPaths: [first, second] },
+      handler,
+      boundaryOptions(policy),
+    );
+    assert.equal(allowed.isError, false);
+    assert.deepEqual(seen.apkPaths, [first, first]);
+
+    const denied = await runWithBoundary(
+      "adb_install",
+      { apkPaths: [first, join(f.outside, "secret.apk")] },
+      handler,
+      boundaryOptions(policy),
+    );
+    assert.equal(denied.isError, true);
+    assert.match(denied.content[0].text, /outside-workspace/);
+  } finally {
+    rmSync(f.base, { recursive: true, force: true });
   }
 });
 
@@ -370,7 +417,11 @@ test("cleanup removes a managed tree without following symlinks out of it", asyn
     await cleanup(junk);
     assert.equal(existsSync(junk), false, "managed directory is removed");
     assert.equal(existsSync(join(f.outside, "secret.txt")), true, "symlink target survives");
-    assert.equal(readFileSync(join(f.root, "untracked.txt"), "utf8"), "user file", "sibling user files survive");
+    assert.equal(
+      readFileSync(join(f.root, "untracked.txt"), "utf8"),
+      "user file",
+      "sibling user files survive",
+    );
   } finally {
     rmSync(f.base, { recursive: true, force: true });
   }
@@ -516,9 +567,17 @@ test("successful results carry an untrusted provenance envelope and sanitized te
     assert.match(text, /\[android-mcp:untrusted-data/);
     assert.match(text, /ignore previous instructions/, "payload is preserved as evidence");
     assert.doesNotMatch(text, /\u001b/, "terminal escapes are stripped");
-    assert.doesNotMatch(text, /\n\[\/android-mcp:untrusted-data\]\n/, "payload cannot forge the end marker");
+    assert.doesNotMatch(
+      text,
+      /\n\[\/android-mcp:untrusted-data\]\n/,
+      "payload cannot forge the end marker",
+    );
     assert.match(text, /\[escaped:\/android-mcp:untrusted-data\]/, "forged marker is neutralized");
-    assert.match(text, /\n\[\/android-mcp:untrusted-data\]$/, "only the real frame closes the data");
+    assert.match(
+      text,
+      /\n\[\/android-mcp:untrusted-data\]$/,
+      "only the real frame closes the data",
+    );
     assert.equal(result._meta.provenance.trust, "untrusted-data");
     assert.equal(result._meta.provenance.untrusted, true);
     assert.equal(result._meta.provenance.source, "build");

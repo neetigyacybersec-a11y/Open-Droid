@@ -90,6 +90,29 @@ Wire into OpenCode (`~/.config/opencode/opencode.jsonc`):
 
 ---
 
+## Quick start — native installer
+
+The first-party installer works from a checkout or extracted release artifact on
+Windows (PowerShell only), macOS and Linux. It shows an explicit plan before it
+changes anything:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -Profile Core -DryRun
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -Profile Core -Yes
+```
+
+```bash
+bash scripts/install.sh --profile core --dry-run   # or --profile full / custom --capabilities jadx,frida
+```
+
+`Core` installs required dependencies only, `Full` adds every supported optional
+capability, and `Custom` takes an explicit capability list. Optional capabilities
+that cannot be provided on the current platform are reported as UNAVAILABLE,
+never silently dropped. Installed components and their owned paths are recorded
+in `.toolchain/install-manifest.json` for `doctor`, `update`, export and
+uninstall. See [docs/windows.md](docs/windows.md) and
+[docs/agent-install.md](docs/agent-install.md).
+
 ## Quick start — Clone + setup (automatic registration)
 
 > **Prerequisites** (what the README assumes on the host): `git`, `node >= 22`
@@ -126,7 +149,16 @@ What `make setup` does automatically:
    discovered everywhere.
 5. Creates the project-level `.opencode/` config + skills symlink for repo-local use.
 
-Refresh registration any time with `make register`.
+Refresh registration any time with `make register`. Update an existing checkout
+with `npm run update` (or `make update`): it refuses dirty, detached or diverged
+trees, fast-forwards, then runs install, build, verify and registration.
+
+Gradle-backed tools find their launcher without a prepared shell: they check
+`ANDROID_MCP_GRADLE_HOME`, then `ANDROID_GRADLE_HOME`, the bundled
+`.toolchain/gradle`, `GRADLE_HOME`, and finally `PATH`. On Windows the bundled
+`bin\gradle.bat` is invoked through `cmd.exe` with quoted argv. Nothing needs to
+be added to the global Windows environment; `android_env_check` prints the
+resolved path and which source won.
 
 ---
 
@@ -197,6 +229,29 @@ installation, registration, and verification.
 | Profiling | 3 | `perfetto_trace`, `memory_profile`, `startup_time` |
 | Privacy | 1 | `privacy_scan` |
 | Security | 3 | `secret_scan`, `security_audit`, `policy_preflight` |
+
+### Installing split APK sets
+
+`adb_install` takes either one `apkPath` (an `adb install -r`) or an `apkPaths`
+array of base plus split APKs (an `adb install-multiple -r`). Paths are
+canonicalized and workspace-authorized individually; duplicates, empty arrays
+and paths outside approved roots are rejected before any device call. AAB files
+are not APK sets — build an APK set from them first (for example with
+`bundletool`) and pass the resulting `.apk` files:
+
+```jsonc
+{
+  "apkPaths": [
+    "/workspace/app/build/outputs/apk/base.apk",
+    "/workspace/app/build/outputs/apk/split_arm64_v8a.apk",
+    "/workspace/app/build/outputs/apk/split_en.apk"
+  ]
+}
+```
+
+If the device reports a missing split, the error names the failed install and
+suggests re-exporting the complete set; it does not silently retry with a
+partial install.
 | Safety | 1 | `android_project_checkpoint` |
 | Skills | 2 | `android_skills_list`, `android_skills_search` |
 | Catalogue | 1 | `tool_catalog` (safe-only discovery with risk and approval metadata) |
@@ -376,6 +431,16 @@ Pre-commit hook runs `build` + `test`.
 ```bash
 docker build -t open-droid:latest .
 docker run -i --rm open-droid:latest
+```
+
+The runtime image contains all non-device handler dependencies — Gradle, the
+Android SDK build-tools (`aapt2`), JADX, apktool, Compose Preview CLI, Android
+CLI, Maestro, the pinned Frida/mitmproxy venv and both `frida-server` ABIs.
+Versions and upstream checksums come from `versions.env`, shared with
+`scripts/setup.sh`. Verify a built image with:
+
+```bash
+docker run --rm --entrypoint bash open-droid:latest scripts/docker-smoke.sh
 ```
 
 > **Limitation:** the container cannot run the Android emulator. Docker Desktop on

@@ -25,6 +25,10 @@ if command -v maestro >/dev/null 2>&1 || { [ "$OS_KIND" = "win" ] && present "ma
 for c in compose-preview android; do
   if present "$c"; then echo "OK   $c (optional)"; else echo "MISS $c (optional)"; fi
 done
+# ISSUE-141: apk_info/apk_decompile call these directly; report them honestly.
+for c in aapt2 jadx apktool; do
+  if present "$c"; then echo "OK   $c (static analysis)"; else echo "MISS $c (static analysis)"; fi
+done
 # dynamic analysis (frida + mitmproxy via .toolchain/python-venv, frida-server binaries)
 for c in frida frida-ps mitmdump; do
   if present "$c"; then echo "OK   $c (dynamic)"; else warn "$c missing (optional; dynamic analysis unavailable)"; fi
@@ -45,7 +49,17 @@ echo "ANDROID_HOME=${ANDROID_HOME:-unset}"
 echo "JAVA_HOME=${JAVA_HOME:-unset}"
 echo "GRADLE_USER_HOME=${GRADLE_USER_HOME:-unset}"
 echo "node=$(node -v 2>/dev/null)  npm=$(npm -v 2>/dev/null)"
-[ -f "$ROOT/dist/index.js" ] && echo "MCP build: present" || { echo "MCP build: MISSING (run npm run build)"; fail=1; }
+if command -v node >/dev/null 2>&1; then
+  if BUILD_LINE="$(node "$ROOT/scripts/build-state.mjs" 2>&1)"; then
+    echo "MCP $BUILD_LINE"
+  else
+    echo "MCP $BUILD_LINE"
+    fail=1
+  fi
+else
+  echo "MCP build: UNKNOWN (node missing)"
+  fail=1
+fi
 [ -d "$TOOLCHAIN/android-skills/.git" ] && echo "android/skills: cloned" || echo "android/skills: not cloned (optional)"
 
 # KVM / emulator readiness (Linux; other OSes use their own hypervisors)

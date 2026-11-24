@@ -28,4 +28,11 @@ if [ -z "$NODE_BIN" ]; then
   exit 1
 fi
 
+# ISSUE-144: never serve a dist/ that predates the current TypeScript sources.
+if [ -f "$ROOT/scripts/build-state.mjs" ]; then
+  if ! "$NODE_BIN" "$ROOT/scripts/build-state.mjs" --require-current --quiet >&2; then
+    echo "Refusing to start: rebuild with 'npm run build' (or 'node scripts/build.mjs')." >&2
+    exit 1
+  fi
+fi
 exec "$NODE_BIN" "$ROOT/dist/index.js"

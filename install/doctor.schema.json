@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/neetigyacybersec-a11y/Open-Droid/blob/main/install/doctor.schema.json",
+  "title": "Open-Droid doctor report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "generatedAt", "platform", "installation", "build", "capabilities", "registeredTools", "runnableTools", "device", "registration", "summary"],
+  "properties": {
+    "schema": { "const": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "platform": {
+      "type": "object",
+      "required": ["os", "arch"],
+      "additionalProperties": false,
+      "properties": { "os": { "type": "string" }, "arch": { "type": "string" } }
+    },
+    "installation": {
+      "type": "object",
+      "required": ["root", "profile", "version", "sourceCommit", "manifestPresent"],
+      "additionalProperties": false,
+      "properties": {
+        "root": { "type": "string" },
+        "profile": { "type": ["string", "null"] },
+        "version": { "type": ["string", "null"] },
+        "sourceCommit": { "type": ["string", "null"] },
+        "manifestPresent": { "type": "boolean" }
+      }
+    },
+    "build": {
+      "type": "object",
+      "required": ["state", "detail"],
+      "additionalProperties": false,
+      "properties": {
+        "state": { "enum": ["missing", "stale", "current"] },
+        "detail": { "type": "string" }
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "required", "status", "path", "onPath", "managed", "version", "provenance", "diagnostic"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "required": { "type": "boolean" },
+          "status": { "enum": ["ok", "path-only", "missing", "optional-missing", "unavailable"] },
+          "path": { "type": ["string", "null"] },
+          "onPath": { "type": ["string", "null"] },
+          "managed": { "type": ["string", "null"] },
+          "version": { "type": ["string", "null"] },
+          "provenance": { "enum": ["host", "managed", "none"] },
+          "diagnostic": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "registeredTools": { "type": "array", "items": { "type": "string" } },
+    "runnableTools": { "type": "array", "items": { "type": "string" } },
+    "device": {
+      "type": "object",
+      "required": ["status", "adb", "emulator", "diagnostic"],
+      "additionalProperties": false,
+      "properties": {
+        "status": { "enum": ["absent", "present"] },
+        "adb": { "type": ["string", "null"] },
+        "emulator": { "type": ["string", "null"] },
+        "diagnostic": { "type": "string" }
+      }
+    },
+    "registration": {
+      "type": "object",
+      "required": ["status", "clients", "restartRequired"],
+      "additionalProperties": false,
+      "properties": {
+        "status": { "enum": ["unknown", "ok", "drift", "missing"] },
+        "clients": { "type": "array", "items": { "type": "string" } },
+        "restartRequired": { "type": "boolean" }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["ok", "missing", "unavailable"],
+      "additionalProperties": false,
+      "properties": {
+        "ok": { "type": "boolean" },
+        "missing": { "type": "array", "items": { "type": "string" } },
+        "unavailable": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

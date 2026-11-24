@@ -2,3 +2,10 @@ node_modules
 dist
 .git
 *.md
+# ISSUE-141: the vendored host toolchain is populated by `make setup` and is
+# both large and host-architecture specific. The image installs its own pinned
+# copies from versions.env; never send 9 GB of host binaries as build context.
+.toolchain
+# Local agent configuration can hold user-specific paths or credentials.
+.opencode
+screenshots

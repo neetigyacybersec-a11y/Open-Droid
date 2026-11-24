@@ -319,16 +319,16 @@ Tap the screen, swipe, type text, or send a key event on the device (input injec
 
 ### `adb_install`
 
-Install an APK (app package) on a connected device or emulator.
+Install an APK or a complete split APK set on a connected device or emulator.
 
 - Impact: `device-state`
 - Policy key: `device.app.install`
 - Preconditions: An authorised Android device or emulator is connected and visible to adb; ANDROID_MCP_WORKSPACE covers the project, APK or output path used
 - Side effects: `device-write`, `host-read`, `process-spawn`
-- Path arguments: `apkPath` (read)
+- Path arguments: `apkPath` (read), `apkPaths` (read)
 - Safer alternative: Install through Android Studio's Run configuration
 - Verification: npm test — smoke registration; installation needs a device
-- Tests: `test/smoke.test.mjs`
+- Tests: `test/smoke.test.mjs`, `test/adb-install.test.mjs`
 
 ### `adb_launch`
 
