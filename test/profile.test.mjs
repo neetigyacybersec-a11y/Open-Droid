@@ -33,7 +33,7 @@ function fixture(name) {
 
 test("export is versioned, capability-aware and free of paths or secrets", () => {
   const { root, installRoot } = fixture("export");
-  const profile = exportProfile({ root, installRoot, platform: "linux" });
+  const profile = exportProfile({ root, installRoot });
   assert.equal(profile.schema, 1);
   assert.equal(profile.profile, "full");
   assert.deepEqual(profile.capabilities.sort(), ["frida", "gradle"]);
@@ -41,13 +41,14 @@ test("export is versioned, capability-aware and free of paths or secrets", () =>
   assert.match(profile.digest, /^[0-9a-f]{64}$/);
   const serialized = JSON.stringify(profile);
   assert.doesNotMatch(serialized, /\/home\/|\/tmp\/|token|password|api[_-]?key/i);
-  validateProfile(profile, { platform: "linux", arch: process.arch });
+  validateProfile(profile, { platform: process.platform, arch: process.arch });
 });
 
 test("import validates schema, platform, capabilities and hostile fields", () => {
-  const base = exportProfile({ ...fixture("validate"), platform: "linux" });
+  const hostOs = process.platform;
+  const base = exportProfile({ ...fixture("validate"), platform: hostOs });
   assert.throws(() => validateProfile({ ...base, schema: 999 }), /unsupported profile version/);
-  const otherOs = process.platform === "win32" ? "linux" : "win32";
+  const otherOs = hostOs === "win32" ? "linux" : "win32";
   assert.throws(() => validateProfile({ ...base, platform: { os: otherOs, arch: "x64" } }), /platform mismatch/);
   assert.throws(() => validateProfile({ ...base, capabilities: ["nope"] }), /unknown capabilities/);
   assert.throws(() => validateProfile({ ...base, api_token: "x" }), /secret-like field/);
@@ -59,8 +60,11 @@ test("import rejects malformed JSON and requires a reviewable confirmation", asy
   const { root, installRoot } = fixture("import");
   const file = join(root, "profile.json");
   writeFileSync(file, "{ broken");
-  await assert.rejects(() => importProfile({ file, root, installRoot, platform: "linux" }), /invalid profile JSON/);
-  const profile = exportProfile({ root, installRoot, platform: "linux" });
+  await assert.rejects(
+    () => importProfile({ file, root, installRoot, platform: process.platform }),
+    /invalid profile JSON/,
+  );
+  const profile = exportProfile({ root, installRoot, platform: process.platform });
   profile.capabilities = ["gradle", "jadx"];
   profile.pins.GRADLE_VERSION = "8.11.0";
   writeFileSync(file, JSON.stringify(profile));
@@ -68,7 +72,7 @@ test("import rejects malformed JSON and requires a reviewable confirmation", asy
     file,
     root,
     installRoot,
-    platform: "linux",
+    platform: process.platform,
     install: async () => {
       throw new Error("installer must not run without confirmation");
     },
@@ -82,13 +86,13 @@ test("import rejects malformed JSON and requires a reviewable confirmation", asy
 test("confirmed import uses the normal installer with the reviewed pins", async () => {
   const { root, installRoot } = fixture("apply");
   const file = join(root, "profile.json");
-  writeFileSync(file, JSON.stringify(exportProfile({ root, installRoot, platform: "linux" })));
+  writeFileSync(file, JSON.stringify(exportProfile({ root, installRoot, platform: process.platform })));
   let seen = null;
   const result = await importProfile({
     file,
     root,
     installRoot,
-    platform: "linux",
+    platform: process.platform,
     confirm: true,
     install: async (options) => {
       seen = options;
