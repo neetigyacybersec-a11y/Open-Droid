@@ -65,8 +65,9 @@ test("unit suite is discovered and executed via gradle testDebugUnitTest", async
     assert.equal(report.suites[0].name, "unit");
     assert.equal(report.suites[0].status, "ran");
     assert.equal(report.suites[0].exitCode, 0);
-    assert.ok(calls[0].cmd.endsWith("gradle") || calls[0].cmd === "gradle", `gradle invoked, got ${calls[0].cmd}`);
-    assert.match(calls[0].args.join(" "), /:app:testDebugUnitTest/);
+    // ISSUE-146: on Windows the resolved invocation is `cmd.exe /d /s /c "<argv>"`.
+    const cmdline = [calls[0].cmd, ...calls[0].args].join(" ");
+    assert.match(cmdline, /gradle.*:app:testDebugUnitTest/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -211,8 +212,10 @@ test("offline flag and gradleArgs are appended to gradle commands", async () => 
   try {
     const { runner, calls } = fakeRunner(() => ({ code: 0 }));
     await runSuite({ projectPath: root, offline: true, gradleArgs: ["--no-daemon"] }, runner);
-    assert.ok(calls[0].args.includes("--offline"), "offline appended");
-    assert.ok(calls[0].args.includes("--no-daemon"), "extra gradle args appended");
+    const cmdline = [calls[0].cmd, ...calls[0].args].join(" ");
+    assert.match(cmdline, /gradle.*:app:testDebugUnitTest/);
+    assert.match(cmdline, /--offline/, "offline appended");
+    assert.match(cmdline, /--no-daemon/, "extra gradle args appended");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

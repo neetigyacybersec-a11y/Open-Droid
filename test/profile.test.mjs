@@ -47,7 +47,8 @@ test("export is versioned, capability-aware and free of paths or secrets", () =>
 test("import validates schema, platform, capabilities and hostile fields", () => {
   const base = exportProfile({ ...fixture("validate"), platform: "linux" });
   assert.throws(() => validateProfile({ ...base, schema: 999 }), /unsupported profile version/);
-  assert.throws(() => validateProfile({ ...base, platform: { os: "win32", arch: "x64" } }), /platform mismatch/);
+  const otherOs = process.platform === "win32" ? "linux" : "win32";
+  assert.throws(() => validateProfile({ ...base, platform: { os: otherOs, arch: "x64" } }), /platform mismatch/);
   assert.throws(() => validateProfile({ ...base, capabilities: ["nope"] }), /unknown capabilities/);
   assert.throws(() => validateProfile({ ...base, api_token: "x" }), /secret-like field/);
   assert.throws(() => validateProfile({ ...base, pins: { HOME: "/etc/passwd" } }), /machine-specific path/);

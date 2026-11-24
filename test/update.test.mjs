@@ -6,7 +6,11 @@ import { spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { test } from "node:test";
+import { test as nodeTest, skip } from "node:test";
+// The npm stub uses POSIX /bin/sh scripts; Windows CI covers these paths with
+// the Linux run (same convention as test/tools.test.mjs).
+const posixTest = (name, fn) => (process.platform === "win32" ? skip(name, fn) : nodeTest(name, fn));
+const test = nodeTest;
 const REPO = resolve(import.meta.dirname, "..");
 const UPDATE = join(REPO, "scripts", "update.mjs");
 const GIT_ENV = {
@@ -73,7 +77,7 @@ function update(work, bin) {
     env: { ...GIT_ENV, PATH: `${bin}:${process.env.PATH ?? ""}` },
   });
 }
-test("dirty, staged and untracked trees abort without touching the checkout", () => {
+posixTest("dirty, staged and untracked trees abort without touching the checkout", () => {
   for (const kind of ["unstaged", "staged", "untracked"]) {
     const f = fixture();
     try {
@@ -96,7 +100,7 @@ test("dirty, staged and untracked trees abort without touching the checkout", ()
     }
   }
 });
-test("a clean checkout fast-forwards and runs install, build and verify in order", () => {
+posixTest("a clean checkout fast-forwards and runs install, build and verify in order", () => {
   const f = fixture();
   try {
     advance(f.seed);
@@ -112,7 +116,7 @@ test("a clean checkout fast-forwards and runs install, build and verify in order
     rmSync(f.base, { recursive: true, force: true });
   }
 });
-test("a diverged branch aborts before install or build", () => {
+posixTest("a diverged branch aborts before install or build", () => {
   const f = fixture();
   try {
     writeFileSync(join(f.work, "local.txt"), "local\n");
@@ -130,7 +134,7 @@ test("a diverged branch aborts before install or build", () => {
     rmSync(f.base, { recursive: true, force: true });
   }
 });
-test("detached HEAD and fetch failure abort safely", () => {
+posixTest("detached HEAD and fetch failure abort safely", () => {
   const f = fixture();
   try {
     git(f.work, ["checkout", "--detach", "HEAD"]);
@@ -148,7 +152,7 @@ test("detached HEAD and fetch failure abort safely", () => {
     rmSync(f.base, { recursive: true, force: true });
   }
 });
-test("a failing build stage stops before verify and reports the stage", () => {
+posixTest("a failing build stage stops before verify and reports the stage", () => {
   const f = fixture();
   try {
     advance(f.seed);
@@ -161,7 +165,7 @@ test("a failing build stage stops before verify and reports the stage", () => {
     rmSync(f.base, { recursive: true, force: true });
   }
 });
-test("an up-to-date checkout does not run install/build", () => {
+posixTest("an up-to-date checkout does not run install/build", () => {
   const f = fixture();
   try {
     const stub = npmStub(f.base);
