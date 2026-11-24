@@ -930,6 +930,11 @@ function analyzeNpmManifest(path, status, oldText, newText, findings) {
       ...Object.keys(newScriptMap),
     ].filter((key) => JSON.stringify(oldScriptMap[key]) !== JSON.stringify(newScriptMap[key])));
     const hooks = [...changedKeys].filter((key) => lifecycle.has(key));
+    // Removing a hook cannot add automatic execution; only additions or
+    // changed hook bodies are high risk.
+    const riskyHooks = hooks.filter(
+      (key) => key in newScriptMap && oldScriptMap[key] !== newScriptMap[key],
+    );
     findings.push(
       makeFinding({
         file: path,
@@ -941,10 +946,12 @@ function analyzeNpmManifest(path, status, oldText, newText, findings) {
         coordinate: "scripts",
         oldValue: oldScripts,
         newValue: newScripts,
-        risk: hooks.length > 0 ? "high" : "low",
-        reason: hooks.length > 0
-          ? `npm lifecycle scripts (${hooks.join(", ")}) execute automatically and must be reviewed.`
-          : `Explicit scripts changed (${[...changedKeys].join(", ") || "entries"}); no install/publish lifecycle hook was modified.`,
+        risk: riskyHooks.length > 0 ? "high" : "low",
+        reason: riskyHooks.length > 0
+          ? `npm lifecycle scripts (${riskyHooks.join(", ")}) execute automatically and must be reviewed.`
+          : hooks.length > 0
+            ? `Lifecycle hook removed (${hooks.join(", ")}); no automatic execution was added.`
+            : `Explicit scripts changed (${[...changedKeys].join(", ") || "entries"}); no install/publish lifecycle hook was modified.`,
         evidence: { pointer: pointer(["scripts"]) },
         details: { hooks },
       }),

@@ -34,7 +34,7 @@ test("create, verify and roll back a generation without touching user files", ()
   const verified = verifyGeneration(join(root, ".toolchain"), generation.id);
   assert.equal(verified.verified, true);
   const result = rollbackGeneration(join(root, ".toolchain"), { id: generation.id, verify: false });
-  assert.equal(result.restored[0], ".toolchain/gradle");
+  assert.equal(result.restored[0], join(".toolchain", "gradle"));
   assert.equal(readFileSync(join(root, ".toolchain", "gradle", "healthy"), "utf8"), "v1");
   assert.equal(readFileSync(join(root, "projects", "my-app", "Main.kt"), "utf8"), "user work");
   const history = readFileSync(join(root, ".toolchain", "generations", "rollback-history.jsonl"), "utf8");

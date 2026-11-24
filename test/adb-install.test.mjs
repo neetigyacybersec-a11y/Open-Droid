@@ -25,6 +25,7 @@ const { test: nodeTest, skip } = await import("node:test");
 // POSIX shell stubs cannot be spawned on Windows; full coverage runs in the
 // Linux CI job, matching the convention used by test/tools.test.mjs.
 const test = process.platform === "win32" ? (name, fn) => skip(name, fn) : nodeTest;
+test.after = nodeTest.after;
 const { handleAdbInstall } = await import("../dist/tools.js");
 function apk(name) {
   const path = join(work, name);

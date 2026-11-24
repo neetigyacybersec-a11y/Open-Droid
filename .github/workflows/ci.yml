@@ -119,6 +119,12 @@ jobs:
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
         with:
           packages: "platforms;android-35 build-tools;35.0.0 platform-tools"
+      - name: Pin Gradle 8.10.2
+        run: |
+          curl -fsSL https://services.gradle.org/distributions/gradle-8.10.2-bin.zip -o "$RUNNER_TEMP/gradle.zip"
+          echo "31c55713e40233a8303827ceb42ca48a47267a0ad4bab9177123121e71524c26  $RUNNER_TEMP/gradle.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/gradle.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/gradle-8.10.2/bin" >> "$GITHUB_PATH"
       - name: Build, unit-test, lint (${{ matrix.app-dir }})
         # Roborazzi verify: apps without goldens/Roborazzi ignore the property;
         # the template fails on pixel diff vs committed goldens (FR-B2 slice 2).
@@ -139,6 +145,15 @@ jobs:
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
         with:
           packages: "platforms;android-35 build-tools;35.0.0 platform-tools"
+      # Runner images drift to newer Gradle releases (run 45463364723 used
+      # 9.9.1, which cannot resolve the template's Kotlin 2.0.21 plugin).
+      # Pin the version vendored by versions.env so CI matches local builds.
+      - name: Pin Gradle 8.10.2
+        run: |
+          curl -fsSL https://services.gradle.org/distributions/gradle-8.10.2-bin.zip -o "$RUNNER_TEMP/gradle.zip"
+          echo "31c55713e40233a8303827ceb42ca48a47267a0ad4bab9177123121e71524c26  $RUNNER_TEMP/gradle.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/gradle.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/gradle-8.10.2/bin" >> "$GITHUB_PATH"
       # Run 42685876691 root cause: the runner user lacks /dev/kvm group access,
       # so the emulator ran in software mode; the app under test then ANR'd
       # during its first post-install launch (odex generation, >30 s startup

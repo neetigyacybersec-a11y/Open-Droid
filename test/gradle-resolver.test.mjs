@@ -7,7 +7,11 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 const work = mkdtempSync(join(tmpdir(), "gradle-resolver-"));
-const { test } = await import("node:test");
+const { test: nodeTest, skip } = await import("node:test");
+const test = nodeTest;
+// POSIX /bin/sh stubs cannot be launched on Windows. The pure resolution and
+// cmd.exe quoting tests still run there via nodeTest.
+const posix = (name, fn) => (process.platform === "win32" ? skip(name, fn) : nodeTest(name, fn));
 const { resolveGradleExecutable, gradleArgv, batchCommandLine, runGradle } =
   await import("../dist/gradleExecutable.js");
 function home(name, { bat = false } = {}) {
@@ -109,7 +113,7 @@ test("batch quoting preserves spaces, escapes percent and rejects quotes/newline
   assert.throws(() => batchCommandLine("x.bat", ['--x="a b"']), /quotes or control/);
   assert.throws(() => batchCommandLine("x.bat", ["a\nb"]), /quotes or control/);
 });
-test("runGradle executes the bundled launcher and preserves argv boundaries", async () => {
+posix("runGradle executes the bundled launcher and preserves argv boundaries", async () => {
   const root = join(work, "run-root");
   const gradleDir = join(root, ".toolchain", "gradle", "bin");
   const record = join(work, "gradle-args.txt");
@@ -125,7 +129,7 @@ test("runGradle executes the bundled launcher and preserves argv boundaries", as
   assert.deepEqual(readFileSync(record, "utf8").trim().split("\n"), ["assembleDebug", "--offline"]);
 });
 
-test("a sibling project keeps its path while using the bundled launcher", async () => {
+posix("a sibling project keeps its path while using the bundled launcher", async () => {
   const root = join(work, "sibling-root");
   const project = join(work, "sibling-project");
   const record = join(work, "sibling-cwd.txt");
@@ -140,7 +144,7 @@ test("a sibling project keeps its path while using the bundled launcher", async 
   assert.equal(readFileSync(record, "utf8").trim(), project);
 });
 
-test("a non-executable launcher is reported among the resolution attempts", () => {
+posix("a non-executable launcher is reported among the resolution attempts", () => {
   const bad = join(work, "not-executable");
   mkdirSync(join(bad, "bin"), { recursive: true });
   writeFileSync(join(bad, "bin", "gradle"), "#!/bin/sh\n");
@@ -153,7 +157,7 @@ test("a non-executable launcher is reported among the resolution attempts", () =
   assert.match(result.message, /no executable in bin/);
 });
 
-test("gradle handlers and android_env_check use the shared resolver", async () => {
+posix("gradle handlers and android_env_check use the shared resolver", async () => {
   const homeDir = home("handler-home");
   const previous = process.env.ANDROID_MCP_GRADLE_HOME;
   process.env.ANDROID_MCP_GRADLE_HOME = homeDir;
