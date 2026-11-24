@@ -80,6 +80,30 @@ test("classifyFailure: generic gradle failure stays unknown, not invented", () =
   assert.ok(result.reason || result.evidence.length === 0);
 });
 
+test("a passing log matched by a signature is 'likely', not 'confirmed'", () => {
+  const result = classifyFailure({ log: "lint check passed: 0 issues\n" });
+  assert.equal(result.kind, "lint");
+  assert.equal(result.label, "likely");
+});
+
+test("a passing local log is reported as ok, not failure", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "od-ci-failures-ok-"));
+  try {
+    writeFileSync(join(dir, "build.log"), "BUILD SUCCESSFUL in 3s\nAll tests passed\n");
+    const report = await collectFailures({
+      dir,
+      runFn: async () => ({ code: 1, stderr: "unexpected call" }),
+    });
+    assert.equal(report.status, "ok");
+    assert.ok(
+      report.failures.every((f) => f.label !== "confirmed"),
+      "no passing log is presented as a confirmed failure",
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("redactEvidence removes tokens, credentials, signing material, and hostnames", () => {
   const redacted = redactEvidence(
     "TOKEN=ghp_abcdefghijklmnopqrstuvwxyz12 GITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz12 " +

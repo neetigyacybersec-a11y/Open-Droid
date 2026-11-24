@@ -425,11 +425,11 @@ export function renderTestPlan(report: TestPlanReport): string {
   return lines.join("\n");
 }
 
-function emptyReport(input: TestPlanInput): TestPlanReport {
+function emptyReport(input: TestPlanInput, reason = "project path does not exist"): TestPlanReport {
   return {
     status: "error",
     projectPath: input.projectPath,
-    reason: "project path does not exist",
+    reason,
     projectType: "unknown",
     frameworks: [],
     existingTests: { unit: [], instrumented: [] },
@@ -448,9 +448,17 @@ function emptyReport(input: TestPlanInput): TestPlanReport {
   };
 }
 
+function isPlainArtifactName(name: string): boolean {
+  return basename(name) === name && !name.includes("\\") && name !== "." && name !== "..";
+}
+
 /** Generate a prioritized test plan. Read-only unless saveArtifact is requested. */
 export function generateTestPlan(input: TestPlanInput): TestPlanReport {
   if (!existsSync(input.projectPath)) return emptyReport(input);
+  const artifactName = input.artifactName ?? DEFAULT_ARTIFACT;
+  if (input.saveArtifact && !isPlainArtifactName(artifactName)) {
+    return emptyReport(input, "invalid artifact name: must be a plain filename");
+  }
   const inspect = inspectProject({ projectPath: input.projectPath });
   const modules = inspect.modules;
   const inventory = inventoryTests(input.projectPath, modules);
@@ -495,8 +503,8 @@ export function generateTestPlan(input: TestPlanInput): TestPlanReport {
   report.summary = summarize(modules, plan);
   if (input.saveArtifact) {
     const markdown = renderTestPlan(report);
-    report.artifact = { path: input.artifactName ?? DEFAULT_ARTIFACT, bytes: markdown.length };
-    writeFileSync(join(input.projectPath, report.artifact.path), markdown);
+    report.artifact = { path: artifactName, bytes: Buffer.byteLength(markdown, "utf8") };
+    writeFileSync(join(input.projectPath, artifactName), markdown);
   }
   return report;
 }

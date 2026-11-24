@@ -322,6 +322,27 @@ test("boundary blocks outside paths before the handler runs", async () => {
   }
 });
 
+test("boundary hands handlers the canonical path, not the caller's raw path", async () => {
+  const f = fixture();
+  try {
+    const policy = policyFor(f);
+    let received;
+    const result = await runWithBoundary(
+      "apk_info",
+      { apkPath: "app/src/../Main.kt" },
+      async (handlerArgs) => {
+        received = handlerArgs.apkPath;
+        return { content: [{ type: "text", text: "handler ran" }], isError: false };
+      },
+      boundaryOptions(policy),
+    );
+    assert.equal(result.isError, false);
+    assert.equal(received, join(f.root, "app", "Main.kt"));
+  } finally {
+    rmSync(f.base, { recursive: true, force: true });
+  }
+});
+
 test("boundary fails closed for an unclassified tool", async () => {
   let called = false;
   const result = await runWithBoundary(

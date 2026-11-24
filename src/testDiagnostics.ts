@@ -320,7 +320,12 @@ function signatures(
     input.logcatPath ? basename(input.logcatPath) : "logcat",
     identifiers,
   );
-  const timedOut = /timed?\s*out|timeout/i.test(`${target.message} ${target.stack} ${gradle}`);
+  // "timeout" alone is too broad: assertion messages such as "expected
+  // timeout=5000 but was 3000" describe a config value, not an expired wait.
+  const timedOut =
+    /\b(?:(?:time|timed)[-\s]+out|test\s+timeout|timeout\s+(?:after|while|waiting|exceeded|during))\b/i.test(
+      `${target.message} ${target.stack} ${gradle}`,
+    );
   const assertion = /assert|expected|but was/i.test(`${target.message} ${target.stack}`);
   const source = `${basename(input.reportPath)}: ${observed}`;
   if (timedOut)

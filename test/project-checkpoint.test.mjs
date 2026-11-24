@@ -165,6 +165,70 @@ test("partial restore only touches files that differed or were missing", async (
   }
 });
 
+test("oversized files are reported as omitted, not silently skipped", async () => {
+  const root = project({ "small.txt": "ok\n", "big.bin": "x".repeat(2 * 1024 * 1024 + 1) });
+  try {
+    const cp = await createCheckpoint({ projectPath: root, name: "oversized" });
+    assert.deepEqual(cp.files.map((f) => f.path), ["small.txt"]);
+    assert.deepEqual(cp.omittedFiles, ["big.bin"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("restore reports a missing snapshot copy instead of claiming success", async () => {
+  const root = project({ "a.txt": "a\n", "b.txt": "b\n" });
+  try {
+    const cp = await createCheckpoint({ projectPath: root, name: "missing-copy" });
+    rmSync(join(checkpointsDir(), cp.name, "files", "b.txt"));
+    writeFileSync(join(root, "a.txt"), "changed a\n");
+    writeFileSync(join(root, "b.txt"), "changed b\n");
+    const res = restoreCheckpoint({ name: cp.name, confirm: true });
+    assert.equal(res.restored, 1);
+    assert.match(String(res.error), /missing snapshot copy/);
+    assert.deepEqual(res.failed, ["b.txt"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("checkpoint names cannot escape the checkpoint store", async () => {
+  const root = project({ "a.txt": "a\n" });
+  const base = mkdtempSync(join(tmpdir(), "od-ckpt-escape-"));
+  const previousStore = process.env.ANDROID_MCP_CHECKPOINTS_DIR;
+  const store = join(base, "store");
+  process.env.ANDROID_MCP_CHECKPOINTS_DIR = store;
+  try {
+    await assert.rejects(
+      createCheckpoint({ projectPath: root, name: "../evil" }),
+      /invalid checkpoint name/,
+    );
+    assert.equal(existsSync(join(store, "..", "evil")), false);
+    assert.equal(readCheckpoint("../../x"), null);
+    mkdirSync(join(store, "trusted"), { recursive: true });
+    writeFileSync(
+      join(store, "trusted", "checkpoint.json"),
+      JSON.stringify({
+        name: "../victim",
+        createdAt: new Date().toISOString(),
+        root,
+        baseCommit: null,
+        excludeDirs: [],
+        files: [],
+      }),
+    );
+    assert.deepEqual(
+      listCheckpoints().map((cp) => cp.name),
+      ["trusted"],
+      "on-disk name is authoritative; manifest text cannot steer the store path",
+    );
+  } finally {
+    process.env.ANDROID_MCP_CHECKPOINTS_DIR = previousStore;
+    rmSync(base, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("registry registers android_project_checkpoint with destructive review-class policy", () => {
   const entry = TOOL_REGISTRY.find((t) => t.name === "android_project_checkpoint");
   assert.ok(entry, "android_project_checkpoint is registered");

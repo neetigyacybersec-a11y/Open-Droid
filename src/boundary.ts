@@ -144,6 +144,14 @@ function configuredMaxChars(env: NodeJS.ProcessEnv): number | undefined {
  * MCP result in every case; an outside path, an unclassified tool or a policy
  * refusal never reaches the handler.
  */
+// Handlers receive a copy with the approval token removed; path fields are
+// replaced with the canonical values the boundary actually checked.
+function toolHandlerArgs(args: Record<string, unknown>): Record<string, unknown> {
+  const copy = { ...(args ?? {}) };
+  delete copy[APPROVAL_TOKEN_FIELD];
+  return copy;
+}
+
 export async function runWithBoundary(
   name: string,
   args: Record<string, unknown>,
@@ -153,6 +161,7 @@ export async function runWithBoundary(
   const specs = TOOL_PATH_SPECS[name];
   const now = options.now?.() ?? new Date();
   const policy = options.policy;
+  const entry = TOOL_ENTRIES[name];
 
   if (!specs) {
     return blockedResult(name, "unclassified-tool", {}, now);
@@ -163,6 +172,7 @@ export async function runWithBoundary(
 
   const grants = options.grants ?? [];
   const consumed = new Set<string>();
+  const handlerArgs = toolHandlerArgs(args);
   let primaryTarget: string | null = null;
 
   for (const spec of specs) {
@@ -208,7 +218,9 @@ export async function runWithBoundary(
       }
     }
 
-    primaryTarget ??= decision.path ?? value;
+    const canonical = decision.path ?? value;
+    handlerArgs[spec.field] = canonical;
+    primaryTarget ??= canonical;
 
     if (spec.operation === "write" && !args?.overwrite) {
       const target = decision.path ?? value;
@@ -222,8 +234,6 @@ export async function runWithBoundary(
       }
     }
   }
-
-  const entry = TOOL_ENTRIES[name];
   if (!entry) {
     return blockedResult(name, "unclassified-tool", {}, now);
   }
@@ -243,8 +253,6 @@ export async function runWithBoundary(
     });
   }
 
-  const handlerArgs = { ...(args ?? {}) };
-  delete handlerArgs[APPROVAL_TOKEN_FIELD];
   const result = await handler(handlerArgs);
   const presented = presentResult(name, result, {
     target: primaryTarget,

@@ -35,6 +35,11 @@ test("fresh scaffold writes local.properties with sdk.dir from ANDROID_HOME", ()
   }
 });
 
+test("option-like app names are rejected before basename parses them as flags", () => {
+  const r = scaffold("-evil", { ANDROID_HOME: "/tmp/fake-sdk" });
+  assert.notEqual(r.status, 0, "option-like name must fail");
+  assert.match(r.stderr + r.stdout, /must not start with '-'/);
+});
 test("scaffold fails loudly when ANDROID_HOME is unset (no silent half-project)", () => {
   const work = mkdtempSync(path.join(tmpdir(), "newapp-t2-"));
   const app = `${work}/demo`;

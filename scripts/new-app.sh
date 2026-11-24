@@ -3,6 +3,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP="${1:-my-app}"
 PKG_ARG="${2:-}"
+case "$APP" in
+  -*) echo "ERROR: app name must not start with '-': $APP" >&2; exit 1 ;;
+esac
 if [ -e "$APP" ]; then echo "ERROR: $APP already exists"; exit 1; fi
 # FR-B1 / ISSUE-13: without sdk.dir the first build dies with "SDK location not found".
 # Fail with a clear reason before doing any work if ANDROID_HOME is unavailable.

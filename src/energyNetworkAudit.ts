@@ -161,9 +161,16 @@ export async function auditEnergyNetwork(input: EnergyAuditInput): Promise<Energ
   if (!validatePackageName(pkg))
     return { status: "error", packageName: pkg, reason: "invalid package name" };
   const runner = input.runner ?? ((cmd, args) => run(cmd, args, { timeout: SHELL_TIMEOUT_MS }));
+  const failures: string[] = [];
+  let calls = 0;
   const shell = async (cmds: string[]): Promise<string> => {
+    calls += 1;
     const res = await runner("adb", [...adbArgs(input.deviceId), "shell", ...cmds]);
-    return res.stdout ?? res.stderr ?? "";
+    if (res.code !== 0) {
+      failures.push((res.stderr || res.stdout || `exit ${res.code}`).trim());
+      return "";
+    }
+    return res.stdout ?? "";
   };
   const dumps = {
     battery: parseBattery(await shell(["dumpsys", "battery"])),
@@ -172,6 +179,15 @@ export async function auditEnergyNetwork(input: EnergyAuditInput): Promise<Energ
     wakeLocks: parseWakeLocks(await shell(["dumpsys", "power"])),
     network: parseNetwork(await shell(["dumpsys", "netstats"])),
   };
+  // All dumps failing means the device was never reachable; a partial failure
+  // is an unsupported metric and is reported as unavailable by its parser.
+  if (failures.length === calls) {
+    return {
+      status: "error",
+      packageName: pkg,
+      reason: `adb dumps failed: ${failures.join("; ")}`,
+    };
+  }
   const report: EnergyOkReport = {
     status: "ok",
     packageName: pkg,

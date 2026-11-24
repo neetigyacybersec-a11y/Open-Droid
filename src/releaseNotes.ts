@@ -135,7 +135,7 @@ function matchedRefs(commit: CommitRecord, input: ReleaseNotesInput): string[] {
   const short = commit.sha.slice(0, 7);
   const haystack = `${commit.subject}\n${commit.body ?? ""}`;
   const linked = (input.issueRefs ?? []).filter((ref) => ref && haystack.includes(ref));
-  return [short, ...linked];
+  return [short, ...linked.map(redactSensitive)];
 }
 
 function makeItem(commit: CommitRecord, input: ReleaseNotesInput, reason?: string): NoteItem {

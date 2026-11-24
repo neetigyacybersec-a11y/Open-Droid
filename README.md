@@ -10,7 +10,7 @@
 Open-Droid is a self-contained toolkit that turns [OpenCode](https://opencode.ai) into a
 full Android product studio: a single combined **MCP server** wrapping the entire
 Android toolchain, a **vendored toolchain bootstrap** (fully offline after the first run),
-**30 curated skills** (Android/UI, senior UI/UX design, Superpowers SDE, reverse
+**31 curated skills** (Android/UI, senior UI/UX design, Superpowers SDE, reverse
 engineering, and an end-to-end `start-here` orchestrator), a **Material 3 Compose
 starter template**, and a **self-contained Docker image**.
 

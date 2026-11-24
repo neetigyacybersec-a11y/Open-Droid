@@ -100,6 +100,24 @@ test("prune keeps the newest captures and never touches baselines", async () => 
   assert.equal(await readFile(join(work, "baselines", "keeper.png"), "utf8"), "baseline");
 });
 
+test("prune orders by epoch, not by device/package name", async () => {
+  const { pruneCaptures } = await mod();
+  const work = await workspace();
+  for (const [device, epoch] of [
+    ["zzz", 100],
+    ["mmm", 500],
+    ["aaa", 900],
+  ]) {
+    await writeFile(join(work, `screenshot-${device}-unknown-${epoch}.png`), `capture-${epoch}`);
+  }
+  assert.equal(await pruneCaptures(2), 1, "the oldest epoch is removed");
+  const remaining = (await readdir(work)).filter((f) => f.endsWith(".png"));
+  assert.deepEqual(remaining.sort(), [
+    "screenshot-aaa-unknown-900.png",
+    "screenshot-mmm-unknown-500.png",
+  ]);
+});
+
 test("saveBaseline stores the image and metadata with a sha256 digest", async () => {
   const { resolveBaseline, saveBaseline } = await mod();
   const work = await workspace();
@@ -189,9 +207,9 @@ async function withAdbStub(run) {
   const stub = String.raw`#!/bin/sh
 if [ "$1" = "-s" ]; then shift 2; fi
 if [ "$1" = "shell" ] && [ "$2" = "screencap" ]; then printf '%s\n' "$4" >> "$RECORD"; exit 0; fi
-if [ "$1" = "shell" ] && [ "$2" = "screenrecord" ]; then exit 0; fi
-if [ "$1" = "pull" ]; then printf 'PNGDATA' > "$3"; exit 0; fi
-if [ "$1" = "shell" ] && [ "$2" = "rm" ]; then exit 0; fi
+if [ "$1" = "shell" ] && [ "$2" = "screenrecord" ]; then printf 'remote:%s\n' "$5" >> "$RECORD"; exit 0; fi
+if [ "$1" = "pull" ]; then printf 'pull:%s\n' "$3" >> "$RECORD"; printf 'PNGDATA' > "$3"; exit 0; fi
+if [ "$1" = "shell" ] && [ "$2" = "rm" ]; then printf 'rm:%s\n' "$4" >> "$RECORD"; exit 0; fi
 exit 0
 `;
   writeFileSync(join(bin, "adb"), stub, { mode: 0o755 });
@@ -259,6 +277,35 @@ posixTest("adb_screenrecord archives by default with a self-describing name", as
   assert.equal(files.filter((file) => file.endsWith(".mp4")).length, 1);
 });
 
+posixTest("adb_screenrecord uses a unique remote path and cleans it up", async () => {
+  await workspace();
+  await withAdbStub(async (work) => {
+    await ToolHandlers.handleAdbScreenrecord({ deviceId: "one", durationSec: 1 });
+    await ToolHandlers.handleAdbScreenrecord({ deviceId: "two", durationSec: 1 });
+    const lines = (await readFile(join(work, "adb.log"), "utf8")).split("\n").filter(Boolean);
+    const remotes = lines.filter((l) => l.startsWith("remote:")).map((l) => l.slice(7));
+    assert.equal(new Set(remotes).size, 2, "each recording gets its own device path");
+    assert.ok(!remotes.includes("/sdcard/screenrecord.mp4"), "fixed path is no longer reused");
+    for (const remote of remotes)
+      assert.ok(lines.includes(`rm:${remote}`), `device copy of ${remote} is removed`);
+  });
+});
+posixTest("ui_dump and perfetto_trace defaults avoid hardcoded /tmp", async () => {
+  await workspace();
+  await withAdbStub(async (work) => {
+    await ToolHandlers.handleUiDump({});
+    await ToolHandlers.handlePerfettoTrace({ durationSec: 1 });
+    const lines = (await readFile(join(work, "adb.log"), "utf8")).split("\n").filter(Boolean);
+    const pulls = lines.filter((l) => l.startsWith("pull:")).map((l) => l.slice(5));
+    assert.equal(pulls.length, 2);
+    for (const target of pulls)
+      assert.match(
+        target,
+        /android-mcp-(?:ui-dump|perfetto)-[^/]+\//,
+        `default ${target} must live in a managed temp directory`,
+      );
+  });
+});
 posixTest("capture retention drops the oldest archived captures only", async () => {
   const archive = await workspace();
   process.env.ANDROID_MCP_CAPTURES_KEEP = "1";

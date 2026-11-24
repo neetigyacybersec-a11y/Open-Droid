@@ -63,6 +63,17 @@ test("secret, token, internal hostname and private address redaction", () => {
   assert.match(safe, /\[REDACTED/);
 });
 
+test("issue references are redacted like item text before rendering", () => {
+  const secret = "ghp_abcdefghijklmnopqrstuvwxyz123456";
+  const report = buildReleaseNotes(
+    { ...baseInput, issueRefs: [secret] },
+    [commit({ body: `linked ${secret}` })],
+  );
+  const draft = renderReleaseNotes(report);
+  assert.doesNotMatch(draft, /ghp_[A-Za-z0-9]+/);
+  assert.match(draft, /\[REDACTED/);
+});
+
 test("release notes group commits and every item links to its source commit", () => {
   const report = buildReleaseNotes(baseInput, [
     commit({ sha: sha("a"), subject: "feat(save): add offline notes" }),

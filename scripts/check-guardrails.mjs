@@ -26,10 +26,13 @@ for (const file of testFiles) {
       fail(`${rel}:${index + 1}: test.todo is not allowed in committed tests`);
     }
     if (/\.skip\b/.test(line) || /\bskip\s*\(/.test(line)) {
+      // Accept a platform condition on the skip line or in its enclosing block
+      // (up to the three preceding lines), not anywhere in the whole file.
+      const context = `${lines.slice(Math.max(0, index - 3), index + 1).join("\n")}`;
       const platformConditional =
         line.includes("process.platform") ||
         line.includes("win32") ||
-        text.includes("process.platform");
+        /process\.platform|win32/.test(context);
       if (!platformConditional) {
         fail(`${rel}:${index + 1}: test skip requires a documented platform condition`);
       }

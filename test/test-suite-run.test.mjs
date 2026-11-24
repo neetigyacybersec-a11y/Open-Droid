@@ -73,12 +73,15 @@ test("unit suite is discovered and executed via gradle testDebugUnitTest", async
 });
 
 test("failing suite reports exit codes, failure summary with test id and stack", async () => {
-  const root = fixture({
-    ...UNIT_FIXTURE,
-    "app/build/test-results/testDebugUnitTest/results.xml": XML,
-  });
+  const root = fixture(UNIT_FIXTURE);
   try {
-    const { runner } = fakeRunner(() => ({ code: 1, stdout: "", stderr: "test failed" }));
+    const { runner } = fakeRunner(() => {
+      // Emit fresh XML at run time, like Gradle would.
+      const dir = join(root, "app", "build", "test-results", "testDebugUnitTest");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "results.xml"), XML);
+      return { code: 1, stdout: "", stderr: "test failed" };
+    });
     const report = await runSuite({ projectPath: root }, runner);
     assert.equal(report.suites[0].status, "ran");
     assert.equal(report.suites[0].exitCode, 1);
@@ -89,6 +92,42 @@ test("failing suite reports exit codes, failure summary with test id and stack",
     const summary = report.suites[0].failureSummary[0];
     assert.equal(summary.testId, "com.example.NotesTest.duplicateSave");
     assert.ok(summary.stackLines.some((line) => line.includes("NotesTest.kt:42")));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("pre-seeded XML is not counted as a fresh result", async () => {
+  const root = fixture({
+    ...UNIT_FIXTURE,
+    "app/build/test-results/testDebugUnitTest/results.xml": XML,
+  });
+  try {
+    const { runner } = fakeRunner(() => ({ code: 0, stdout: "", stderr: "" }));
+    const report = await runSuite({ projectPath: root }, runner);
+    assert.equal(report.passed, 0, "stale XML must not be reported as fresh evidence");
+    assert.equal(report.failed, 0);
+    assert.deepEqual(report.suites[0].artifactXmls, []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("multi-module projects run every module's unit suite", async () => {
+  const root = fixture({
+    "settings.gradle.kts": 'rootProject.name = "multi"\ninclude(":app")\ninclude(":lib")\n',
+    "app/build.gradle.kts": `plugins { id("com.android.application") }\ndependencies { testImplementation("junit:junit:4.13.2") }\n`,
+    "lib/build.gradle.kts": `plugins { id("java-library") }\ndependencies { testImplementation("junit:junit:4.13.2") }\n`,
+    "app/src/test/java/com/demo/AppTest.kt": "class AppTest\n",
+    "lib/src/test/java/com/demo/LibTest.kt": "class LibTest\n",
+  });
+  try {
+    const { runner, calls } = fakeRunner(() => ({ code: 0, stdout: "", stderr: "" }));
+    const report = await runSuite({ projectPath: root }, runner);
+    assert.equal(report.suites.length, 2, "one unit suite per module");
+    const commands = calls.map((c) => c.args.join(" "));
+    assert.ok(commands.some((c) => c.includes(":app:testDebugUnitTest")));
+    assert.ok(commands.some((c) => c.includes(":lib:testDebugUnitTest")));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -910,6 +910,51 @@ function analyzeNpmManifest(path, status, oldText, newText, findings) {
     );
   }
 
+  const handled = new Set([...NPM_SECTIONS, "overrides", "resolutions"]);
+  const oldScripts = JSON.stringify(oldParsed.value?.scripts ?? null);
+  const newScripts = JSON.stringify(newParsed.value?.scripts ?? null);
+  if (oldText !== null && newText !== null && oldScripts !== newScripts) {
+    findings.push(
+      makeFinding({
+        file: path,
+        status,
+        kind: "npm-manifest",
+        ecosystem: "npm",
+        changeType: "npm-manifest-hook-change",
+        section: "scripts",
+        coordinate: "scripts",
+        oldValue: oldScripts,
+        newValue: newScripts,
+        risk: "high",
+        reason: "npm lifecycle scripts execute commands during install/build and must be reviewed.",
+        evidence: { pointer: pointer(["scripts"]) },
+        details: {},
+      }),
+    );
+  }
+  if (oldText !== null && newText !== null) {
+    for (const key of Object.keys(newParsed.value ?? {})) {
+      if (handled.has(key) || key === "scripts") continue;
+      if (JSON.stringify(newParsed.value[key]) === JSON.stringify(oldParsed.value?.[key])) continue;
+      findings.push(
+        makeFinding({
+          file: path,
+          status,
+          kind: "npm-manifest",
+          ecosystem: "npm",
+          changeType: "npm-manifest-section-change",
+          section: key,
+          coordinate: key,
+          oldValue: JSON.stringify(oldParsed.value?.[key] ?? null),
+          newValue: JSON.stringify(newParsed.value[key]),
+          risk: "medium",
+          reason: `Unreviewed package.json section "${key}" changed; verify it has no build-system impact.`,
+          evidence: { pointer: pointer([key]) },
+          details: {},
+        }),
+      );
+    }
+  }
   const overrideSections = ["overrides", "resolutions"];
   for (const section of overrideSections) {
     const before = flattenOverrides(oldParsed.value?.[section]);
@@ -1549,9 +1594,9 @@ function analyzeTextConfig(path, status, oldText, newText, findings) {
     for (const key of before.keys()) if (!after.has(key)) changedKeys.add(key);
     const text = newText ?? "";
     const insecure = /\bregistry\s*=\s*http:\/\//i.test(text);
-    const credentials = /(?:^|\n)\s*(?:_auth(?:Token)?|_password|password|token)\s*[:=]/i.test(
-      text,
-    );
+    // Scoped registry entries start with `//registry/…:_authToken=…`, so the
+    // credential key is not at line start.
+    const credentials = /(?:_auth(?:Token)?|_password|password|token)\s*[:=]/i.test(text);
     const risk = insecure || credentials ? "high" : "medium";
     const reasons = [];
     if (insecure)

@@ -45,6 +45,13 @@ const SIGNATURES = [
   ["unit-test", /FAILED\s*[>\[]|there were failing tests|test run failed|junit failure/i],
 ];
 
+const FAILURE_MARKER_RE = /\b(?:FAILED|FAILURE|ERROR|EXCEPTION|failed|failure|error|exception)\b|FAILED\s*[>\[]/i;
+function hasFailureMarker(text) {
+  return FAILURE_MARKER_RE.test(text ?? "");
+}
+function excerptTruncated(text, maxLines = 40) {
+  return (text ?? "").split(/\r?\n/).filter((line) => line.trim()).length > maxLines;
+}
 function extractStackLines(log, max = 6) {
   return log
     .split(/\r?\n/)
@@ -90,7 +97,7 @@ export function classifyFailure({ log, jobName, stepName } = {}) {
   const [kind] = entry;
   return {
     kind,
-    label: evidence.length > 0 ? "confirmed" : "likely",
+    label: hasFailureMarker(text) ? "confirmed" : "likely",
     evidence,
     jobName,
     stepName,
@@ -114,7 +121,6 @@ function parseRunRef(runRef) {
 }
 
 function defaultRunFn(args) {
-  const { spawnSync } = require("node:child_process");
   const res = spawnSync(args[0], args.slice(1), { encoding: "utf8" });
   return { code: res.status ?? 1, stdout: res.stdout ?? "", stderr: res.stderr ?? "" };
 }
@@ -173,9 +179,11 @@ async function collectFromGithub(runRef, runFn) {
   const jobs = jobsRes.ok ? jobsRes.data : [];
   const failedJobs = jobs.filter((j) => j.conclusion === "failure");
   const failures = [];
+  let anyTruncated = false;
   for (const job of failedJobs) {
     const logRes = await runFn(["api", `repos/${parsed.repo}/actions/jobs/${job.databaseId ?? job.id}/logs`]);
     const log = logRes.code === 0 ? logRes.stdout : `(unable to fetch log for job ${job.name})`;
+    anyTruncated ||= excerptTruncated(log);
     const classification = classifyFailure({
       log,
       jobName: job.name,
@@ -208,7 +216,7 @@ async function collectFromGithub(runRef, runFn) {
       40,
     ),
     kinds: [...kinds].sort(),
-    truncated: false,
+    truncated: anyTruncated,
   };
 }
 
@@ -218,8 +226,10 @@ async function collectLocal(dir, runFn) {
     .map((f) => join(dir, f))
     .sort();
   const failures = [];
+  let anyTruncated = false;
   for (const file of files) {
     const log = readFileSync(file, "utf8");
+    anyTruncated ||= excerptTruncated(log);
     const classification = classifyFailure({ log, jobName: basename(file), stepName: "local log" });
     failures.push({
       kind: classification.kind,
@@ -230,7 +240,7 @@ async function collectLocal(dir, runFn) {
     });
   }
   return {
-    status: failures.length > 0 ? "failure" : "ok",
+    status: failures.some((f) => f.label === "confirmed") ? "failure" : "ok",
     collected: true,
     localLogs: files,
     failures,
@@ -244,7 +254,7 @@ async function collectLocal(dir, runFn) {
       40,
     ),
     kinds: [...new Set(failures.map((f) => f.kind))].sort(),
-    truncated: false,
+    truncated: anyTruncated,
   };
 }
 

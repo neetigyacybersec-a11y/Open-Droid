@@ -59,7 +59,13 @@ export async function pruneCaptures(keep = capturesKeep()): Promise<number> {
     .filter((entry) => entry.isFile())
     .map((entry) => entry.name)
     .filter((name) => /^(screenshot|screenrecord)-.+\.(png|mp4)$/.test(name))
-    .sort();
+    // The trailing epoch is the timestamp; device/package segments before it
+    // are not, so name order is not time order.
+    .sort((a, b) => {
+      const epochA = Number(a.match(/-(\d+)\.(?:png|mp4)$/)?.[1] ?? 0);
+      const epochB = Number(b.match(/-(\d+)\.(?:png|mp4)$/)?.[1] ?? 0);
+      return epochA - epochB || a.localeCompare(b);
+    });
   const expired = captures.slice(0, Math.max(0, captures.length - keep));
   await Promise.all(expired.map((name) => rm(join(capturesDir(), name), { force: true })));
   return expired.length;

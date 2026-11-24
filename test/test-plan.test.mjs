@@ -200,6 +200,43 @@ test("planning is read-only unless saveArtifact is requested", () => {
   }
 });
 
+test("artifact names cannot escape the project root", () => {
+  const base = mkdtempSync(join(tmpdir(), "od-testplan-escape-"));
+  const root = join(base, "work", "app");
+  mkdirSync(root, { recursive: true });
+  writeFileSync(join(root, "SPEC.md"), SPEC);
+  try {
+    const victim = join(base, "victim.md");
+    writeFileSync(victim, "precious");
+    const report = generateTestPlan({
+      projectPath: root,
+      featureSpecPath: join(root, "SPEC.md"),
+      saveArtifact: true,
+      artifactName: "../../victim.md",
+    });
+    assert.equal(report.status, "error");
+    assert.equal(readFileSync(victim, "utf8"), "precious");
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("artifact name with separators is rejected", () => {
+  const root = fixture({ ...BASE_PROJECT, "SPEC.md": SPEC });
+  try {
+    const report = generateTestPlan({
+      projectPath: root,
+      featureSpecPath: join(root, "SPEC.md"),
+      saveArtifact: true,
+      artifactName: "sub/plan.md",
+    });
+    assert.equal(report.status, "error");
+    assert.deepEqual(readdirSync(root).filter((f) => f === "sub"), []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("missing project path is an explicit error", () => {
   const root = mkdtempSync(join(tmpdir(), "od-testplan-"));
   try {

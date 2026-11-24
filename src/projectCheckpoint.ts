@@ -34,6 +34,8 @@ export interface Checkpoint {
   baseCommit: string | null;
   excludeDirs: string[];
   files: CheckpointFile[];
+  /** Files skipped by size/count caps; they cannot be restored from this snapshot. */
+  omittedFiles: string[];
 }
 
 export interface DiffChange {
@@ -54,6 +56,7 @@ export interface RestoreResult {
   confirmRequired?: boolean;
   restored: number;
   changes: DiffChange[];
+  failed?: string[];
 }
 
 const DEFAULT_EXCLUDES = new Set([
@@ -80,6 +83,10 @@ const SENSITIVE_FILE_RE =
 const MAX_SNAPSHOT_FILES = 2000;
 const MAX_EXCLUDE = 32;
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
+const CHECKPOINT_NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;
+function isValidCheckpointName(name: string): boolean {
+  return CHECKPOINT_NAME_RE.test(name);
+}
 
 function walkFiles(
   dir: string,
@@ -103,21 +110,32 @@ function walkFiles(
   }
 }
 
-function snapshotFiles(root: string, excludeDirs: readonly string[] = []): string[] {
+function snapshotFiles(
+  root: string,
+  excludeDirs: readonly string[] = [],
+): { included: string[]; omitted: string[] } {
   const files: string[] = [];
   walkFiles(root, "", 0, new Set([...DEFAULT_EXCLUDES, ...excludeDirs]), files);
-  return files
-    .filter((f) => {
-      const base = f.split("/").pop() ?? f;
-      if (SENSITIVE_FILE_RE.test(base)) return false;
-      try {
-        if (statSync(join(root, f)).size > MAX_FILE_BYTES) return false;
-      } catch {
-        return false;
+  const included: string[] = [];
+  const omitted: string[] = [];
+  for (const f of files.sort()) {
+    const base = f.split("/").pop() ?? f;
+    if (SENSITIVE_FILE_RE.test(base)) continue;
+    try {
+      if (statSync(join(root, f)).size > MAX_FILE_BYTES) {
+        omitted.push(f);
+        continue;
       }
-      return true;
-    })
-    .sort();
+    } catch {
+      omitted.push(f);
+      continue;
+    }
+    included.push(f);
+  }
+  if (included.length > MAX_SNAPSHOT_FILES) {
+    omitted.push(...included.splice(MAX_SNAPSHOT_FILES));
+  }
+  return { included, omitted };
 }
 
 function hashFile(path: string): string {
@@ -149,11 +167,14 @@ function readCheckpointAt(cpDir: string): Checkpoint | null {
 }
 
 function cpDirFor(name: string): string {
+  if (!isValidCheckpointName(name)) throw new Error(`invalid checkpoint name: ${name}`);
   return join(checkpointsDir(), name);
 }
 
 function checkpointName(inputName?: string): string {
-  return inputName?.trim() || `ckpt-${Date.now()}`;
+  const name = inputName?.trim() || `ckpt-${Date.now()}`;
+  if (!isValidCheckpointName(name)) throw new Error(`invalid checkpoint name: ${name}`);
+  return name;
 }
 
 /** Create a named checkpoint: manifest + file copies in the local store. */
@@ -166,29 +187,32 @@ export async function createCheckpoint(input: {
   const root = input.projectPath?.trim() || ".";
   const name = checkpointName(input.name);
   const excludeDirs = [...(input.excludeDirs ?? [])].slice(0, MAX_EXCLUDE);
-  const files = snapshotFiles(root, excludeDirs);
+  const { included, omitted } = snapshotFiles(root, excludeDirs);
   const manifest: Checkpoint = {
     name,
     createdAt: new Date().toISOString(),
     root,
     baseCommit: await gitBaseCommit(root),
     excludeDirs: excludeDirs.map((d) => d.split("\\").join("/")),
-    files: files.slice(0, MAX_SNAPSHOT_FILES).map((path) => ({
+    files: included.map((path) => ({
       path,
       sha256: hashFile(join(root, path)),
       bytes: statSync(join(root, path)).size,
       mode: fileMode(join(root, path)),
     })),
+    omittedFiles: omitted,
   };
   const cpDir = cpDirFor(name);
   mkdirSync(cpDir, { recursive: true });
-  writeFileSync(join(cpDir, "checkpoint.json"), JSON.stringify(manifest, null, 2));
+  // Copy every file before writing the manifest: a failed copy must not leave
+  // a checkpoint that claims to be complete.
   for (const file of manifest.files) {
     const target = join(cpDir, "files", file.path);
     mkdirSync(dirname(target), { recursive: true });
     copyFileSync(join(root, file.path), target);
     bestEffortChmod(target, file.mode);
   }
+  writeFileSync(join(cpDir, "checkpoint.json"), JSON.stringify(manifest, null, 2));
   if (input.retention) pruneCheckpoints(input.retention);
   return manifest;
 }
@@ -236,10 +260,13 @@ export function listCheckpoints(): ListEntry[] {
     return out;
   }
   for (const name of names) {
+    if (!isValidCheckpointName(name)) continue;
     const cp = readCheckpointAt(cpDirFor(name));
     if (!cp) continue;
     out.push({
-      name: cp.name,
+      // The on-disk entry is authoritative: a manifest cannot steer prune or
+      // restore into a path outside the checkpoint store.
+      name,
       createdAt: cp.createdAt,
       root: cp.root,
       baseCommit: cp.baseCommit,
@@ -253,6 +280,7 @@ export function listCheckpoints(): ListEntry[] {
 
 /** Read one checkpoint by name. */
 export function readCheckpoint(name: string): Checkpoint | null {
+  if (!isValidCheckpointName(name)) return null;
   return readCheckpointAt(cpDirFor(name));
 }
 
@@ -267,7 +295,7 @@ export function diffCheckpoint(input: {
   const root = input.projectPath?.trim() || cp.root;
   const excludeDirs = input.excludeDirs ?? cp.excludeDirs;
   const current = new Map<string, string>();
-  for (const path of snapshotFiles(root, excludeDirs))
+  for (const path of snapshotFiles(root, excludeDirs).included)
     current.set(path, hashFile(join(root, path)));
   const changes: DiffChange[] = [];
   for (const file of cp.files) {
@@ -312,7 +340,7 @@ export function restoreCheckpoint(input: {
   const root = input.projectPath?.trim() || cp.root;
   const excludeDirs = input.excludeDirs ?? cp.excludeDirs;
   const current = new Map<string, string>();
-  for (const path of snapshotFiles(root, excludeDirs))
+  for (const path of snapshotFiles(root, excludeDirs).included)
     current.set(path, hashFile(join(root, path)));
   const changes: DiffChange[] = [];
   for (const file of cp.files) {
@@ -328,17 +356,36 @@ export function restoreCheckpoint(input: {
   if (input.dryRun) return { name: cp.name, restored: 0, changes };
   if (!input.confirm)
     return { name: cp.name, error: true, confirmRequired: true, restored: 0, changes };
+  const applied = applyRestores(cp, root, changes);
+  return {
+    name: cp.name,
+    restored: applied.restored,
+    changes,
+    ...(applied.failed.length > 0
+      ? { failed: applied.failed, error: `missing snapshot copy for: ${applied.failed.join(", ")}` }
+      : {}),
+  };
+}
+
+function applyRestores(
+  cp: Checkpoint,
+  root: string,
+  changes: DiffChange[],
+): { restored: number; failed: string[] } {
   let restored = 0;
+  const failed: string[] = [];
   for (const change of changes) {
     const file = cp.files.find((f) => f.path === change.path);
     if (
       !file ||
       !restoreOne(join(cpDirFor(cp.name), "files", change.path), join(root, change.path), file)
-    )
-      break; // missing entry or interrupted restore: stop early, changes are listed.
+    ) {
+      failed.push(change.path);
+      continue;
+    }
     restored++;
   }
-  return { name: cp.name, restored, changes };
+  return { restored, failed };
 }
 
 function restoreOne(src: string, dst: string, file: CheckpointFile): boolean {

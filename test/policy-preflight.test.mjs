@@ -64,7 +64,7 @@ test("risky project fails policy-sensitive checks with sourced evidence", async 
     assert.equal(check("privacy-policy").status, "failed");
     assert.equal(check("account-deletion").status, "failed");
     assert.equal(check("advertising-id").status, "warning");
-    assert.equal(check("foreground-service").status, "failed");
+    assert.equal(check("foreground-service").status, "not-assessed", "bound service is not a foreground service");
     assert.equal(check("exact-alarm").status, "warning");
     assert.equal(check("release-debuggable").status, "failed");
 
@@ -108,6 +108,59 @@ test("clean project passes engineering checks and reports conditional ones as no
     ]) {
       assert.equal(check(id).status, "not-assessed", `${id} must be not-assessed when irrelevant`);
     }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("commented targetSdk is not treated as the configured value", async () => {
+  const root = await fixture({
+    ...cleanFiles,
+    "app/build.gradle.kts": `android {
+  // targetSdk = 34 (legacy note)
+  compileSdk = 35
+  defaultConfig {
+    targetSdk = 35
+  }
+}
+`,
+  });
+  try {
+    const result = await runPolicyPreflight({ projectPath: root });
+    const targetSdk = result.checks.find((c) => c.id === "target-sdk");
+    assert.equal(targetSdk.status, "passed");
+    assert.match(targetSdk.evidence, /targetSdk\s*=\s*35/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a plain bound service is not reported as an untyped foreground service", async () => {
+  const root = await fixture({
+    ...cleanFiles,
+    "app/src/main/AndroidManifest.xml": manifest(`
+      <application>
+        <service android:name=".SyncService" android:exported="false" />
+      </application>`),
+  });
+  try {
+    const result = await runPolicyPreflight({ projectPath: root });
+    const fgs = result.checks.find((c) => c.id === "foreground-service");
+    assert.equal(fgs.status, "not-assessed");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("scan coverage is surfaced when the file limit is hit", async () => {
+  const root = await fixture(cleanFiles);
+  try {
+    for (let i = 0; i < 2001; i += 1)
+      await writeFile(join(root, `filler-${i}.txt`), "filler\n", "utf8");
+    const result = await runPolicyPreflight({ projectPath: root });
+    const coverage = result.checks.find((c) => c.id === "scan-coverage");
+    assert.ok(coverage, "scan coverage must be an explicit check");
+    assert.equal(coverage.status, "not-assessed");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

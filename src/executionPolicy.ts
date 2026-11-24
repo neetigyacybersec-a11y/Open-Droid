@@ -239,9 +239,13 @@ export function fingerprintRequest(entry: ToolDefinition, args: unknown): string
 
 /** Argument-dependent impact; only Gradle publish-like tasks elevate today. */
 export function resolveImpact(entry: ToolDefinition, args: unknown): ImpactClass {
-  if (entry.name === "gradle_task") {
-    const record = argumentRecord(args);
-    const task = typeof record.task === "string" ? record.task.toLowerCase() : "";
+  const record = argumentRecord(args);
+  // Every tool with an `args` array here is a scoped Gradle tool. Callers can
+  // append extra tasks to those commands, so classify the appended values too.
+  const values = [record.task, ...(Array.isArray(record.args) ? record.args : [])];
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const task = value.toLowerCase();
     if (
       /(^|:)(publish|upload|deploy|promote|play|sign|release)/.test(task) &&
       !task.includes("mavenlocal")
@@ -422,7 +426,7 @@ export function previewOperation(entry: ToolDefinition, args: unknown): string {
     default:
       raw = `${entry.name} with the supplied operation arguments`;
   }
-  return sanitizeUntrusted(raw, {
+  return sanitizeUntrusted(`${raw} ${list(a.args)}`, {
     maxChars: PREVIEW_MAX_CHARS,
     tool: entry.name,
     source: "mixed",

@@ -4,7 +4,7 @@
 // preserves raw evidence under predictable artifact directories, and reports
 // per-suite exit codes with bounded summaries that separate evidence from
 // interpretation.
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { run, type RunResult, type RunOptions } from "./services/process-runner.js";
 import { inspectProject } from "./projectInspect.js";
@@ -144,9 +144,12 @@ function moduleFilter(input: TestSuiteRunInput, modules: string[]): string[] {
 function suiteSpecs(input: TestSuiteRunInput): SuiteSpec[] {
   const projectPath = input.projectPath;
   const modules = moduleFilter(input, modulePaths(projectPath));
-  const byName = new Map<SuiteName, SuiteSpec>();
+  const byName = new Map<string, SuiteSpec>();
   const add = (spec: SuiteSpec): void => {
-    if (!byName.has(spec.name)) byName.set(spec.name, spec);
+    // One spec per (suite, module): keying by name alone skips every module
+    // after the first in multi-module projects.
+    const key = `${spec.name}:${spec.modules.join(",")}`;
+    if (!byName.has(key)) byName.set(key, spec);
   };
   for (const modulePath of modules) {
     const text = readModuleText(projectPath, modulePath);
@@ -189,9 +192,19 @@ function suiteSpecs(input: TestSuiteRunInput): SuiteSpec[] {
   return [...byName.values()];
 }
 
-function scanXmls(dirs: readonly string[]): string[] {
+function scanXmls(dirs: readonly string[], sinceMs: number): string[] {
   const out: string[] = [];
-  for (const dir of dirs) out.push(...walkFiles(dir).filter((f) => /\.xml$/i.test(f)));
+  for (const dir of dirs)
+    out.push(
+      ...walkFiles(dir).filter((f) => {
+        if (!/\.xml$/i.test(f)) return false;
+        try {
+          return statSync(f).mtimeMs >= sinceMs;
+        } catch {
+          return false;
+        }
+      }),
+    );
   return out.sort().slice(0, MAX_XMLS);
 }
 
@@ -301,7 +314,7 @@ async function executeSuite(
     timeout: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     cwd: input.projectPath,
   });
-  const xmls = scanXmls(spec.artifactDirs);
+  const xmls = scanXmls(spec.artifactDirs, started);
   const counts = countStatus(xmls);
   return {
     suite: {

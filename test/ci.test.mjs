@@ -22,6 +22,14 @@ test('mcp job runs typecheck, lint and format gates (issue 71)', () => {
   }
 });
 
+test('mcp job runs the test-integrity guardrail checker (issue 135)', () => {
+  const mcp = ci.slice(ci.indexOf('mcp:'), ci.indexOf('mcp-windows:'));
+  assert.ok(mcp.includes('node scripts/check-guardrails.mjs'), 'CI must enforce focused/skipped-test guardrails');
+});
+test('guardrail skip exception is scoped to the skip line (issue 135)', () => {
+  const source = readFileSync(path.join(REPO, 'scripts/check-guardrails.mjs'), 'utf8');
+  assert.ok(!source.includes('text.includes("process.platform")'), 'a platform mention elsewhere in the file must not whitelist every skip');
+});
 test('android-matrix job covers every shipped app', () => {
   assert.ok(/android-matrix:/.test(ci), 'android-matrix job must exist');
   assert.ok(ci.indexOf('android-matrix') > ci.indexOf('app-build'), 'matrix must come after the old app-build job (or replace it)');

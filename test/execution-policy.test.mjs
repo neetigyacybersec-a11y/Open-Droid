@@ -402,6 +402,16 @@ test("Gradle publish-like tasks are classified as production-impacting", () => {
   assert.equal(decision.reason, "approval-required");
 });
 
+test("scoped Gradle tools cannot smuggle a publish task through args", () => {
+  const smuggled = { projectPath: "/tmp/project", args: ["publishReleasePublicationToMavenRepository"] };
+  for (const name of ["gradle_test", "gradle_lint", "build_variant", "instrumented_test", "macrobenchmark"]) {
+    assert.equal(resolveImpact(entry(name), smuggled), "production", name);
+  }
+  const decision = evaluate("gradle_test", smuggled);
+  assert.equal(decision.allowed, false);
+  assert.equal(decision.reason, "approval-required");
+  assert.match(decision.preview, /publishReleasePublicationToMavenRepository/);
+});
 test("fingerprints ignore key order, approval tokens and only bind real arguments", () => {
   const tool = entry("adb_shell");
   assert.equal(

@@ -106,6 +106,24 @@ test("timeout and missing report are honest states, not invented root causes", (
   }
 });
 
+test("the word timeout inside an assertion message is not a timeout diagnosis", () => {
+  const dir = workspace();
+  try {
+    writeFileSync(
+      join(dir, "results.xml"),
+      xml.replace('expected: &lt;1&gt; but was: &lt;2&gt;', "expected timeout=5000 but was 3000"),
+    );
+    const report = analyzeTestFailure({ reportPath: join(dir, "results.xml") });
+    assert.notEqual(report.status, "timeout");
+    assert.ok(
+      !report.hypotheses.some((h) => /timed out/i.test(h.cause)),
+      "no high-confidence timeout hypothesis from an assertion message",
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("secrets, internal hosts and user home paths are redacted by default", () => {
   const safe = redactDiagnosticText(
     "token=ghp_abcdefghijklmnopqrstuvwxyz123456 from /home/alice/app ci.corp.internal",

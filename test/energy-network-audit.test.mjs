@@ -53,12 +53,18 @@ test("alarms and wake locks are included where dumps power exposes them", async 
 });
 
 test("unavailable metrics are marked, not guessed", async () => {
-  const { runner } = fakeRunner({});
+  const runner = async () => ({ code: 0, stdout: "", stderr: "" });
   const report = await auditEnergyNetwork({ packageName: PKG, runner });
   assert.equal(report.status, "ok");
   assert.equal(report.jobs.available, false);
   assert.equal(report.wakeLocks.available, false);
   assert.ok(report.summary.length > 0);
+});
+test("failed adb commands are reported as errors, not false availability", async () => {
+  const runner = async () => ({ code: 1, stdout: "", stderr: "adb: device offline" });
+  const report = await auditEnergyNetwork({ packageName: PKG, runner });
+  assert.equal(report.status, "error");
+  assert.match(report.reason, /device offline/);
 });
 
 test("secrets and PII are redacted in report sections", async () => {

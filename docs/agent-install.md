@@ -266,7 +266,7 @@ make register               # copies latest skills, prunes removed ones, verifie
 ```bash
 opencode mcp list           # android-mcp present
 make doctor                 # all OK
-npm test                    # 70 tools
+npm test                    # 79 tools
 ```
 
 ### 3.6 If you are on a feature branch / worktree

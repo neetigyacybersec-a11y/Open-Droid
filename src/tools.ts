@@ -2,6 +2,7 @@ import { z } from "zod";
 import { constants, readFileSync, unlinkSync } from "node:fs";
 import { access, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve, basename, sep } from "node:path";
+import { checkWorkspacePath, createWorkspacePolicy } from "./workspace.js";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import {
@@ -969,6 +970,14 @@ function parseComposePreviewManifest(stdout: string): Array<Record<string, unkno
   );
 }
 
+// CLI-provided PNG paths must stay inside approved roots (symlink leak guard).
+function pngWithinWorkspace(pngPath: string): boolean {
+  if (!pngPath) return false;
+  const policy = createWorkspacePolicy({});
+  if (policy.roots.length === 0) return true;
+  return checkWorkspacePath(policy, pngPath, "read").ok;
+}
+
 export async function handleComposePreviewRender(
   args: z.infer<typeof ToolSchemas.composePreviewRender>,
 ) {
@@ -1062,8 +1071,8 @@ export async function handleComposePreviewRender(
     lines.push(`- ${id} (module: ${module}, sha256: ${sha})`);
 
     const pngPath = typeof preview?.pngPath === "string" ? resolve(project, preview.pngPath) : "";
-    if (!pngPath || !pngPath.toLowerCase().endsWith(".png")) {
-      lines.push("  png: MISSING (the manifest has no .png path)");
+    if (!pngWithinWorkspace(pngPath) || !pngPath.toLowerCase().endsWith(".png")) {
+      lines.push(`  png: MISSING or outside approved workspace (${pngPath})`);
       missing.push(id);
       continue;
     }
@@ -1743,7 +1752,12 @@ export async function handleAdbReboot(a: z.infer<typeof ToolSchemas.adbReboot>) 
 }
 export async function handleAdbScreenrecord(a: z.infer<typeof ToolSchemas.adbScreenrecord>) {
   const dur = Math.max(1, a.durationSec ?? 10);
-  const remote = "/sdcard/screenrecord.mp4";
+  const base = adbArgs(a.deviceId);
+  // Unique per call: a fixed device path lets overlapping recordings clobber
+  // each other and leaves sensitive video on the device (issue 84 pattern).
+  const remote = `/sdcard/screenrecord-${process.pid}-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}.mp4`;
   let archived = false;
   let local = a.outputPath;
   if (!local) {
@@ -1755,25 +1769,31 @@ export async function handleAdbScreenrecord(a: z.infer<typeof ToolSchemas.adbScr
     });
     archived = true;
   }
-  const r = await run(
-    "adb",
-    [...adbArgs(a.deviceId), "shell", "screenrecord", "--time-limit", String(dur), remote],
-    { timeout: (dur + 5) * 1000 },
-  );
-  if (r.code !== 0)
+  try {
+    const r = await run(
+      "adb",
+      [...base, "shell", "screenrecord", "--time-limit", String(dur), remote],
+      { timeout: (dur + 5) * 1000 },
+    );
+    if (r.code !== 0)
+      return {
+        content: [{ type: "text" as const, text: `screenrecord failed: ${r.stderr}` }],
+        isError: true,
+      };
+    const r2 = await run("adb", [...base, "pull", remote, local], { timeout: 120_000 });
+    if (r2.code === 0 && archived) await pruneCaptures().catch(() => 0);
+    const suffix = archived ? `\narchive=true` : "";
     return {
-      content: [{ type: "text" as const, text: `screenrecord failed: ${r.stderr}` }],
-      isError: true,
+      content: [
+        { type: "text" as const, text: `saved ${local}${suffix}\n${r2.stdout + r2.stderr}` },
+      ],
+      isError: r2.code !== 0,
     };
-  const r2 = await run("adb", [...adbArgs(a.deviceId), "pull", remote, local], {
-    timeout: 120_000,
-  });
-  if (r2.code === 0 && archived) await pruneCaptures().catch(() => 0);
-  const suffix = archived ? `\narchive=true` : "";
-  return {
-    content: [{ type: "text" as const, text: `saved ${local}${suffix}\n${r2.stdout + r2.stderr}` }],
-    isError: r2.code !== 0,
-  };
+  } finally {
+    await run("adb", [...base, "shell", "rm", "-f", remote], { timeout: 15_000 }).catch(
+      () => undefined,
+    );
+  }
 }
 
 export async function handleScreenshotBaselineSave(
@@ -2289,7 +2309,7 @@ export async function handleCrashSummary(a: z.infer<typeof ToolSchemas.crashSumm
 // UI inspection
 export async function handleUiDump(a: z.infer<typeof ToolSchemas.uiDump>) {
   const remote = "/sdcard/window_dump.xml";
-  const local = a.outputPath ?? `/tmp/ui-dump-${Date.now()}.xml`;
+  const local = a.outputPath ?? join(await tmpDir("android-mcp-ui-dump-"), "window.xml");
   const base = adbArgs(a.deviceId);
   let r = await run("adb", [...base, "shell", "uiautomator", "dump", remote], { timeout: 60_000 });
   if (r.code !== 0)
@@ -2845,7 +2865,7 @@ export async function handleMacrobenchmark(a: z.infer<typeof ToolSchemas.macrobe
 // Profiling
 export async function handlePerfettoTrace(a: z.infer<typeof ToolSchemas.perfettoTrace>) {
   const dur = Math.max(1, a.durationSec ?? 10);
-  const out = a.outputPath ?? `/tmp/trace-${Date.now()}.perfetto-trace`;
+  const out = a.outputPath ?? join(await tmpDir("android-mcp-perfetto-"), "trace.perfetto-trace");
   const base = adbArgs(a.deviceId);
   const r = await run(
     "adb",

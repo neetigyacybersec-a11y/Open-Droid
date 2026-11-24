@@ -19,6 +19,8 @@ jobs:
           node-version: 22
       - run: npm ci
       - run: npm run build
+      # ISSUE-135: reject focused/skipped tests and unlisted test files in CI.
+      - run: node scripts/check-guardrails.mjs
       - run: npm test
       # ISSUE-96: dangerous primitive imports are an architecture failure, not
       # a review preference.

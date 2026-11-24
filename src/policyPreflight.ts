@@ -211,41 +211,49 @@ function check(
 }
 
 function targetSdkCheck(scan: ProjectScan): PolicyCheck {
-  const gradles = gradleContents(scan);
-  for (const { rel, content } of gradles) {
+  const found: { value: number; evidence: string }[] = [];
+  for (const { rel, content } of gradleContents(scan)) {
     for (const line of content.split("\n")) {
-      const match = line.match(/targetSdk(?:Version)?\s*(?:=\s*)?"?(\d+)"?/);
-      if (!match) continue;
-      const value = Number(match[1]);
-      const evidence = `${rel}: ${line.trim()}`;
-      if (value < MIN_TARGET_SDK) {
-        return check(
-          "target-sdk",
-          "Target SDK level meets Play's current requirement",
-          "failed",
-          `targetSdk ${value} is below Play's minimum API ${MIN_TARGET_SDK} for new apps and ` +
-            "updates; Play Console blocks releases below the requirement.",
-          evidence,
-          SOURCES.targetSdk,
-        );
-      }
-      return check(
-        "target-sdk",
-        "Target SDK level meets Play's current requirement",
-        "passed",
-        `targetSdk ${value} meets the API ${MIN_TARGET_SDK} minimum.`,
-        evidence,
-        SOURCES.targetSdk,
-      );
+      const trimmed = line.trim();
+      if (/^(?:\/\/|\/\*|\*|#)/.test(trimmed)) continue;
+      const match = trimmed.match(/targetSdk(?:Version)?\s*(?:=\s*)?"?(\d+)"?/);
+      if (match) found.push({ value: Number(match[1]), evidence: `${rel}: ${trimmed}` });
     }
   }
+  const values = [...new Set(found.map((f) => f.value))];
+  if (values.length === 0) {
+    return check(
+      "target-sdk",
+      "Target SDK level meets Play's current requirement",
+      "not-assessed",
+      "No literal targetSdk value found in the scanned Gradle files; resolve the merged value " +
+        "with Gradle and confirm it against Play Console.",
+      "",
+      SOURCES.targetSdk,
+    );
+  }
+  if (values.length > 1) {
+    return check(
+      "target-sdk",
+      "Target SDK level meets Play's current requirement",
+      "not-assessed",
+      `Conflicting targetSdk values (${values.join(", ")}) were found; resolve the merged value ` +
+        "with Gradle and confirm it against Play Console.",
+      found.map((f) => f.evidence).join("\n"),
+      SOURCES.targetSdk,
+    );
+  }
+  const value = values[0];
+  const evidence = found[0].evidence;
   return check(
     "target-sdk",
     "Target SDK level meets Play's current requirement",
-    "not-assessed",
-    "No literal targetSdk value found in the scanned Gradle files; resolve the merged value " +
-      "with Gradle and confirm it against Play Console.",
-    "",
+    value < MIN_TARGET_SDK ? "failed" : "passed",
+    value < MIN_TARGET_SDK
+      ? `targetSdk ${value} is below Play's minimum API ${MIN_TARGET_SDK} for new apps and ` +
+          "updates; Play Console blocks releases below the requirement."
+      : `targetSdk ${value} meets the API ${MIN_TARGET_SDK} minimum.`,
+    evidence,
     SOURCES.targetSdk,
   );
 }
@@ -393,14 +401,20 @@ function foregroundServiceCheck(scan: ProjectScan): PolicyCheck {
     );
   }
   const untyped = services.find((tag) => !/android:foregroundServiceType\s*=/.test(tag));
+  const foregroundEvidence = /FOREGROUND_SERVICE|startForeground\s*\(/i.test(
+    [...scan.text.values()].join("\n"),
+  );
   if (untyped) {
     return check(
       "foreground-service",
       "Foreground services declare a valid type",
-      "failed",
-      "A service is declared without android:foregroundServiceType. Android 14+ requires a " +
-        "declared type for foreground services; if this service is not a foreground service, " +
-        "confirm it never calls startForeground().",
+      foregroundEvidence ? "failed" : "not-assessed",
+      foregroundEvidence
+        ? "A foreground service is declared without android:foregroundServiceType. Android 14+ " +
+            "requires a declared type for foreground services."
+        : "Services are declared without android:foregroundServiceType, but no foreground-service " +
+            "permission or startForeground() call was found. Confirm these are bound-only services " +
+            "before treating this as a violation.",
       untyped.trim(),
       SOURCES.foregroundService,
     );
@@ -662,6 +676,19 @@ export async function runPolicyPreflight(
     ...manifestChecks(manifestAudit),
     secretsCheck(secrets.findings),
     storeListingCheck(scan),
+    ...(scan.limitReached
+      ? [
+          check(
+            "scan-coverage",
+            "Project scan covered all source files",
+            "not-assessed",
+            `The project has more than ${MAX_FILES} scannable files; source-based checks may be ` +
+              "incomplete. Verify flagged and passed checks against the full tree.",
+            `scan stopped after ${MAX_FILES} files`,
+            SOURCES.privacyPolicy,
+          ),
+        ]
+      : []),
   ];
 
   const summary: PolicyPreflightSummary = {

@@ -126,7 +126,11 @@ export function frameUntrusted(
   text: string,
   opts: { tool: string; source: SourceCategory; target?: string | null },
 ): string {
-  const target = opts.target ? ` target=${JSON.stringify(opts.target)}` : "";
+  // Targets come from caller-supplied arguments, so apply the same marker and
+  // control filtering as the payload before placing them in the trusted header.
+  const target = opts.target
+    ? ` target=${JSON.stringify(escapeProvenanceMarkers(stripTerminalControls(opts.target)))}`
+    : "";
   return `${UNTRUSTED_BEGIN} tool=${JSON.stringify(opts.tool)} source=${JSON.stringify(
     opts.source,
   )}${target} trust=untrusted]\n${text}\n${UNTRUSTED_END}`;

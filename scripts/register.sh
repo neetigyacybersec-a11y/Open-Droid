@@ -18,8 +18,8 @@ ok(){ echo "[register] OK    $*"; }
 warn(){ echo "[register] WARN  $*"; }
 
 GLOBALLY_REGISTERED(){
-  { [ -f "$HOME/.config/opencode/opencode.jsonc" ] && grep -q '"android-mcp"' "$HOME/.config/opencode/opencode.jsonc"; } \
-  || { [ -f "$HOME/.config/opencode/opencode.json" ] && grep -q '"android-mcp"' "$HOME/.config/opencode/opencode.json"; }
+  { [ -f "$HOME/.config/opencode/opencode.jsonc" ] && grep -Eq '"android-mcp"[[:space:]]*:' "$HOME/.config/opencode/opencode.jsonc"; } \
+  || { [ -f "$HOME/.config/opencode/opencode.json" ] && grep -Eq '"android-mcp"[[:space:]]*:' "$HOME/.config/opencode/opencode.json"; }
 }
 
 # ---- 0. opencode presence (advisory only) ----

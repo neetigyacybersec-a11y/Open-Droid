@@ -48,6 +48,24 @@ function register(context, extraEnv = {}, pathPrefix = "") {
   });
 }
 
+test("a config mention without a server entry is not reported as registered", (t) => {
+  const context = fixture();
+  t.after(() => rmSync(context.root, { recursive: true, force: true }));
+  const bin = join(context.root, "bin");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, "opencode"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+  mkdirSync(join(context.home, ".config", "opencode"), { recursive: true });
+  writeFileSync(
+    join(context.home, ".config", "opencode", "opencode.jsonc"),
+    '{\n  // install android-mcp from the repo\n  "mcp": { "servers": {} }\n}\n',
+  );
+  const result = register(
+    context,
+    { ANDROID_MCP_SKIP_MCP_REGISTRATION: "0" },
+    bin,
+  );
+  assert.match(result.stdout, /verification failed: android-mcp not in global opencode config/);
+});
 test("a fresh registration installs nested references, templates and examples", (t) => {
   const context = fixture({
     "hub/SKILL.md": "---\nname: hub\n---\nSee references/motion/timing.md.\n",

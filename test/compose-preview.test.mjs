@@ -3,7 +3,15 @@
 // must run the installed compose-preview CLI headlessly, parse its JSON
 // manifest, report id/module/path/hash/timing, and inline the images.
 import { strict as assert } from "node:assert";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
@@ -120,6 +128,35 @@ posixTest("renders every preview and returns paths, hashes and inline PNGs (FR-A
     assert.equal(pngs[0].mimeType, "image/png");
     assert.equal(pngs[0].data, Buffer.from("89504e470d0a1a0a", "hex").toString("base64"));
   } finally {
+    reset();
+  }
+});
+
+posixTest("a preview PNG outside the approved workspace is not read", async () => {
+  const secret = join(work, "secret.png");
+  writeFileSync(secret, Buffer.from("89504e470d0a1a0aSECRET", "utf8"));
+  symlinkSync(secret, join(project, "leak.png"));
+  const escapePayload = join(work, "escape-payload.json");
+  writeFileSync(
+    escapePayload,
+    JSON.stringify(payloadFor([previewFor("leak.Preview", join(project, "leak.png"))])),
+  );
+  const previousWorkspace = process.env.ANDROID_MCP_WORKSPACE;
+  const previousTmp = process.env.TMPDIR;
+  const managedTmp = join(work, "managed-tmp");
+  mkdirSync(managedTmp, { recursive: true });
+  process.env.ANDROID_MCP_WORKSPACE = project;
+  process.env.TMPDIR = managedTmp;
+  reset({ payload: escapePayload });
+  try {
+    const result = await handleComposePreviewRender({ projectPath: project });
+    assert.equal(images(result).length, 0, "no bytes from a symlink leaving the workspace");
+    assert.match(result.content[0].text, /outside approved workspace/);
+  } finally {
+    if (previousWorkspace === undefined) delete process.env.ANDROID_MCP_WORKSPACE;
+    else process.env.ANDROID_MCP_WORKSPACE = previousWorkspace;
+    if (previousTmp === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = previousTmp;
     reset();
   }
 });
