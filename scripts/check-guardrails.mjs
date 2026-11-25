@@ -1,10 +1,15 @@
 #!/usr/bin/env node
 // Deterministic guardrail checks for test and CI integrity (ISSUE-97).
 import { readdirSync, readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join, relative, sep } from "node:path";
 
 const root = join(import.meta.dirname, "..");
 const failures = [];
+
+/** Test filenames in the package.json script use POSIX separators on all hosts. */
+export function testFileName(file) {
+  return file.replace(/\\/g, "/").split("/").pop();
+}
 
 function fail(message) {
   failures.push(message);
@@ -17,7 +22,7 @@ const testFiles = readdirSync(join(root, "test"))
 for (const file of testFiles) {
   const text = readFileSync(file, "utf8");
   const lines = text.split("\n");
-  const rel = relative(root, file);
+  const rel = relative(root, file).split(sep).join("/");
   lines.forEach((line, index) => {
     if (/\.(only)\b/.test(line)) {
       fail(`${rel}:${index + 1}: focused test selector (.only) is not allowed`);
@@ -60,7 +65,7 @@ const listedTests = new Set(
   ),
 );
 for (const file of testFiles) {
-  const name = file.split("/").pop();
+  const name = testFileName(file);
   if (!listedTests.has(name)) {
     fail(`package.json test script omits required test file: ${name}`);
   }

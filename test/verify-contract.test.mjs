@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { test } from "node:test";
+import { testFileName } from "../scripts/check-guardrails.mjs";
 
 const REPO = resolve(import.meta.dirname, "..");
 const read = (name) => readFileSync(resolve(REPO, name), "utf8");
@@ -69,6 +70,14 @@ test("the verifier compiles once and runs the full suite once", () => {
   assert.equal(verify.split("scripts/build.mjs").length - 1, 1, "exactly one build");
   assert.equal(verify.split("scripts/test.mjs").length - 1, 1, "exactly one test run");
   assert.doesNotMatch(verify, /npm (?:run )?test/, "no npm shim invokes a second pretest build");
+});
+
+test("guardrail test filenames work with Windows separators", () => {
+  assert.equal(testFileName("test/ci.test.mjs"), "ci.test.mjs");
+  assert.equal(
+    testFileName("D:\\a\\Open-Droid\\Open-Droid\\test\\ci.test.mjs"),
+    "ci.test.mjs",
+  );
 });
 
 test("the required aggregate still fails closed", () => {
