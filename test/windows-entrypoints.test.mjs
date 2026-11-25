@@ -74,13 +74,13 @@ test("docs/windows.md documents safe PowerShell shell and screenshot patterns", 
   assert.match(text, /one remote path per\s*`?adb pull/i, "must forbid batched pulls");
 });
 
-test("README links the Windows entry points and the Windows CI job uses them", () => {
+test("README links the Windows entry points and the Windows CI job uses the shared verifier", () => {
   const readme = readFileSync(path.join(REPO, "README.md"), "utf8");
   assert.match(readme, /docs\/windows\.md/);
+  assert.match(readme, /node scripts\/verify\.mjs/, "README must document the shared verifier");
 
   const ci = readFileSync(path.join(REPO, ".github/workflows/ci.yml"), "utf8");
   const windowsJob = ci.slice(ci.indexOf("mcp-windows:"), ci.indexOf("android-matrix:"));
-  assert.match(windowsJob, /node scripts\/build\.mjs/);
-  assert.match(windowsJob, /node scripts\/test\.mjs/);
+  assert.match(windowsJob, /node scripts\/verify\.mjs/);
   assert.doesNotMatch(windowsJob, /npm run (build|test)/);
 });

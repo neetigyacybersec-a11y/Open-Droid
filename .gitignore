@@ -4,6 +4,8 @@ dist/
 # Root-level emulator screenshots only — test goldens under app/src/test/screenshots
 # must stay tracked (they are the Roborazzi verify baselines).
 /screenshots/
+# ISSUE-161: bounded Maestro attempt/diagnostic artifacts from CI.
+/maestro-artifacts/
 *.log
 .env
 .DS_Store

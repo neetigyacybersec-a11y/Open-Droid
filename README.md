@@ -133,7 +133,9 @@ uninstall. See [docs/windows.md](docs/windows.md) and
 >
 > **Windows / restricted PowerShell:** use `node scripts/build.mjs`,
 > `node scripts/test.mjs` and `node scripts/doctor.mjs`; `make` and the `.sh`
-> entry points require Git Bash or WSL2. See [docs/windows.md](docs/windows.md).
+> entry points require Git Bash or WSL2. For the complete mandatory gate set on
+> any platform use `node scripts/verify.mjs` (or `npm run verify`) — CI runs the
+> same verifier on Linux and Windows. See [docs/windows.md](docs/windows.md).
 
 ```bash
 git clone https://github.com/neetigyacybersec-a11y/Open-Droid.git

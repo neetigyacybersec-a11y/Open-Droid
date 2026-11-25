@@ -1,5 +1,16 @@
 # Publishing
 
+## CI concurrency (issue 162)
+
+- Pull-request runs share `ci-pr-<number>`; a newer commit cancels the older
+  in-progress run.
+- Main pushes use `ci-main` and releases use `release-<ref>`; neither is
+  cancelled by PR activity.
+- The aggregate `required` check still fails closed if any mandatory job is
+  cancelled or does not succeed.
+
+## Release
+
 - Tag a release: `git tag v0.1.0 && git push --tags`
 - GitHub Actions (`.github/workflows/release.yml`) builds and pushes:
   - toolchain-only Docker image (no MCP server) to

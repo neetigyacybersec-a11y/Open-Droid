@@ -13,19 +13,29 @@ const ci = readFileSync(path.join(REPO, '.github/workflows/ci.yml'), 'utf8');
 
 const matrixJob = ci.slice(ci.indexOf('android-matrix'));
 
-// Issue 71: source quality gates — typecheck, lint and formatting must fail
-// the CI build, not rely on developers running them locally.
-test('mcp job runs typecheck, lint and format gates (issue 71)', () => {
+// ISSUE-160: CI invokes one shared verifier; its mandatory gates are tested
+// in test/verify-contract.test.mjs so Linux and Windows cannot drift apart.
+test('mcp job runs the shared verifier (issues 71, 135, 160)', () => {
   const mcp = ci.slice(ci.indexOf('mcp:'), ci.indexOf('mcp-windows:'));
-  for (const gate of ['npm run typecheck', 'npm run lint', 'npm run format:check']) {
-    assert.ok(mcp.includes(gate), `mcp job must run ${gate}`);
-  }
+  assert.ok(mcp.includes('node scripts/verify.mjs'), 'mcp job must run the shared verifier');
 });
 
-test('mcp job runs the test-integrity guardrail checker (issue 135)', () => {
-  const mcp = ci.slice(ci.indexOf('mcp:'), ci.indexOf('mcp-windows:'));
-  assert.ok(mcp.includes('node scripts/check-guardrails.mjs'), 'CI must enforce focused/skipped-test guardrails');
+test('mcp-windows job runs the same shared verifier (issue 160)', () => {
+  const win = ci.slice(ci.indexOf('mcp-windows:'), ci.indexOf('android-matrix:'));
+  assert.ok(win.includes('node scripts/verify.mjs'), 'Windows must run the same verifier');
 });
+// ISSUE-162: superseded PR runs are cancelled, but main/release runs are not.
+test('workflow concurrency keys PRs separately from main and releases (issue 162)', () => {
+  const topBlock = ci.slice(0, ci.indexOf('mcp:'));
+  assert.match(topBlock, /concurrency:/, 'ci.yml must declare a concurrency group');
+  assert.match(topBlock, /github\.event\.pull_request\.number/, 'PR runs key on PR identity');
+  assert.match(topBlock, /cancel-in-progress:/, 'PR cancellation must be explicit');
+  assert.doesNotMatch(topBlock, /cancel-in-progress:\s*true\s*$/m, 'main pushes must not be cancelled');
+  const releases = readFileSync(path.join(REPO, '.github/workflows/release.yml'), 'utf8');
+  assert.match(releases, /concurrency:/, 'release runs need a separate group');
+  assert.doesNotMatch(releases, /cancel-in-progress:\s*true/, 'release runs must not be cancelled');
+});
+
 test('guardrail skip exception is scoped to the skip line (issue 135)', () => {
   const source = readFileSync(path.join(REPO, 'scripts/check-guardrails.mjs'), 'utf8');
   assert.ok(!source.includes('text.includes("process.platform")'), 'a platform mention elsewhere in the file must not whitelist every skip');
@@ -82,22 +92,31 @@ test('template ships a committed Maestro smoke flow (FR-B2 slice 3)', () => {
 
 test('CI runs the Maestro smoke flow in the emulator session (FR-B2 slice 3)', () => {
   const inst = ci.slice(ci.indexOf('android-instrumented:'), ci.indexOf('docker:'));
-  assert.ok(inst.includes('maestro test'), 'the emulator job must run maestro test');
-  assert.ok(inst.includes('maestro/smoke.yaml'), 'the job must run the committed flow');
+  assert.ok(inst.includes('node scripts/maestro-smoke.mjs'), 'the emulator job must call the flow runner');
   assert.ok(inst.includes(':app:installDebug'), 'the app must be reinstalled before the flow (AGP uninstalls after connected tests)');
+  const flow = readFileSync(path.join(REPO, 'scripts/maestro-smoke.mjs'), 'utf8');
+  assert.match(flow, /"maestro", "test"/, 'the runner must invoke the Maestro CLI');
+  assert.match(flow, /templates\/compose-starter\/maestro\/smoke\.yaml/, 'the committed flow must be used');
+});
+
+test('CI uploads bounded Maestro diagnostics for failed or flaky runs (issue 161)', () => {
+  const inst = ci.slice(ci.indexOf('android-instrumented:'), ci.indexOf('docker:'));
+  assert.match(inst, /actions\/upload-artifact@[0-9a-f]{40}/, 'diagnostics need a pinned upload action');
+  assert.match(inst, /path:\s*maestro-artifacts\//, 'upload the runner artifacts');
+  assert.match(inst, /retention-days:\s*\d+/, 'artifact retention must be bounded');
+  assert.match(inst, /if:\s*always\(\)/, 'upload must run after a failure too');
 });
 
 test('maestro driver startup timeout is in milliseconds and the driver port is pinned (runs 43162090162)', () => {
-  const inst = ci.slice(ci.indexOf('android-instrumented:'), ci.indexOf('docker:'));
-  // MAESTRO_DRIVER_STARTUP_TIMEOUT is parsed as milliseconds by
-  // AndroidDriver.getStartupTimeout (default 15000L, no unit conversion).
-  // A seconds-looking value like 180 means a 180 ms poll window — any slower
-  // driver start fails outright with AndroidDriverTimeoutException.
-  for (const m of inst.matchAll(/MAESTRO_DRIVER_STARTUP_TIMEOUT=(\d+)/g)) {
-    assert.ok(Number(m[1]) >= 60000, `driver startup timeout must be milliseconds (got ${m[1]}): a small value starves awaitLaunch`);
+  const flow = readFileSync(path.join(REPO, 'scripts/maestro-smoke.mjs'), 'utf8');
+  // AndroidDriver.getStartupTimeout parses milliseconds with no unit
+  // conversion; a seconds-looking 180 gives a 180 ms awaitLaunch window.
+  for (const m of flow.matchAll(/MAESTRO_DRIVER_STARTUP_TIMEOUT["']?\s*[:=]\s*["']?(\d+)/g)) {
+    assert.ok(Number(m[1]) >= 60000, `driver startup timeout must be milliseconds (got ${m[1]})`);
   }
-  assert.match(inst, /maestro test --driver-host-port \d+/m, 'the driver port must be pinned below the device ephemeral range (upstream maestro #3684)');
-  assert.doesNotMatch(inst, /--driver-host-port (\d{5,})/, 'the pinned driver port must be below the 32768-60999 device ephemeral range');
+  const port = flow.match(/"--driver-host-port",\s*"(\d+)"/);
+  assert.ok(port, 'the driver port must be pinned (upstream maestro #3684)');
+  assert.ok(Number(port[1]) < 32768, 'the pinned driver port must be below the 32768-60999 device ephemeral range');
 });
 
 // ---------------------------------------------------------------------------

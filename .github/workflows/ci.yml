@@ -9,6 +9,12 @@ on:
 permissions:
   contents: read
 
+# ISSUE-162: cancel only superseded pull-request runs. Main pushes keep their
+# own group so they cannot be cancelled by unrelated PR activity.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('ci-pr-{0}', github.event.pull_request.number) || 'ci-main' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   mcp:
     runs-on: ubuntu-latest
@@ -18,24 +24,9 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
-      - run: npm run build
-      # ISSUE-135: reject focused/skipped tests and unlisted test files in CI.
-      - run: node scripts/check-guardrails.mjs
-      - run: npm test
-      # ISSUE-96: dangerous primitive imports are an architecture failure, not
-      # a review preference.
-      - run: npm run architecture
-      # Issue 71: source quality gates must fail the build, not rely on
-      # developers running them locally.
-      - run: npm run typecheck
-      - run: npm run lint
-      - run: npm run quality
-      - run: npm run format:check
-      - run: node --test test/privacy.test.mjs
-      - run: bash scripts/check-readme.sh
-      - run: npm run catalogue
-      - run: bash scripts/repo-hygiene.sh
-      - run: node scripts/lifecycle-matrix.mjs --check
+      # ISSUE-160: one authoritative verifier; it builds once and runs every
+      # mandatory gate exactly once on Linux and Windows alike.
+      - run: node scripts/verify.mjs
 
   # ISSUE-107: dependency and build-system edits are reviewed in the same
   # pipeline as source. The job needs full history to resolve the push base,
@@ -96,11 +87,7 @@ jobs:
         with:
           node-version: 22
       - run: npm.cmd ci
-      - run: node scripts/build.mjs
-      - run: node scripts/test.mjs
-      - run: node scripts/lint.mjs
-      - run: node scripts/quality.mjs
-      - run: bash scripts/check-readme.sh
+      - run: node scripts/verify.mjs
 
   # FR-B6 / ISSUE-22: CI builds and tests every app the repo ships, not just one.
   android-matrix:
@@ -213,7 +200,16 @@ jobs:
             # conversion) — our old value of 180 gave awaitLaunch a 180 ms
             # poll window, so any driver startup slower than that failed
             # outright (run 43162090162). 180000 = the intended 180 s.
-            MAESTRO_DRIVER_STARTUP_TIMEOUT=180000 PATH="$HOME/.maestro/bin:$PATH" maestro test --driver-host-port 7001 templates/compose-starter/maestro/smoke.yaml || MAESTRO_DRIVER_STARTUP_TIMEOUT=180000 PATH="$HOME/.maestro/bin:$PATH" maestro test --driver-host-port 7001 templates/compose-starter/maestro/smoke.yaml || { echo '=== maestro failed (after retry): device events + crash buffer + TestRunner errors ==='; adb logcat -d -b events 2>/dev/null | grep -E 'maestro|am_anr|am_kill' | tail -20; adb logcat -d -b crash 2>/dev/null | tail -30; adb logcat -d 2>/dev/null | grep -E 'TestRunner|Failed to bind|grpcServer|maestro' | tail -20; exit 1; }
+            # ISSUE-161: one bounded retry, both attempts reported separately.
+            node scripts/maestro-smoke.mjs
+      - name: Upload Maestro diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: maestro-diagnostics
+          path: maestro-artifacts/
+          retention-days: 7
+          if-no-files-found: ignore
 
   # ISSUE-141: a green Docker build is not evidence that handlers work. Build
   # the image, then run the in-container capability + MCP handler smoke.

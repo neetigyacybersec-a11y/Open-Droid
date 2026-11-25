@@ -318,8 +318,8 @@ git fetch origin
 git status --short          # must be empty
 git merge --ff-only origin/main
 npm ci
-npm run build
-npm run verify
+npm run verify          # builds once, then runs every mandatory gate
+                        # Windows: node scripts/verify.mjs
 make register
 ```
 

@@ -119,6 +119,19 @@ cannot accelerate (or, practically, boot) an emulator:
 - **Host emulator directly:** unset `ANDROID_MCP_TOOLCHAIN_IMAGE` for the
   emulator-managing tools and keep the host Android SDK installed.
 
+## Maestro smoke passes on retry
+
+The Android instrumented job allows **one** retry of the Maestro flow for the
+known upstream driver-port flake (#3684 / MAE-628). Both attempts are recorded
+in `maestro-artifacts/maestro-attempts.json` and the step summary:
+
+- first pass → `PASSED first attempt`;
+- first fail, retry pass → `FLAKY` (never reported as a clean first pass);
+- both fail → the job fails and logcat tails are retained.
+
+Artifacts are uploaded with 7-day retention. Remove the retry when upstream
+fixes the driver port selection.
+
 ## Windows / WSL2 prerequisites for `/dev/kvm`
 
 The docs recommend WSL2 for emulator work on Windows, but the Windows-side

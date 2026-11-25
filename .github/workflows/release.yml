@@ -11,6 +11,11 @@ on:
 permissions:
   contents: read
 
+# ISSUE-162: release runs are isolated from PR cancellation groups.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   validate:
     runs-on: ubuntu-latest
