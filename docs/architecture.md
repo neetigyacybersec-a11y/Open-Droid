@@ -6,7 +6,8 @@
 - **Toolchain** (`.toolchain/`, gitignored) — vendored JDK, Android SDK, Gradle, Maestro, skills repo. Produced by `make setup`.
 - **Templates** (`templates/`) — starter Compose apps.
 - **Skills** (`skills/`) — OpenCode SKILL.md files for Android/UI workflows.
-- **Docker image** — self-contained runtime with everything preinstalled.
+- **Docker image** — toolchain-only environment (ISSUE-168). The MCP server
+  remains a host process; the image has no `src/`, `dist/` or server entrypoint.
 
 ## Runtime safety boundaries
 
@@ -19,7 +20,8 @@ services below. `npm run architecture` enforces this contract in CI: it scans
 
 | Boundary | Owns | Must not |
 | --- | --- | --- |
-| `src/services/process-runner.ts` | Host execution through argv arrays, working directory, timeout, output caps, exit code/signal reporting. | Accept shell command strings or interpret stderr as success. |
+| `src/services/process-runner.ts` | Host execution through argv arrays, working directory, timeout, output caps, exit code/signal reporting; routes allowlisted Android/JVM tools into the configured toolchain container. | Accept shell command strings, interpret stderr as success, or fall back to host tools when the container is unavailable. |
+| `src/services/toolchain.ts` | Container argv/mount/env construction and command allowlist for ISSUE-168; device tools stay host-side. | Execute processes or mount the host toolchain/socket into the container. |
 | `src/services/managed-process.ts` | Detached child lifecycle: spawn errors, readiness, identity, bounded SIGTERM→SIGKILL shutdown. | Signal a PID it did not spawn. |
 | `src/services/adb-client.ts` | Device selection as an argv pair, remote-shell quoting, destructive-path/intent/component validation, activity resolution to `package/class`. | Concatenate device input into a host shell string. |
 | `src/executionPolicy.ts` + `src/boundary.ts` | #50 policy/approval decisions and request-scoped workspace path checks at the server boundary. | Rely on skill instructions or previews as enforcement. |
@@ -41,6 +43,7 @@ that owns the capability.
 
 ## Design goals
 
-1. **Clone-and-run**: after `make setup` (or `docker pull`), no network access required.
+1. **Clone-and-run**: after `make setup` or a toolchain image build/pull, no
+   network access is required (a cached image works offline).
 2. **Single MCP entry point**: one server instead of 8–10, reducing context cost.
 3. **Delegation**: capabilities not implemented here (Figma, GitHub, Firebase, etc.) remain separate MCPs, enabled per-agent.

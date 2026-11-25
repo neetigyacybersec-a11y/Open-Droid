@@ -1,7 +1,7 @@
 # Offline / "no additional downloads" contract
 
-After `make setup` completes (or after `docker pull`), the repository is fully
-self-contained:
+After `make setup` completes (or after the toolchain image is built/pulled), the
+repository is fully self-contained:
 
 - All binaries resolve under `.toolchain/` (or are baked into the image).
 - `make doctor` verifies every required tool is present.

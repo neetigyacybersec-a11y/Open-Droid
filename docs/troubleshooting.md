@@ -81,11 +81,28 @@ Use a CI runner with KVM, or run the Android app on a physical device
 | `could not hash mitmproxy CA with openssl` | `openssl` not on `PATH` | `sudo apt install -y openssl` |
 | python3 missing | Not installed | `sudo apt install -y python3 python3-venv` |
 
-## Docker route cannot run the emulator
+## Toolchain container unavailable
 
-The image ships AVD `Pixel_9_API_35`, the emulator binary and the system image, but
-Docker Desktop on Windows/macOS does not expose `/dev/kvm`, so the container cannot
-accelerate (or, practically, boot) an emulator:
+With `ANDROID_MCP_TOOLCHAIN_IMAGE` set, the host MCP returns a capability error
+instead of silently using host tools. `android_env_check` distinguishes the
+three layers:
+
+- `Docker daemon unavailable` — start Docker Desktop/engine and retry.
+- `image not present` — `docker build -t <image> .` or `docker pull <image>`.
+- `UNAVAILABLE (host path translation ... Windows)` — container mode is not
+  supported on Windows yet; unset the variable to use host tools explicitly.
+- `UNAVAILABLE (Docker endpoint ssh://... is remote)` — bind mounts would name
+  paths on the remote daemon. Switch to a local Docker context
+  (`docker context use default`) or run the MCP on that host.
+
+The host MCP process itself stays healthy; only container-backed tool calls fail.
+MCP startup never pulls the image.
+
+## Container route cannot run the emulator
+
+The host owns USB devices, the ADB server and emulators (ISSUE-168). Docker
+Desktop on Windows/macOS does not expose `/dev/kvm`, so the toolchain container
+cannot accelerate (or, practically, boot) an emulator:
 
 - `ls /dev/kvm` in the container → `No such file or directory`
 - `emulator -accel-check` → `KVM requires a CPU that supports vmx or svm` (exit 3)
@@ -96,9 +113,11 @@ accelerate (or, practically, boot) an emulator:
 **Use one of the working alternatives instead:**
 
 - **Physical device:** `adb_wifi { action: "connect", host: "<phone-ip>" }`
-- **Host/WSL2 emulator, bridged:** run the container with
-  `-e ADB_SERVER_SOCKET=tcp:host.docker.internal:5037`; the MCP server's
-  `adb_devices` then talks to the remote adb server on the host.
+- **Host/WSL2 emulator, bridged:** set
+  `ADB_SERVER_SOCKET=tcp:host.docker.internal:5037` in the host MCP environment;
+  `adb_devices` then talks to the host adb server.
+- **Host emulator directly:** unset `ANDROID_MCP_TOOLCHAIN_IMAGE` for the
+  emulator-managing tools and keep the host Android SDK installed.
 
 ## Windows / WSL2 prerequisites for `/dev/kvm`
 
@@ -126,8 +145,9 @@ Requirements and gotchas:
   yet never pass `svm` into the WSL guest, so `/dev/kvm` stays absent even with
   everything else correct. There is no workaround on such hardware — use a
   physical device or the Docker route's ADB bridge instead.
-- `wsl --shutdown` also kills Docker Desktop's `docker-desktop` distro, which takes
-  a containerised MCP server offline with it. Plan restarts accordingly.
+- `wsl --shutdown` also kills Docker Desktop's `docker-desktop` distro. The host
+  MCP stays up, but container-tier tool calls fail until Docker restarts. Plan
+  restarts accordingly.
 
 ## Git clone
 | Symptom | Root cause | Fix |
@@ -144,4 +164,4 @@ Requirements and gotchas:
 | `npm` blocked in PowerShell | Execution policy blocks `npm.ps1` | Use `npm.cmd`, or run inside Git Bash. |
 
 ## Docker: engine not running
-`docker build` fails with `...pipe/dockerDesktopLinuxEngine: The system cannot find the file specified` when Docker Desktop is not started. Launch Docker Desktop and confirm `docker info` reports both Client/Server before retrying. The first build is multi-stage and downloads several GB (JDK, Android SDK, Node) — expect a long first build; the "zero downloads" quick-start means zero host toolchain, not zero bytes.
+`docker build` fails with `...pipe/dockerDesktopLinuxEngine: The system cannot find the file specified` when Docker Desktop is not started. Launch Docker Desktop and confirm `docker info` reports both Client/Server before retrying. The first build downloads several GB (JDK, Android SDK, Node) — expect a long first build; the "zero downloads" quick-start means zero host toolchain, not zero bytes.

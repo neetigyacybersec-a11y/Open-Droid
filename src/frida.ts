@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { run, which } from "./services/process-runner.js";
 import { adbArgs } from "./services/adb-client.js";
+import { toolchainMode } from "./services/toolchain.js";
 
 // Every adb/frida invocation here is interactive-ish (push, root, attach) and
 // must fail loudly instead of hanging the MCP request forever.
@@ -90,6 +91,9 @@ export function parseBuildType(prop: string): "rootable" | "nonrootable" {
  * (offline-first, wins over a stale PATH install), else PATH via `which`.
  */
 async function resolveCli(root: string, name: string): Promise<string | null> {
+  // ISSUE-168: in container mode the image's vendored CLI is authoritative;
+  // a host install must not mask a missing container capability.
+  if (toolchainMode() === "docker") return which(name);
   const vendored = vendoredCliPath(root, name);
   if (await isExecutable(vendored)) return vendored;
   return which(name);

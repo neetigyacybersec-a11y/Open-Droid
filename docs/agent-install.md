@@ -8,7 +8,8 @@ has an expected output.
 
 - Repository: `https://github.com/<owner>/android-mcp.git` (local path assumed below: `$REPO`)
 - MCP server name (registered): `android-mcp`
-- Transport: stdio (local) or Docker (`ghcr.io/.../open-droid`)
+- Transport: stdio from a host process. Docker is an optional **toolchain
+  backend**, never the MCP transport (ISSUE-168).
 - Tool count contract: exactly **79 tools** (source of truth: `src/registry.ts`; checked by `test/smoke.test.mjs`)
 
 ---
@@ -27,6 +28,9 @@ has an expected output.
 
 Agent/harness-specific MCP clients (Claude Desktop, Cursor, Codex) do not need the
 OpenCode CLI; they consume the stdio server directly via their own config.
+
+Docker toolchain mode (§2.3) replaces the host Java/Android SDK/Gradle/Python
+requirements with a local Docker engine; Node and `adb` still run on the host.
 
 ---
 
@@ -211,13 +215,14 @@ configuration and JSONC comments, back up before writing, track copied skills
 and detect stale paths. Doctor reports registration drift and whether an MCP
 client restart is required. No other client is claimed as supported.
 
-### 2.3 Docker (no host toolchain)
+### 2.3 Docker toolchain (no host Android toolchain)
 
-No pre-built image is published yet, so build it locally first:
+The MCP server stays on the host. The image is toolchain-only: it carries no
+`src/`, `dist/`, `node_modules/` or MCP entrypoint. Build and verify it locally:
 
 ```bash
-docker build -t open-droid:latest .
-docker run --rm --entrypoint bash open-droid:latest scripts/docker-smoke.sh
+docker build -t open-droid-toolchain:0.1.0 .
+docker run --rm --entrypoint bash open-droid-toolchain:0.1.0 scripts/docker-smoke.sh
 ```
 
 The image carries every non-device dependency used by registered handlers:
@@ -226,26 +231,35 @@ Compose Preview CLI, the Android CLI, Maestro, and a pinned Python venv with
 `frida`, `frida-ps`, `mitmdump` and both ABI-specific `frida-server` assets.
 Versions and upstream SHA-256 digests live in `versions.env`, which is sourced
 by both `scripts/setup.sh` and the Dockerfile. The build runs the same smoke
-script; CI repeats it against the built image. `android_env_check` reports each
-capability as present or MISSING.
+script; CI repeats it against the built image.
 
-MCP config:
+Host MCP config (OpenCode):
 ```jsonc
 {
-  "mcpServers": {
-    "android-mcp": {
-      "type": "stdio",
-      "command": "docker",
-      "args": ["run", "-i", "--rm", "open-droid:latest"]
+  "mcp": {
+    "servers": {
+      "android-mcp": {
+        "type": "local",
+        "command": ["node", "/absolute/path/to/Open-Droid/dist/index.js"],
+        "environment": { "ANDROID_MCP_TOOLCHAIN_IMAGE": "open-droid-toolchain:0.1.0" }
+      }
     }
   }
 }
 ```
 
+With that variable set, toolchain commands execute through `docker run`; the
+server reports the image separately from host MCP health in `android_env_check`.
+A missing Docker daemon or image is an error, never a host-tool fallback. The
+Docker endpoint must be local (or see the same paths as the MCP host); a remote
+context such as `ssh://...` is rejected because its bind mounts point at another
+machine. Windows path translation is not implemented yet and fails closed.
+
 > The container route cannot run the Android emulator (Docker Desktop does not
-> expose `/dev/kvm`). For a running emulator use a physical device
-> (`adb_wifi { action: "connect", host: "<phone-ip>" }`) or a host/WSL2
-> emulator bridged with `-e ADB_SERVER_SOCKET=tcp:host.docker.internal:5037`.
+> expose `/dev/kvm`). The host owns USB devices, the ADB server and emulators;
+> use a physical device (`adb_wifi { action: "connect", host: "<phone-ip>" }`)
+> or a host/WSL2 emulator bridged with
+> `-e ADB_SERVER_SOCKET=tcp:host.docker.internal:5037`.
 
 ### 2.4 Appllama MCP (optional, separate)
 
@@ -348,14 +362,22 @@ npm ci && npm run build && npm test
 make register
 ```
 
-### 3.7 Updating a Docker install
+### 3.7 Updating a Docker toolchain install
+
+The host MCP server and the toolchain image update independently:
 
 ```bash
 cd "$REPO"
 git pull --ff-only origin main
-docker build -t open-droid:latest .
-# restart your client; no further steps
+npm ci && npm run build
+# rebuild only when versions.env or the toolchain changed:
+docker build -t open-droid-toolchain:<new-tag> .
+# point ANDROID_MCP_TOOLCHAIN_IMAGE at the new tag and restart the MCP process
 ```
+
+Restart the client only for MCP code/config changes; a cached image keeps
+working offline. Remote Docker contexts are rejected (their mounts point at
+another machine).
 
 ---
 

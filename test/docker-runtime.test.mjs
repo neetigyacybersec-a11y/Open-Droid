@@ -11,7 +11,6 @@ const read = (name) => readFileSync(join(REPO, name), "utf8");
 const versions = read("versions.env");
 const dockerfile = read("Dockerfile");
 const smoke = read("scripts/docker-smoke.sh");
-const handlers = read("scripts/docker-mcp-smoke.mjs");
 const ci = read(".github/workflows/ci.yml");
 
 function pin(name) {
@@ -96,23 +95,26 @@ test("the capability smoke covers every handler dependency", () => {
   }
   assert.match(smoke, /frida-server-\$\{FRIDA_VERSION\}-android-\$\{abi\}/);
   assert.match(smoke, /frida-scripts\/hook-method\.js/);
-  assert.match(smoke, /node \/app\/scripts\/docker-mcp-smoke\.mjs/);
+  assert.match(smoke, /must not ship the MCP server/);
 });
 
-test("the MCP smoke invokes representative handlers and checks device boundaries", () => {
-  for (const handler of [
-    "handleEnvCheck",
-    "handleGradle",
-    "handleComposePreviewRender",
-    "handleSkillsSearch",
-    "handleApkInfo",
-    "handleApkDecompile",
-    "handleFridaPs",
-    "handleNetCapture",
+test("ISSUE-168: the image is toolchain-only and starts no MCP server", () => {
+  // The MCP server runs on the host; the image must not reintroduce an
+  // application layer or an entrypoint that serves it.
+  for (const forbidden of [
+    /npm ci/,
+    /npm run build/,
+    /COPY --from=builder/,
+    /COPY --from=toolchain/,
+    /run-mcp\.sh/,
+    /docker-mcp-smoke/,
+    /^ENTRYPOINT/m,
+    /COPY .*dist/,
   ]) {
-    assert.match(handlers, new RegExp(`\\b${handler}\\b`), `${handler} not invoked`);
+    assert.doesNotMatch(dockerfile, forbidden, `Dockerfile must not contain ${forbidden}`);
   }
-  assert.match(handlers, /device-unavailable|adb\|device/i);
+  assert.match(dockerfile, /^CMD \["sleep", "infinity"\]$/m);
+  assert.match(dockerfile, /org\.opencontainers\.image\.title="open-droid-toolchain"/);
 });
 
 test("CI builds the image and runs the in-container smoke", () => {

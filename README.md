@@ -12,7 +12,7 @@ full Android product studio: a single combined **MCP server** wrapping the entir
 Android toolchain, a **vendored toolchain bootstrap** (fully offline after the first run),
 **31 curated skills** (Android/UI, senior UI/UX design, Superpowers SDE, reverse
 engineering, and an end-to-end `start-here` orchestrator), a **Material 3 Compose
-starter template**, and a **self-contained Docker image**.
+starter template**, and a **toolchain-only Docker image**.
 
 No scattered MCP servers. No repeated downloads. No "works on my machine."
 
@@ -54,39 +54,44 @@ No scattered MCP servers. No repeated downloads. No "works on my machine."
   + screenshot regression.
 - **Dynamic analysis** — static→dynamic reverse-engineering loop: Frida hooks,
   mitmproxy capture, runtime observation, root/SSL bypass (7 new MCP tools).
-- **Self-contained Docker image** — `docker build` and run; no host toolchain needed.
+- **Host MCP, container toolchain** — the server runs on the host; Docker holds the
+  pinned Android/JVM tools, so the host needs no Android SDK, JDK, Gradle or Python.
 - **CI/CD** — GitHub Actions build/test on PR; on tag, publish Docker image to GHCR.
 
 ---
 
-## Quick start — Docker (zero downloads)
+## Quick start — Docker toolchain (no host Android tools)
 
-No pre-built image is published yet, so build it locally first (one-time; the
-multi-stage build downloads several GB — start **Docker Desktop first**, the
-first build takes a while):
+The Open-Droid **MCP server runs on the host**. The image is the toolchain, not
+the server: Gradle, JDK, Android SDK, JADX, apktool, Compose Preview, Maestro and
+the Frida/mitmproxy venv stay inside it. Build it locally (one-time; several GB
+— start **Docker Desktop first**):
 
 ```bash
-docker build -t open-droid:latest .
+docker build -t open-droid-toolchain:0.1.0 .
 ```
 
-Wire into OpenCode (`~/.config/opencode/opencode.jsonc`):
+Run the host MCP from this checkout and point it at the image
+(`~/.config/opencode/opencode.jsonc`):
 
 ```jsonc
 "mcp": {
   "servers": {
     "android-mcp": {
       "type": "local",
-      "command": ["docker", "run", "-i", "--rm", "open-droid:latest"]
+      "command": ["node", "/absolute/path/to/Open-Droid/dist/index.js"],
+      "environment": {
+        "ANDROID_MCP_TOOLCHAIN_IMAGE": "open-droid-toolchain:0.1.0"
+      }
     }
   }
 }
 ```
 
-> Shape verified against what `opencode mcp add --global` itself writes.
-
-> The container route cannot run the Android emulator (Docker Desktop does not
-> expose `/dev/kvm`). See [Docker](#docker) for the supported alternatives
-> (physical device or a host/WSL2 emulator bridged via `ADB_SERVER_SOCKET`).
+The host still needs Node and `adb` (device connectivity); `adb` and emulators
+stay outside the container. Set `ANDROID_SERIAL` or
+`ADB_SERVER_SOCKET=tcp:host.docker.internal:5037` for device access. Android
+builds and static analysis need no host Android SDK.
 
 ---
 
@@ -173,7 +178,7 @@ resolved path and which source won.
 | `examples/hello-compose/` | Finished example app |
 | `examples/packs-reference/` | Reference consumer that builds every dependency pack offline (FR-R1) |
 | `skills/` | 30 OpenCode skills |
-| `docker/` | Dockerfile + entrypoint |
+| `Dockerfile` | Toolchain-only image (no MCP server) |
 | `docs/` | Quickstart, architecture, quality gates, offline contract, publishing, lifecycle coverage, compose previews, troubleshooting |
 | `manifest/` | Lifecycle stages, capability status, and CI gate allowlist (FR-R22) |
 | `.github/workflows/` | CI + release pipelines |
@@ -397,7 +402,7 @@ Open-Droid/
 ├── examples/       # Finished sample app
 ├── manifest/       # Lifecycle stages, capabilities and gates
 ├── scripts/        # setup, register, doctor, new-app, run-mcp, warm-cache, repo-hygiene
-├── docker/         # Dockerfile + entrypoint
+├── Dockerfile      # Toolchain-only image (no MCP server)
 ├── docs/           # Guides
 └── .github/        # CI/CD
 ```
@@ -428,34 +433,39 @@ Pre-commit hook runs `build` + `test`.
 
 ## Docker
 
-```bash
-docker build -t open-droid:latest .
-docker run -i --rm open-droid:latest
-```
-
-The runtime image contains all non-device handler dependencies — Gradle, the
-Android SDK build-tools (`aapt2`), JADX, apktool, Compose Preview CLI, Android
-CLI, Maestro, the pinned Frida/mitmproxy venv and both `frida-server` ABIs.
-Versions and upstream checksums come from `versions.env`, shared with
-`scripts/setup.sh`. Verify a built image with:
+Issue #168 fixes the boundary: the MCP server is a **host process**; the image
+is a **managed toolchain** with no `src/`, `dist/`, `node_modules/` or server
+entrypoint.
 
 ```bash
-docker run --rm --entrypoint bash open-droid:latest scripts/docker-smoke.sh
+docker build -t open-droid-toolchain:0.1.0 .
+docker run --rm --entrypoint bash open-droid-toolchain:0.1.0 scripts/docker-smoke.sh
 ```
 
-> **Limitation:** the container cannot run the Android emulator. Docker Desktop on
-> Windows/macOS does not expose `/dev/kvm`, and even with software rendering a
-> first boot takes ~13 minutes under TCG (and `--rm` discards the AVD state, so
-> every run pays that cost). The image is still useful for the MCP server's
-> build/ADB/static-analysis tools.
+The image contains all non-device handler dependencies — Gradle, the Android SDK
+build-tools (`aapt2`), JADX, apktool, Compose Preview CLI, Android CLI, Maestro,
+the pinned Frida/mitmproxy venv and both `frida-server` ABIs. Versions and
+upstream checksums come from `versions.env`, shared with `scripts/setup.sh`.
+
+When `ANDROID_MCP_TOOLCHAIN_IMAGE` is set, `src/services/process-runner.ts`
+routes Gradle, `aapt2`, JADX, apktool, Compose Preview, Maestro and the Frida
+CLIs through `docker run` with argv arrays and bind-mounted workspace/caches.
+`adb`, emulators and generic host utilities are never routed. If Docker, the
+daemon, the image or a mountable local engine is missing the handler returns an
+actionable error; it does not fall back to host-installed Android tools or use
+a remote daemon whose bind mounts point at another machine.
+
+> **Limitation:** Windows host-path translation is not implemented yet; container
+> mode fails closed there. The container also does not run the Android emulator
+> (Docker Desktop does not expose `/dev/kvm`).
 >
-> For a running emulator, use one of:
-> - a **physical device**: `adb_wifi { action: "connect", host: "<phone-ip>" }`
-> - a **host/WSL2 emulator**, bridged with
->   `-e ADB_SERVER_SOCKET=tcp:host.docker.internal:5037` so the MCP server's
->   `adb_devices` talks to the remote adb server.
+> For a running emulator, use a **physical device**
+> (`adb_wifi { action: "connect", host: "<phone-ip>" }`) or a **host/WSL2
+> emulator**, bridged with
+> `-e ADB_SERVER_SOCKET=tcp:host.docker.internal:5037`.
 
-Multi-stage build: builder (Node) compiles TS; runtime (Temurin JDK + SDK + Node).
+Image layers: Temurin JDK + Android SDK + Node 22 runtime (for
+`compose-preview`) + pinned tools. There is no TypeScript build stage.
 
 ---
 

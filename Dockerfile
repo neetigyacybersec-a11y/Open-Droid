@@ -1,25 +1,17 @@
 # syntax=docker/dockerfile:1.7
-# Multi-stage build for android-mcp.
-# Stage 1: build the TypeScript MCP server.
-# Stage 2: runtime image with every non-device dependency used by the MCP
-# handlers: JDK, Android SDK, Gradle, JADX/apktool, Compose Preview, Android
-# CLI, Maestro and the pinned Frida/mitmproxy venv plus frida-server assets.
-# Device connectivity (USB/KVM/host adb server) stays an explicit external boundary.
+# ISSUE-168: toolchain-only image. The Open-Droid MCP server runs on the host;
+# this image carries only the pinned third-party tools, SDKs and runtime assets
+# that host-side handlers execute. It must not contain or start the MCP server.
+#
+# Device connectivity (USB/KVM/host adb server) stays an explicit external
+# boundary. The host owns `adb`/emulators; the container's adb client points at
+# the host server through ADB_SERVER_SOCKET.
+#
+# The image installs every non-device dependency used by the MCP handlers: JDK,
+# Android SDK, Gradle, JADX/apktool, Compose Preview, Android CLI, Maestro and
+# the pinned Frida/mitmproxy venv plus frida-server assets.
 
-# ---------- Stage 1: builder ----------
-FROM node:22-bookworm-slim AS builder
-WORKDIR /build
-COPY package.json package-lock.json ./
-RUN npm ci
-COPY tsconfig.json ./
-COPY src ./src
-# ISSUE-144: npm run build also writes dist/build-manifest.json.
-COPY scripts/build-manifest.mjs ./scripts/build-manifest.mjs
-RUN npm run build
-RUN npm prune --omit=dev
-
-# ---------- Stage 2: runtime ----------
-FROM eclipse-temurin:21-jdk AS runtime
+FROM eclipse-temurin:21-jdk AS toolchain
 SHELL ["/bin/bash", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -30,7 +22,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Node 22: official dist tarball, SHA-256-verified from nodejs.org (issue 73:
-# replaces the unpinned `curl nodesource | bash` pipe-to-shell).
+# replaces the unpinned `curl nodesource | bash` pipe-to-shell). Node is a
+# toolchain runtime for compose-preview, not the MCP server.
 ARG NODE_VERSION=22.18.0
 RUN cd /tmp \
     && wget -q "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
@@ -143,16 +136,14 @@ RUN . /app/versions.env && mkdir -p /opt/maestro \
     && cp -a /tmp/maestro-extract/maestro/. /opt/maestro/ \
     && rm -rf /tmp/maestro.zip /tmp/maestro-extract
 
-# App
+# ISSUE-168: no application layer. The image is the toolchain, not the MCP
+# server: no src/, dist/, node_modules/, package.json or MCP launcher.
 WORKDIR /app
-COPY --from=builder /build/dist ./dist
-COPY --from=builder /build/node_modules ./node_modules
-COPY --from=builder /build/package.json ./
-COPY scripts/run-mcp.sh scripts/docker-smoke.sh scripts/docker-mcp-smoke.mjs ./scripts/
+COPY scripts/docker-smoke.sh ./scripts/
 # Normalize line endings so a Windows (CRLF) checkout can't break the shebang.
-RUN sed -i 's/\r$//' ./scripts/run-mcp.sh ./scripts/docker-smoke.sh && chmod +x ./scripts/run-mcp.sh ./scripts/docker-smoke.sh
+RUN sed -i 's/\r$//' ./scripts/docker-smoke.sh && chmod +x ./scripts/docker-smoke.sh
 
-# Issue 73: run the MCP server as a dedicated non-root user. Android SDK and
+# Issue 73: run the toolchain as a dedicated non-root user. Android SDK and
 # toolchain paths stay root-owned read/execute; per-user state lives in the
 # user's home (gradle caches, avds) — no world-writable fallbacks.
 RUN useradd --create-home --shell /usr/sbin/nologin mcp \
@@ -160,10 +151,13 @@ RUN useradd --create-home --shell /usr/sbin/nologin mcp \
     && chown -R mcp:mcp /app /opt/gradle-home
 USER mcp
 ENV HOME=/home/mcp
-ENV NODE_ENV=production
 ENV GRADLE_USER_HOME=/opt/gradle-home
+LABEL org.opencontainers.image.title="open-droid-toolchain" \
+      org.opencontainers.image.description="Pinned Android/JVM toolchain for the host-side Open-Droid MCP server; contains no MCP server."
 # Fail the image build itself when a runtime capability is missing; CI reruns
-# the same script against the built image so a successful build is not the only
-# evidence.
+# the same script against the built image.
 RUN bash scripts/docker-smoke.sh
-ENTRYPOINT ["./scripts/run-mcp.sh"]
+
+# No ENTRYPOINT starts a server. The host MCP invokes `docker run ... <tool>`;
+# the default command only keeps a container alive for interactive use.
+CMD ["sleep", "infinity"]

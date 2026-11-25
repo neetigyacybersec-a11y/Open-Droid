@@ -1,11 +1,12 @@
 # Quickstart
 
-## Option A — Docker (no host toolchain)
+## Option A — Docker toolchain (no host Android toolchain)
 
-No pre-built image is published yet, so build it locally first:
+The MCP server runs on the host; the image holds only the pinned Android/JVM
+toolchain. Build it locally first:
 
 ```bash
-docker build -t open-droid:latest .
+docker build -t open-droid-toolchain:0.1.0 .
 ```
 
 Configure OpenCode (`~/.config/opencode/opencode.jsonc`; same shape `opencode mcp add --global` writes):
@@ -15,16 +16,20 @@ Configure OpenCode (`~/.config/opencode/opencode.jsonc`; same shape `opencode mc
   "servers": {
     "android-mcp": {
       "type": "local",
-      "command": ["docker", "run", "-i", "--rm", "open-droid:latest"]
+      "command": ["node", "/absolute/path/to/Open-Droid/dist/index.js"],
+      "environment": { "ANDROID_MCP_TOOLCHAIN_IMAGE": "open-droid-toolchain:0.1.0" }
     }
   }
 }
 ```
 
+The host still needs Node and `adb`; Gradle, JDK, Android SDK and analysis tools
+stay in the image. A missing image or daemon is an error, not a host fallback.
+
 > The container route cannot run the Android emulator (Docker Desktop does not
 > expose `/dev/kvm`). Use a physical device (`adb_wifi { action: "connect",
 > host: "<phone-ip>" }`) or a host/WSL2 emulator bridged with
-> `-e ADB_SERVER_SOCKET=tcp:host.docker.internal:5037`.
+> `ADB_SERVER_SOCKET=tcp:host.docker.internal:5037`.
 
 ## Option B — Clone + one-time setup (offline afterwards)
 

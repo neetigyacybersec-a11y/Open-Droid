@@ -15,7 +15,7 @@ import {
   serveStatePath,
   errorMessage,
 } from "./util.js";
-import { run, which } from "./services/process-runner.js";
+import { run, toolchainStatus, which } from "./services/process-runner.js";
 import { resolveGradleExecutable, runGradle, type GradleResolution } from "./gradleExecutable.js";
 import { spawnManaged } from "./services/managed-process.js";
 import {
@@ -682,6 +682,18 @@ function capabilityLines(checks: Array<string | null>, gradle: GradleResolution)
   return labels.map((label, index) => `${label}: ${found[index] ?? "MISSING"}`);
 }
 
+// ISSUE-168: Docker is the toolchain, not the MCP runtime. Report the image
+// separately from host MCP health and never imply a host fallback.
+function toolchainLine(status: Awaited<ReturnType<typeof toolchainStatus>>): string {
+  if (status.mode === "host") {
+    return "toolchain: host (set ANDROID_MCP_TOOLCHAIN_IMAGE to run Android tools in the pinned container)";
+  }
+  if (!status.available) {
+    return `toolchain: docker image ${status.image} UNAVAILABLE (${status.reason})`;
+  }
+  return `toolchain: docker image ${status.image} (id ${status.id?.slice(0, 12)}, daemon ${status.daemon})`;
+}
+
 export async function handleEnvCheck() {
   const checks = await Promise.all([
     which("java"),
@@ -702,8 +714,12 @@ export async function handleEnvCheck() {
     which("mitmdump"),
   ]);
   const gradle = resolveGradleExecutable();
+  const toolchain = await toolchainStatus();
   const lines = [
     ...capabilityLines(checks, gradle),
+    toolchainLine(toolchain),
+    // ISSUE-168: host MCP health and toolchain health are separate layers.
+    `mcp runtime: host process (pid ${process.pid})`,
     `ANDROID_HOME: ${process.env.ANDROID_HOME ?? process.env.ANDROID_SDK_ROOT ?? "unset"}`,
     `JAVA_HOME: ${process.env.JAVA_HOME ?? "unset"}`,
     reaProviderStatus(),

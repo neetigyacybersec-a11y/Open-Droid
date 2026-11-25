@@ -5,9 +5,15 @@ import { accessSync, constants, statSync } from "node:fs";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { run, type RunOptions, type RunResult } from "./services/process-runner.js";
+import { toolchainMode } from "./services/toolchain.js";
 
 export type GradleSource =
-  "ANDROID_MCP_GRADLE_HOME" | "ANDROID_GRADLE_HOME" | "bundled" | "GRADLE_HOME" | "PATH";
+  | "container"
+  | "ANDROID_MCP_GRADLE_HOME"
+  | "ANDROID_GRADLE_HOME"
+  | "bundled"
+  | "GRADLE_HOME"
+  | "PATH";
 
 export interface GradleExecutable {
   /** The executable to launch (may be cmd.exe for a Windows .bat). */
@@ -74,6 +80,23 @@ export function resolveGradleExecutable(options: GradleResolveOptions = {}): Gra
   const env = options.env ?? process.env;
   const root = options.root ?? defaultRoot();
   const attempts: string[] = [];
+  // ISSUE-168: in container mode Gradle comes from the image; never fall back
+  // to a host Gradle install. process-runner routes the name into the image.
+  if (toolchainMode(env) === "docker") {
+    if (platform === "win32") {
+      return {
+        ok: false,
+        attempts,
+        message:
+          "Gradle runs in the toolchain container, which does not support Windows " +
+          "host paths yet. Unset ANDROID_MCP_TOOLCHAIN_IMAGE to use host Gradle.",
+      };
+    }
+    return {
+      ok: true,
+      executable: { command: "gradle", argsPrefix: [], path: "gradle", source: "container" },
+    };
+  }
   const homes: Array<[GradleSource, string | undefined]> = [
     ["ANDROID_MCP_GRADLE_HOME", env.ANDROID_MCP_GRADLE_HOME],
     ["ANDROID_GRADLE_HOME", env.ANDROID_GRADLE_HOME],
