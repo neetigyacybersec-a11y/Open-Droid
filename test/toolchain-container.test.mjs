@@ -17,6 +17,9 @@ import {
 import { resolveGradleExecutable } from "../dist/gradleExecutable.js";
 
 const REPO = resolve(import.meta.dirname, "..");
+// Windows container mode is fail-closed; POSIX mount/argv checks are not
+// meaningful there (drive-letter paths are not identity-mounted).
+const posixTest = process.platform === "win32" ? test.skip : test;
 
 test("container mode is opt-in and host mode is the default", () => {
   assert.equal(toolchainMode({}), "host");
@@ -35,7 +38,7 @@ test("only Android/JVM toolchain commands are routed; device tools stay host-sid
   }
 });
 
-test("docker argv mounts the workspace without building a shell string", () => {
+posixTest("docker argv mounts the workspace without building a shell string", () => {
   const cwd = mkdtempSync(join(tmpdir(), "od-toolchain-"));
   try {
     const inv = containerInvocation("gradle", ["assembleDebug", "--offline"], {
@@ -48,8 +51,8 @@ test("docker argv mounts the workspace without building a shell string", () => {
     assert.equal(inv.command, "docker");
     assert.deepEqual(inv.args.slice(0, 3), ["run", "--rm", "--init"]);
     const joined = inv.args.join(" ");
-    assert.match(joined, new RegExp(`-v ${cwd}:${cwd}`), "cwd is bind-mounted read-write");
-    assert.match(joined, new RegExp(`-w ${cwd}`));
+    assert.ok(inv.args.includes(`${cwd}:${cwd}`), "cwd is bind-mounted read-write");
+    assert.ok(inv.args.includes("-w") && inv.args.includes(cwd), "cwd is the working directory");
     const mounts = toolchainMounts(cwd, { PATH: "/usr/bin" });
     const tmpIndex = mounts.findIndex((mount) => mount.source === resolve(tmpdir()));
     const cwdIndex = mounts.findIndex((mount) => mount.source === cwd);
