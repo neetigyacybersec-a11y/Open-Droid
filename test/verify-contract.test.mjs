@@ -57,6 +57,14 @@ test("the verifier includes every mandatory gate exactly once", () => {
   }
 });
 
+test("the verifier accepts CRLF checkouts on Windows runners", () => {
+  assert.match(
+    verify,
+    /"--end-of-line",\s*"auto"/,
+    "Prettier must not flag LF-normalised files checked out as CRLF",
+  );
+});
+
 test("the verifier compiles once and runs the full suite once", () => {
   assert.equal(verify.split("scripts/build.mjs").length - 1, 1, "exactly one build");
   assert.equal(verify.split("scripts/test.mjs").length - 1, 1, "exactly one test run");

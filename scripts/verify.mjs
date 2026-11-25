@@ -10,9 +10,24 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const NODE = process.execPath;
 
 const steps = [
-  ["typecheck", NODE, [join(ROOT, "node_modules/typescript/bin/tsc"), "--noEmit", "-p", "tsconfig.json"]],
+  [
+    "typecheck",
+    NODE,
+    [join(ROOT, "node_modules/typescript/bin/tsc"), "--noEmit", "-p", "tsconfig.json"],
+  ],
   ["lint", NODE, [join(ROOT, "scripts/lint.mjs")]],
-  ["format", NODE, [join(ROOT, "node_modules/prettier/bin/prettier.cjs"), "--check", "src"]],
+  // Windows checkouts use CRLF; formatting must be platform-neutral.
+  [
+    "format",
+    NODE,
+    [
+      join(ROOT, "node_modules/prettier/bin/prettier.cjs"),
+      "--end-of-line",
+      "auto",
+      "--check",
+      "src",
+    ],
+  ],
   ["guardrails", NODE, [join(ROOT, "scripts/check-guardrails.mjs")]],
   ["build", NODE, [join(ROOT, "scripts/build.mjs")]],
   ["tests", NODE, [join(ROOT, "scripts/test.mjs")]],
