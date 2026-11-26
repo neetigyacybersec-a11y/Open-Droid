@@ -1,21 +1,49 @@
 #!/usr/bin/env node
 // ISSUE-154: remove only resources the install manifest says Open-Droid owns.
 // Dry-run by default. Missing/corrupt ownership is conservative, not destructive.
-import { lstatSync, rmSync } from "node:fs";
-import { join, relative, resolve, sep } from "node:path";
-import { pathToFileURL } from "node:url";
+import { lstatSync, realpathSync, rmSync } from "node:fs";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { ADAPTERS, SUPPORTED_CLIENTS, inspectClient, unregisterClient } from "./clients.mjs";
 import { ownedPaths, readManifest } from "./installer/manifest.mjs";
 
-const REPO = resolve(new URL("..", import.meta.url).pathname);
+const REPO = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
-function safePath(path) {
+/** Canonical managed root, or null when it cannot be safely inspected. */
+function canonicalManagedRoot(root) {
   try {
-    const info = lstatSync(path);
-    return !info.isSymbolicLink();
+    if (lstatSync(root).isSymbolicLink()) return null;
+    return realpathSync(root);
   } catch {
-    return false;
+    return null;
   }
+}
+
+/**
+ * Reason why a lexically owned path must not be removed, or null when safe.
+ * Every component from the root to the target is inspected: a symlinked
+ * directory would let recursive removal escape into an external location.
+ */
+export function unsafeReason(path, root, canonicalRoot) {
+  const rel = relative(root, resolve(path));
+  if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) return "outside managed root";
+  let current = canonicalRoot;
+  for (const part of rel.split(sep).filter(Boolean)) {
+    current = join(current, part);
+    try {
+      if (lstatSync(current).isSymbolicLink()) return "symlink in managed path; not followed";
+    } catch {
+      return "missing or unreadable path; not followed";
+    }
+  }
+  try {
+    const real = realpathSync(path);
+    const realRel = relative(canonicalRoot, real);
+    if (realRel.startsWith("..") || isAbsolute(realRel)) return "real path outside managed root";
+  } catch {
+    return "missing or symlink; not followed";
+  }
+  return null;
 }
 
 export function planUninstall({
@@ -25,6 +53,7 @@ export function planUninstall({
   keep = [],
 } = {}) {
   const installRoot = resolve(root);
+  const canonicalRoot = canonicalManagedRoot(installRoot);
   const manifest = readManifest(installRoot);
   const report = {
     conservative: !manifest,
@@ -51,8 +80,11 @@ export function planUninstall({
       report.retained.push({ path: owned.absolute, reason: `kept: ${category}` });
       continue;
     }
-    if (!safePath(owned.absolute)) {
-      report.skipped.push({ path: owned.absolute, reason: "missing or symlink; not followed" });
+    const reason = canonicalRoot
+      ? unsafeReason(owned.absolute, installRoot, canonicalRoot)
+      : "managed root is missing or a symlink";
+    if (reason) {
+      report.skipped.push({ path: owned.absolute, reason });
       continue;
     }
     report.deleted.push({ path: owned.absolute, category });
@@ -76,7 +108,18 @@ export function executeUninstall(options = {}) {
   if (options.dryRun !== false) return { ...report, dryRun: true };
   if (!options.yes) throw new Error("uninstall requires --yes (dry run is the default)");
   if (report.conservative) return report;
+  // ISSUE-184: re-check immediately before each deletion: a path can be
+  // replaced by a symlink after the plan was produced.
+  const root = resolve(options.root ?? join(REPO, ".toolchain"));
+  const canonicalRoot = canonicalManagedRoot(root);
   for (const entry of report.deleted) {
+    const reason = canonicalRoot
+      ? unsafeReason(entry.path, root, canonicalRoot)
+      : "managed root is missing or a symlink";
+    if (reason) {
+      report.skipped.push({ path: entry.path, reason: `skip at deletion: ${reason}` });
+      continue;
+    }
     try {
       rmSync(entry.path, { recursive: true, force: true });
     } catch (error) {

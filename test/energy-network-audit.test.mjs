@@ -21,9 +21,19 @@ function fakeRunner(routes) {
   return { runner, calls };
 }
 
-test("battery and jobs parse from dumps output; sections report availability", async () => {
+const STOCK_DISCHARGING = `Current Battery Service state:
+  AC powered: false
+  USB powered: false
+  Wireless powered: false
+  Max charging current: 0
+  status: 3
+  health: Good
+  level: 92
+`;
+
+test("battery and jobs parse from stock dumps output; sections report availability", async () => {
   const { runner, calls } = fakeRunner({
-    "dumpsys battery": `level: 92\nstatus: Unplugged\nplugged: 0\nhealth: good\n`,
+    "dumpsys battery": STOCK_DISCHARGING,
     [`dumpsys jobstats ${PKG}`]: `Jobstats ${PKG}: run-count=5, time=120ms\n`,
   });
   const report = await auditEnergyNetwork({ packageName: PKG, runner });
@@ -31,11 +41,31 @@ test("battery and jobs parse from dumps output; sections report availability", a
   assert.equal(report.battery.available, true);
   assert.equal(report.battery.level, 92);
   assert.equal(report.battery.charging, false);
-  assert.equal(report.battery.health, "good");
+  assert.equal(report.battery.status, "discharging");
+  assert.equal(report.battery.health, "Good");
   assert.equal(report.jobs.available, true, "jobstats available when stdout mentions the package");
   assert.ok(report.jobs.items.some((l) => l.includes(PKG)));
   assert.equal(calls[0].cmd, "adb", "adb used");
   assert.ok(calls.some((c) => c.args.includes("shell") && c.args.includes("dumpsys")));
+});
+
+test("stock battery service fields distinguish charging sources, full and unknown", async () => {
+  const cases = [
+    ["AC powered: true\n", true, "charging"],
+    ["AC powered: true\nstatus: 2\n", true, "charging"],
+    ["USB powered: true\nstatus: 2\n", true, "charging"],
+    ["Wireless powered: true\nstatus: 2\n", true, "charging"],
+    ["AC powered: false\nUSB powered: false\nstatus: 5\n", false, "full"],
+    ["status: 4\n", false, "not_charging"],
+    ["status: 3\n", false, "discharging"],
+    ["level: 50\n", null, "unknown"],
+  ];
+  for (const [battery, charging, status] of cases) {
+    const { runner } = fakeRunner({ "dumpsys battery": battery });
+    const report = await auditEnergyNetwork({ packageName: PKG, runner });
+    assert.equal(report.battery.charging, charging, JSON.stringify(battery));
+    assert.equal(report.battery.status, status, JSON.stringify(battery));
+  }
 });
 
 test("alarms and wake locks are included where dumps power exposes them", async () => {
@@ -92,7 +122,7 @@ test("invalid package names are rejected before any device call", async () => {
 
 test("report is deterministic across runs", async () => {
   const { runner } = fakeRunner({
-    "dumpsys battery": "level: 92\nplugged: 0\n",
+    "dumpsys battery": STOCK_DISCHARGING,
   });
   const a = await auditEnergyNetwork({ packageName: PKG, runner });
   const b = await auditEnergyNetwork({ packageName: PKG, runner });

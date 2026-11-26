@@ -36,22 +36,47 @@ fi
 
 # Copy source only. Generated Gradle output is stale, package-specific and
 # tens of megabytes; it must never reach a new project (FR-R20 / ISSUE-38).
+# Stage in a sibling directory and publish with one rename, so a failed
+# substitution leaves no half-scaffolded destination (ISSUE-185).
 TEMPLATE="$ROOT/templates/compose-starter"
+STAGE="$(mktemp -d "$(dirname "$APP")/.${APP_BASENAME}.stage.XXXXXX")"
+cleanup() {
+  if [ -n "${STAGE:-}" ] && [ -d "$STAGE" ]; then rm -rf "$STAGE"; fi
+}
+trap cleanup EXIT
 if command -v rsync >/dev/null 2>&1; then
   rsync -a \
     --exclude='build/' \
     --exclude='.gradle/' \
     --exclude='local.properties' \
     --exclude='.idea/' \
-    "$TEMPLATE/" "$APP/"
+    "$TEMPLATE/" "$STAGE/"
 else
-  cp -r "$TEMPLATE" "$APP"
-  rm -rf "$APP/.gradle" "$APP/.idea" "$APP/local.properties"
-  find "$APP" -type d -name build -prune -exec rm -rf {} +
+  cp -r "$TEMPLATE/." "$STAGE/"
+  rm -rf "$STAGE/.gradle" "$STAGE/.idea" "$STAGE/local.properties"
+  find "$STAGE" -type d -name build -prune -exec rm -rf {} +
 fi
-echo "sdk.dir=$ANDROID_HOME" > "$APP/local.properties"
-# rename package (null-safe traversal: paths may contain spaces)
-sed -i "s/com\.example\.starter/$PKG/g" "$APP/app/build.gradle.kts" "$APP/app/src/main/AndroidManifest.xml"
-find "$APP" -name "*.kt" -exec sed -i "s/com\.example\.starter/$PKG/g" {} +
+echo "sdk.dir=$ANDROID_HOME" > "$STAGE/local.properties"
+# Node-based replacement: portable across GNU and BSD sed (ISSUE-185).
+node - "$STAGE" "$PKG" <<'NODE'
+const fs = require("node:fs");
+const path = require("node:path");
+const [root, pkg] = process.argv.slice(2);
+const EXTENSIONS = new Set([".kt", ".kts", ".gradle", ".xml"]);
+const walk = (dir) => {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const file = path.join(dir, entry.name);
+    if (entry.isDirectory()) walk(file);
+    else if (entry.isFile() && EXTENSIONS.has(path.extname(entry.name))) {
+      const before = fs.readFileSync(file, "utf8");
+      const after = before.replaceAll("com.example.starter", pkg);
+      if (after !== before) fs.writeFileSync(file, after);
+    }
+  }
+};
+walk(root);
+NODE
+mv "$STAGE" "$APP"
+trap - EXIT
 echo "Scaffolded $APP with package $PKG"
 echo "Next: source .toolchain/env.sh && cd $APP && gradle :app:assembleDebug"

@@ -191,7 +191,7 @@ function readModuleText(projectPath: string, modulePath: string): string {
   return readProjectFile(projectPath, sourcePath) ?? readProjectFile(projectPath, groovyPath) ?? "";
 }
 
-function moduleType(moduleText: string): ModuleType {
+export function moduleType(moduleText: string): ModuleType {
   const plugin =
     ANDROID_PLUGIN_RE.exec(moduleText)?.[1] ?? ANDROID_PLUGIN_GROOVY_RE.exec(moduleText)?.[1];
   if (plugin === "com.android.application") return "android-application";

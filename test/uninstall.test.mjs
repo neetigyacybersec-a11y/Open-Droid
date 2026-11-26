@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
-import { executeUninstall, planUninstall } from "../scripts/uninstall.mjs";
+import { executeUninstall, planUninstall, unsafeReason } from "../scripts/uninstall.mjs";
 import { writeManifest } from "../scripts/installer/manifest.mjs";
 import { registerClient } from "../scripts/clients.mjs";
 
@@ -88,6 +88,64 @@ test("symlinks are never followed", () => {
   writeManifest(installRoot, manifest);
   const report = planUninstall({ root: installRoot, project: root, home: join(work, "s-home") });
   assert.ok(report.skipped.some((entry) => /symlink/.test(entry.reason)));
+});
+
+test("a descendant under a symlinked directory is skipped and external data survives", () => {
+  const root = join(work, "symlink-ancestor", "repo");
+  const installRoot = join(root, ".toolchain");
+  const external = join(root, "projects", "important", "subdir");
+  mkdirSync(external, { recursive: true });
+  writeFileSync(join(external, "sentinel.txt"), "user data");
+  mkdirSync(join(installRoot, "gradle"), { recursive: true });
+  writeFileSync(join(installRoot, "gradle", "owned.txt"), "owned");
+  try {
+    symlinkSync(join(root, "projects", "important"), join(installRoot, "linked"), "dir");
+  } catch {
+    return; // symlink creation may be restricted on the host
+  }
+  writeManifest(installRoot, {
+    schema: 1,
+    profile: "core",
+    components: {
+      linked: { required: true, paths: [".toolchain/linked/subdir"] },
+      gradle: { required: true, paths: [".toolchain/gradle"] },
+    },
+  });
+  const applied = executeUninstall({
+    root: installRoot,
+    project: root,
+    home: join(work, "sa-home"),
+    dryRun: false,
+    yes: true,
+  });
+  assert.ok(applied.skipped.some((entry) => /symlink/.test(entry.reason)));
+  assert.ok(applied.deleted.every((entry) => !entry.path.includes("linked")));
+  assert.equal(existsSync(join(external, "sentinel.txt")), true);
+  assert.equal(existsSync(join(installRoot, "gradle", "owned.txt")), false);
+});
+
+test("a link swapped in after planning is rejected by the pre-deletion check", () => {
+  const root = join(work, "swapped", "repo");
+  const installRoot = join(root, ".toolchain");
+  const owned = join(installRoot, "linked", "subdir");
+  const external = join(root, "projects", "important", "subdir");
+  mkdirSync(owned, { recursive: true });
+  mkdirSync(external, { recursive: true });
+  writeFileSync(join(owned, "sentinel.txt"), "owned");
+  writeFileSync(join(external, "sentinel.txt"), "user data");
+  const reason = unsafeReason(owned, installRoot, installRoot);
+  assert.equal(reason, null, "a plain owned directory is removable");
+  try {
+    rmSync(join(installRoot, "linked"), { recursive: true, force: true });
+    symlinkSync(join(root, "projects", "important"), join(installRoot, "linked"), "dir");
+  } catch {
+    return; // symlink creation may be restricted on the host
+  }
+  assert.match(
+    unsafeReason(owned, installRoot, installRoot),
+    /symlink/,
+    "the same planned path is now unsafe",
+  );
 });
 
 test("registration entries are reported and removed with the manifest", () => {

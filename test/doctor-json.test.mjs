@@ -1,8 +1,10 @@
 // ISSUE-150: doctor JSON, schema, capability semantics and conservative repair.
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { collectDoctor, DOCTOR_SCHEMA, formatDoctor } from "../scripts/installer/doctor.mjs";
 import { readManifest, writeManifest } from "../scripts/installer/manifest.mjs";
@@ -60,6 +62,28 @@ test("doctor JSON validates against the committed schema", () => {
   assert.ok(report.registeredTools.includes("gradle_task"));
   assert.ok(!report.runnableTools.includes("gradle_task"));
   assert.match(formatDoctor(report), /registered tools: \d+; runnable: \d+/);
+});
+
+// ISSUE-183: on Windows, URL.pathname starts with /C:/..., which the path
+// resolver turns into a root-relative path rather than the real drive path.
+// These entry points run natively on the Windows CI job with the real checkout.
+test("CLI entry points default to the actual checkout root", () => {
+  const checkout = resolve(fileURLToPath(new URL("..", import.meta.url)));
+  const expected = join(checkout, ".toolchain");
+  // doctor exits non-zero when a capability is missing; its JSON is still
+  // the contract under test, so do not treat that status as a spawn failure.
+  const cli = (name, args = []) => {
+    const spawned = spawnSync(process.execPath, [join(REPO, "scripts", name), ...args], {
+      cwd: REPO,
+      encoding: "utf8",
+    });
+    assert.equal(spawned.error, undefined);
+    return JSON.parse(spawned.stdout);
+  };
+  assert.equal(cli("doctor-json.mjs").installation.root, expected);
+  assert.equal(cli("uninstall.mjs", ["--dry-run"]).installRoot, expected);
+  // A wrong REPO makes buildState stale and inserts a bogus build stage.
+  assert.deepEqual(cli("repair.mjs", ["--dry-run", "--component", "java"]).stages, []);
 });
 
 test("managed executables are found even when absent from PATH", () => {

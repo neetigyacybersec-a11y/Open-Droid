@@ -3,12 +3,12 @@
 // explicit confirmation, per-stage results. Never edits projects or Git state.
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { collectDoctor } from "./installer/doctor.mjs";
 import { runInstall } from "./install.mjs";
 import { buildState } from "./build-state.mjs";
 
-const REPO = resolve(new URL("..", import.meta.url).pathname);
+const REPO = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const COMPONENTS = {
   java: "java",
   node: null,

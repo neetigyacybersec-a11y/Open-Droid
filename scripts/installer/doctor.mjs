@@ -4,6 +4,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { buildState } from "../build-state.mjs";
 import { componentCatalog, readPins } from "./profiles.mjs";
 import { readManifest } from "./manifest.mjs";
@@ -55,7 +56,7 @@ function registrationStatus(repo, env, platform) {
 
 /** Collect a versioned health report. Pure enough to use from tests. */
 export function collectDoctor({
-  root = resolve(new URL("../../", import.meta.url).pathname),
+  root = resolve(fileURLToPath(new URL("../../", import.meta.url))),
   installRoot,
   platform = process.platform,
   env = process.env,

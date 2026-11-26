@@ -2,7 +2,7 @@
 // triage, artifact scanning, exit-code preservation and skipped-with-reason.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderTestSuiteRun, runSuite } from "../dist/testSuiteRunner.js";
@@ -128,7 +128,62 @@ test("multi-module projects run every module's unit suite", async () => {
     assert.equal(report.suites.length, 2, "one unit suite per module");
     const commands = calls.map((c) => c.args.join(" "));
     assert.ok(commands.some((c) => c.includes(":app:testDebugUnitTest")));
-    assert.ok(commands.some((c) => c.includes(":lib:testDebugUnitTest")));
+    assert.ok(commands.some((c) => c.includes(":lib:test")), "JVM modules use the standard test task");
+    assert.ok(!commands.some((c) => c.includes(":lib:testDebugUnitTest")));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("suite selection works against a task-discovery fixture, not a permissive fake", async () => {
+  const root = fixture({
+    "settings.gradle.kts": 'rootProject.name = "multi"\ninclude(":app")\ninclude(":core")\n',
+    "app/build.gradle.kts": `plugins { id("com.android.application") }\ndependencies { testImplementation("junit:junit:4.13.2") }\n`,
+    "core/build.gradle.kts": `plugins { id("org.jetbrains.kotlin.jvm") }\ndependencies { testImplementation("junit:junit:4.13.2") }\n`,
+    "app/src/test/java/com/demo/AppTest.kt": "class AppTest\n",
+    "core/src/test/java/com/demo/CoreTest.kt": "class CoreTest\n",
+  });
+  try {
+    // Model Gradle task availability: Android modules only have
+    // testDebugUnitTest; JVM modules only have test.
+    const runner = async (_cmd, args) => {
+      const task = args.find((arg) => /^:[^:]+:test/.test(arg));
+      if (!task) return { code: 0, stdout: "", stderr: "" };
+      const [, module, name] = task.split(":");
+      const build = readFileSync(join(root, module, "build.gradle.kts"), "utf8");
+      const available = name === "testDebugUnitTest" ? /com\.android/.test(build) : /kotlin|java/.test(build);
+      return {
+        code: available ? 0 : 1,
+        stdout: "",
+        stderr: available ? "" : `Task '${name}' not found in project ':${module}'`,
+      };
+    };
+    const report = await runSuite({ projectPath: root }, runner);
+    assert.equal(report.status, "ok", "no missing-task error on a mixed Android/JVM project");
+    assert.deepEqual(
+      report.suites.filter((s) => s.status === "ran").map((s) => s.exitCode),
+      [0, 0],
+    );
+    assert.ok(report.commands.some((c) => c.includes(":app:testDebugUnitTest")));
+    assert.ok(report.commands.some((c) => c.includes(":core:test")));
+    assert.ok(!report.commands.some((c) => c.includes(":core:testDebugUnitTest")));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("unsupported module types are skipped with a reason", async () => {
+  const root = fixture({
+    "settings.gradle.kts": 'include(":scripts")\n',
+    "scripts/build.gradle.kts": `plugins { base }\ndependencies { testImplementation("junit:junit:4.13.2") }\n`,
+    "scripts/src/test/java/com/demo/ScriptTest.kt": "class ScriptTest\n",
+  });
+  try {
+    const { runner, calls } = fakeRunner(() => ({ code: 0, stdout: "", stderr: "" }));
+    const report = await runSuite({ projectPath: root, suite: "unit" }, runner);
+    assert.equal(report.status, "skipped");
+    assert.equal(calls.length, 0, "no test command is attempted for an unsupported plugin");
+    assert.match(report.suites[0].reason, /unsupported/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -5,10 +5,14 @@ import { run, type RunResult } from "./services/process-runner.js";
 import { adbArgs } from "./services/adb-client.js";
 import { validatePackageName } from "./util.js";
 
+export type BatteryStatus = "charging" | "full" | "discharging" | "not_charging" | "unknown";
+
 export interface BatteryInfo {
   available: boolean;
   level: number | null;
-  charging: boolean;
+  /** null only when the device output does not identify a power state. */
+  charging: boolean | null;
+  status: BatteryStatus;
   health: string | null;
 }
 
@@ -85,14 +89,48 @@ function redact(text: string): string {
   return out;
 }
 
+const BATTERY_STATUS_CODES: Record<string, BatteryStatus> = {
+  "1": "unknown",
+  "2": "charging",
+  "3": "discharging",
+  "4": "not_charging",
+  "5": "full",
+};
+
+/** BatteryManager status: documented numeric codes and named service values. */
+function parseBatteryStatus(stdout: string): BatteryStatus {
+  const raw = /\bstatus:\s*([^\r\n]+)/i.exec(stdout)?.[1]?.trim().toLowerCase();
+  if (!raw) return "unknown";
+  const word = raw.replace(/[\s-]+/g, "_");
+  if (BATTERY_STATUS_CODES[word]) return BATTERY_STATUS_CODES[word];
+  if (word === "full") return "full";
+  if (word === "charging") return "charging";
+  if (word === "discharging" || word === "unplugged") return "discharging";
+  if (word === "not_charging" || word === "notcharging") return "not_charging";
+  return "unknown";
+}
+
 function parseBattery(stdout: string): BatteryInfo {
-  const level = /level[:=]\s*(\d+)/.exec(stdout)?.[1];
-  const plugged = /plugged[:=]\s*(\d+)/.exec(stdout)?.[1];
+  const level = /level[:=]\s*(\d+)/i.exec(stdout)?.[1];
+  const powered = /\b(?:AC|USB|Wireless)\s+powered:\s*true\b/i.test(stdout);
+  const legacy = /plugged[:=]\s*(\d+)/i.exec(stdout)?.[1];
+  let status = parseBatteryStatus(stdout);
+  let charging: boolean | null;
+  if (status !== "unknown") {
+    charging = status === "charging";
+  } else if (powered || (legacy !== undefined && Number(legacy) > 0)) {
+    status = "charging";
+    charging = true;
+  } else {
+    // No power evidence at all: unknown, never a false discharging claim.
+    charging = null;
+  }
   return {
     available: stdout.trim().length > 0,
     level: level === undefined ? null : Number(level),
-    charging: plugged !== undefined && Number(plugged) !== 0,
-    health: /health[:=]\s*(\w+)/.exec(stdout)?.[1] ?? null,
+    charging,
+    status,
+    health: /health[:=]\s*(\w+)/i.exec(stdout)?.[1] ?? null,
   };
 }
 
@@ -147,7 +185,9 @@ function parseNetwork(stdout: string): NetworkInfo {
 function summarize(report: EnergyOkReport): string {
   const parts = [`package=${report.packageName}`];
   if (report.battery.level !== null) parts.push(`battery=${report.battery.level}%`);
-  if (report.battery.charging) parts.push("charging");
+  if (report.battery.charging === true) parts.push("charging");
+  else if (report.battery.charging === false) parts.push(`battery=${report.battery.status}`);
+  else parts.push("battery=unknown");
   if (report.jobs.available) parts.push(`jobs=${report.jobs.items.length}`);
   if (report.alarms.available) parts.push(`alarms=${report.alarms.items.length}`);
   if (report.wakeLocks.available) parts.push(`wakeLocks=${report.wakeLocks.items.length}`);

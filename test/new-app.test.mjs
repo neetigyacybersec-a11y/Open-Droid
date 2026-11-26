@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, existsSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, chmodSync, existsSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -109,6 +109,60 @@ test("scaffold normalizes hyphens and accepts an explicit package name", () => {
     const customGradle = readFileSync(path.join(work, "custom/app/build.gradle.kts"), "utf8");
     assert.match(customGradle, /namespace = "com\.acme\.expense"/);
     assert.match(customGradle, /applicationId = "com\.acme\.expense"/);
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+    rmSync(sdk, { recursive: true, force: true });
+  }
+});
+
+// ISSUE-185: BSD sed rejects `sed -i` without a backup suffix. A fake sed that
+// fails on -i reproduces macOS deterministically on any host.
+function fakeBin(work, name, body) {
+  const bin = path.join(work, name);
+  mkdirSync(bin);
+  const file = path.join(bin, name === "sed" ? "sed" : "node");
+  writeFileSync(file, `#!/bin/sh\n${body}\n`);
+  chmodSync(file, 0o755);
+  return `${bin}${path.delimiter}${process.env.PATH ?? ""}`;
+}
+
+test("scaffold works with a BSD-style sed that rejects -i", () => {
+  const work = mkdtempSync(path.join(tmpdir(), "newapp-bsd-"));
+  const sdk = mkdtempSync(path.join(tmpdir(), "fake-sdk-"));
+  const app = path.join(work, "bsd-demo");
+  try {
+    const PATH = fakeBin(work, "sed", 'case " $* " in *" -i "*) exit 1;; esac\nexec /usr/bin/sed "$@"');
+    const r = scaffold(app, { ANDROID_HOME: sdk, PATH });
+    assert.equal(r.status, 0, `scaffold failed with BSD sed: ${r.stderr}`);
+    assert.match(readFileSync(path.join(app, "app/build.gradle.kts"), "utf8"), /com\.example\.bsddemo/);
+    const manifest = readFileSync(path.join(app, "app/src/main/AndroidManifest.xml"), "utf8");
+    assert.doesNotMatch(manifest, /com\.example\.starter/);
+    assert.match(manifest, /android:name="\.MainActivity"/);
+    const kt = readFileSync(
+      path.join(app, "app/src/main/java/com/example/starter/MainActivity.kt"),
+      "utf8",
+    );
+    assert.match(kt, /^package com\.example\.bsddemo$/m);
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+    rmSync(sdk, { recursive: true, force: true });
+  }
+});
+
+test("a failed package replacement leaves no destination or stage behind", () => {
+  const work = mkdtempSync(path.join(tmpdir(), "newapp-rollback-"));
+  const sdk = mkdtempSync(path.join(tmpdir(), "fake-sdk-"));
+  const app = path.join(work, "broken");
+  try {
+    const PATH = fakeBin(work, "node", "exit 1");
+    const r = scaffold(app, { ANDROID_HOME: sdk, PATH });
+    assert.notEqual(r.status, 0, "a failed replacement must fail the scaffold");
+    assert.equal(existsSync(app), false, "no partial destination may remain");
+    assert.deepEqual(
+      readdirSync(work).filter((name) => name.startsWith(".broken")),
+      [],
+      "no staging directory may remain",
+    );
   } finally {
     rmSync(work, { recursive: true, force: true });
     rmSync(sdk, { recursive: true, force: true });

@@ -9,7 +9,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { run, type RunResult, type RunOptions } from "./services/process-runner.js";
 import { gradleArgv } from "./gradleExecutable.js";
-import { inspectProject } from "./projectInspect.js";
+import { inspectProject, moduleType } from "./projectInspect.js";
 import { parseJUnitXml } from "./testDiagnostics.js";
 
 export type SuiteName = "unit" | "instrumented" | "coverage" | "maestro" | "benchmark";
@@ -143,10 +143,52 @@ function moduleFilter(input: TestSuiteRunInput, modules: string[]): string[] {
   return modules.filter((m) => m === input.module || gradlePath(m) === input.module);
 }
 
-function suiteSpecs(input: TestSuiteRunInput): SuiteSpec[] {
+// Pure JVM modules have `test`, not Android's `testDebugUnitTest`.
+const JVM_PLUGIN_RE =
+  /\b(?:java-library|org\.jetbrains\.kotlin\.jvm|kotlin\s*\(\s*["']jvm["']\s*\)|id\s*\(\s*["']java["']\s*\))/;
+
+/** Android modules use a variant task; JVM modules use the standard `test`. */
+function unitSpec(
+  projectPath: string,
+  modulePath: string,
+  text: string,
+): { spec?: SuiteSpec; missing?: MissingSuite } {
+  const g = gradlePath(modulePath);
+  const type = moduleType(text);
+  const android = type !== "other";
+  const hasTests =
+    existsSync(join(projectPath, modulePath, "src", "test")) ||
+    /testImplementation|testRuntimeOnly/i.test(text);
+  if (!hasTests) return {};
+  if (!android && !JVM_PLUGIN_RE.test(text)) {
+    return {
+      missing: {
+        name: "unit",
+        reason: `module ${g} has an unsupported plugin (${type}); no unit-test task is known`,
+      },
+    };
+  }
+  const task = android ? "testDebugUnitTest" : "test";
+  return {
+    spec: {
+      name: "unit",
+      modules: [modulePath],
+      commands: [["gradle", `${g}:${task}`]],
+      artifactDirs: android
+        ? artifactDirsFor(projectPath, modulePath, "unit")
+        : [join(projectPath, modulePath, "build", "test-results", "test")],
+    },
+  };
+}
+
+function suiteSpecs(input: TestSuiteRunInput): {
+  specs: SuiteSpec[];
+  missing: MissingSuite[];
+} {
   const projectPath = input.projectPath;
   const modules = moduleFilter(input, modulePaths(projectPath));
   const byName = new Map<string, SuiteSpec>();
+  const missing: MissingSuite[] = [];
   const add = (spec: SuiteSpec): void => {
     // One spec per (suite, module): keying by name alone skips every module
     // after the first in multi-module projects.
@@ -156,24 +198,18 @@ function suiteSpecs(input: TestSuiteRunInput): SuiteSpec[] {
   for (const modulePath of modules) {
     const text = readModuleText(projectPath, modulePath);
     const g = gradlePath(modulePath);
-    if (
-      existsSync(join(projectPath, modulePath, "src", "test")) ||
-      /testImplementation|testRuntimeOnly/i.test(text)
-    )
-      add({
-        name: "unit",
-        modules: [modulePath],
-        commands: [["gradle", `${g}:testDebugUnitTest`]],
-        artifactDirs: artifactDirsFor(projectPath, modulePath, "unit"),
-      });
-    if (existsSync(join(projectPath, modulePath, "src", "androidTest")))
+    const android = moduleType(text) !== "other";
+    const unit = unitSpec(projectPath, modulePath, text);
+    if (unit.spec) add(unit.spec);
+    if (unit.missing) missing.push(unit.missing);
+    if (android && existsSync(join(projectPath, modulePath, "src", "androidTest")))
       add({
         name: "instrumented",
         modules: [modulePath],
         commands: [["gradle", `${g}:connectedDebugAndroidTest`]],
         artifactDirs: artifactDirsFor(projectPath, modulePath, "instrumented"),
       });
-    if (/jacoco|createDebugCoverageReport/i.test(text))
+    if (android && /jacoco|createDebugCoverageReport/i.test(text))
       add({
         name: "coverage",
         modules: [modulePath],
@@ -191,7 +227,7 @@ function suiteSpecs(input: TestSuiteRunInput): SuiteSpec[] {
       artifactDirs: [],
       flows,
     });
-  return [...byName.values()];
+  return { specs: [...byName.values()], missing };
 }
 
 // Content digests, not mtimes: CI filesystems can round mtime to whole seconds,
@@ -303,14 +339,21 @@ function selectedSpecs(input: TestSuiteRunInput): {
   selected: SuiteSpec[];
   missing: MissingSuite[];
 } {
-  const specs = suiteSpecs(input);
+  const { specs, missing: unsupported } = suiteSpecs(input);
   const sel: SuiteName | "all" | undefined = input.suite === "ui" ? "instrumented" : input.suite;
   const wanted = sel && sel !== "all" ? specs.filter((spec) => spec.name === sel) : specs;
-  const missing: MissingSuite[] = [];
+  const missing: MissingSuite[] = unsupported.filter(
+    (entry) => !sel || sel === "all" || entry.name === sel,
+  );
   if (input.suite && input.suite !== "all") {
     if (input.suite === "benchmark") {
       missing.push({ name: "benchmark", reason: describeNotConfigured("benchmark") });
-    } else if (sel && sel !== "all" && !specs.some((spec) => spec.name === sel)) {
+    } else if (
+      sel &&
+      sel !== "all" &&
+      !specs.some((spec) => spec.name === sel) &&
+      missing.length === 0
+    ) {
       missing.push({ name: sel, reason: describeNotConfigured(sel) });
     }
   }
