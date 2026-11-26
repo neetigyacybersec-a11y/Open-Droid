@@ -107,7 +107,10 @@ test("a descendant under a symlinked directory is skipped and external data surv
     schema: 1,
     profile: "core",
     components: {
-      linked: { required: true, paths: [".toolchain/linked/subdir"] },
+      linked: {
+        required: true,
+        paths: [".toolchain/linked/subdir", ".toolchain/linked/subdir/sentinel.txt"],
+      },
       gradle: { required: true, paths: [".toolchain/gradle"] },
     },
   });
@@ -118,7 +121,10 @@ test("a descendant under a symlinked directory is skipped and external data surv
     dryRun: false,
     yes: true,
   });
-  assert.ok(applied.skipped.some((entry) => /symlink/.test(entry.reason)));
+  const skipped = applied.skipped.filter((entry) => /symlink/.test(entry.reason));
+  assert.equal(skipped.length, 2, "both the directory and its file descendant are skipped");
+  assert.ok(skipped.some((entry) => entry.path.endsWith("subdir")));
+  assert.ok(skipped.some((entry) => entry.path.endsWith("sentinel.txt")));
   assert.ok(applied.deleted.every((entry) => !entry.path.includes("linked")));
   assert.equal(existsSync(join(external, "sentinel.txt")), true);
   assert.equal(existsSync(join(installRoot, "gradle", "owned.txt")), false);
