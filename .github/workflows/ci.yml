@@ -88,6 +88,18 @@ jobs:
           node-version: 22
       - run: npm.cmd ci
       - run: node scripts/verify.mjs
+      # ISSUE-183: URL.pathname starts with /C:/... on native Windows. Exercise
+      # the CLI entry points from a drive-qualified path that also contains spaces.
+      - name: Script roots from a Windows path with spaces
+        shell: pwsh
+        run: |
+          $spaced = Join-Path $env:RUNNER_TEMP 'Open Droid checkout'
+          git clone --local --no-hardlinks $env:GITHUB_WORKSPACE $spaced
+          $expected = Join-Path $spaced '.toolchain'
+          $doctor = node (Join-Path $spaced 'scripts/doctor-json.mjs') | ConvertFrom-Json
+          if ($doctor.installation.root -ne $expected) { throw "doctor root: $($doctor.installation.root) != $expected" }
+          $uninstall = node (Join-Path $spaced 'scripts/uninstall.mjs') '--dry-run' | ConvertFrom-Json
+          if ($uninstall.installRoot -ne $expected) { throw "uninstall root: $($uninstall.installRoot) != $expected" }
 
   # FR-B6 / ISSUE-22: CI builds and tests every app the repo ships, not just one.
   android-matrix:

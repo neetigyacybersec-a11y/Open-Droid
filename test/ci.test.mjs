@@ -24,6 +24,14 @@ test('mcp-windows job runs the same shared verifier (issue 160)', () => {
   const win = ci.slice(ci.indexOf('mcp-windows:'), ci.indexOf('android-matrix:'));
   assert.ok(win.includes('node scripts/verify.mjs'), 'Windows must run the same verifier');
 });
+
+test('Windows CI checks script roots from a path with spaces (issue 183)', () => {
+  const win = ci.slice(ci.indexOf('mcp-windows:'), ci.indexOf('android-matrix:'));
+  assert.match(win, /Open Droid checkout/, 'a spaced checkout path is required');
+  assert.match(win, /scripts\/doctor-json\.mjs/, 'doctor CLI must run there');
+  assert.match(win, /scripts\/uninstall\.mjs.*--dry-run/, 'uninstall CLI must run there');
+  assert.match(win, /installation\.root.*ne.*expected/, 'doctor root must be asserted');
+});
 // ISSUE-162: superseded PR runs are cancelled, but main/release runs are not.
 test('workflow concurrency keys PRs separately from main and releases (issue 162)', () => {
   const topBlock = ci.slice(0, ci.indexOf('mcp:'));
