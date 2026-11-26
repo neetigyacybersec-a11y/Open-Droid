@@ -12,7 +12,7 @@ permissions:
 # ISSUE-162: cancel only superseded pull-request runs. Main pushes keep their
 # own group so they cannot be cancelled by unrelated PR activity.
 concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('ci-pr-{0}', github.event.pull_request.number) || 'ci-main' }}
+  group: ${{ github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || format('{0}-main', github.workflow) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

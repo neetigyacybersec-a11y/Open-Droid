@@ -28,11 +28,15 @@ test('mcp-windows job runs the same shared verifier (issue 160)', () => {
 test('workflow concurrency keys PRs separately from main and releases (issue 162)', () => {
   const topBlock = ci.slice(0, ci.indexOf('mcp:'));
   assert.match(topBlock, /concurrency:/, 'ci.yml must declare a concurrency group');
+  assert.match(topBlock, /github\.workflow/, 'groups must be keyed by workflow');
   assert.match(topBlock, /github\.event\.pull_request\.number/, 'PR runs key on PR identity');
+  assert.match(topBlock, /format\('\{0\}-pr-\{1\}',\s*github\.workflow,\s*github\.event\.pull_request\.number\)/, 'PR group combines workflow and PR identity');
   assert.match(topBlock, /cancel-in-progress:/, 'PR cancellation must be explicit');
   assert.doesNotMatch(topBlock, /cancel-in-progress:\s*true\s*$/m, 'main pushes must not be cancelled');
   const releases = readFileSync(path.join(REPO, '.github/workflows/release.yml'), 'utf8');
   assert.match(releases, /concurrency:/, 'release runs need a separate group');
+  assert.match(releases, /github\.workflow/, 'release groups must be keyed by workflow');
+  assert.match(releases, /github\.ref/, 'release groups must be keyed by ref');
   assert.doesNotMatch(releases, /cancel-in-progress:\s*true/, 'release runs must not be cancelled');
 });
 
