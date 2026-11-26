@@ -15,6 +15,11 @@ const VERIFICATION = new Set(["untested", "passed", "failed"]);
 
 const isText = (value) => typeof value === "string" && value.trim().length > 0;
 
+/** Git autocrlf checks generated docs out with CRLF; the renderer emits LF. */
+export function coverageIsCurrent(current, expected) {
+  return current !== null && current.replace(/\r\n/g, "\n") === expected;
+}
+
 export function loadManifest(root = ROOT) {
   const read = (name) => JSON.parse(readFileSync(join(root, "manifest", name), "utf8"));
   return {
@@ -214,7 +219,7 @@ function main(argv) {
     } catch {
       current = null;
     }
-    if (current !== markdown) {
+    if (!coverageIsCurrent(current, markdown)) {
       console.error("lifecycle manifest: docs/lifecycle-coverage.md is stale; run node scripts/lifecycle-matrix.mjs --write");
       process.exitCode = 1;
       return;

@@ -3,7 +3,12 @@
 import { strict as assert } from "node:assert";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
-import { loadManifest, renderCoverage, validateManifest } from "../scripts/lifecycle-matrix.mjs";
+import {
+  coverageIsCurrent,
+  loadManifest,
+  renderCoverage,
+  validateManifest,
+} from "../scripts/lifecycle-matrix.mjs";
 
 const { stages, capabilities, gates } = loadManifest();
 const clone = (value) => structuredClone(value);
@@ -78,4 +83,12 @@ test("generated coverage table is current", async () => {
   // Git autocrlf checks this file out with CRLF on Windows runners; the
   // renderer emits LF. Compare normalized so the check is platform-neutral.
   assert.equal(current.replace(/\r\n/g, "\n"), renderCoverage(stages, capabilities));
+});
+
+test("the coverage --check accepts CRLF but rejects stale content", () => {
+  const expected = "one\ntwo\n";
+  assert.equal(coverageIsCurrent(expected, expected), true);
+  assert.equal(coverageIsCurrent(expected.replace(/\n/g, "\r\n"), expected), true);
+  assert.equal(coverageIsCurrent(null, expected), false);
+  assert.equal(coverageIsCurrent("one\nstale\n", expected), false);
 });
