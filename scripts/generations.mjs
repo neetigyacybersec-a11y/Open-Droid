@@ -8,6 +8,9 @@ import { ownedPaths, readManifest, writeManifest } from "./installer/manifest.mj
 
 const GENERATIONS = "generations";
 const HISTORY = "rollback-history.jsonl";
+// A generation must preserve a runnable MCP runtime even for manifests from
+// before the component owned whole directories (issue 176).
+const MCP_RUNTIME = ["dist", "node_modules"];
 
 function generationRoot(root) {
   return join(resolve(root), GENERATIONS);
@@ -59,13 +62,22 @@ export function createGeneration(root, { mode = "managed", reason = "install", v
     verified: false,
     paths: [],
   };
-  for (const owned of ownedPaths(manifest, repoRoot(root))) {
-    if (!existsSync(owned.absolute)) continue;
-    const rel = relative(repoRoot(root), owned.absolute);
-    const target = join(dir, "components", owned.id, rel);
+  const top = (path) => path.split(/[\\/]/)[0];
+  const rootDir = repoRoot(root);
+  const owned = ownedPaths(manifest, rootDir).filter((entry) => !MCP_RUNTIME.includes(top(entry.path)));
+  const runtime = MCP_RUNTIME.filter((path) => existsSync(join(rootDir, path))).map((path) => ({
+    id: "mcp",
+    path,
+    absolute: join(rootDir, path),
+  }));
+  for (const ownedEntry of [...owned, ...runtime]) {
+    const { id, absolute: ownedAbsolute } = ownedEntry;
+    if (!existsSync(ownedAbsolute)) continue;
+    const rel = relative(rootDir, ownedAbsolute);
+    const target = join(dir, "components", id, rel);
     mkdirSync(target, { recursive: true });
-    cpSync(owned.absolute, join(target, basename(owned.absolute)), { recursive: true, force: true });
-    state.paths.push({ id: owned.id, relative: rel, name: basename(owned.absolute) });
+    cpSync(ownedAbsolute, join(target, basename(ownedAbsolute)), { recursive: true, force: true });
+    state.paths.push({ id, relative: rel, name: basename(ownedAbsolute) });
   }
   writeFileSync(join(dir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
   writeFileSync(join(dir, "state.json"), `${JSON.stringify(state, null, 2)}\n`);

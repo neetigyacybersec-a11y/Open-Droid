@@ -2,7 +2,7 @@
 // owned components, and is idempotent under a repeated run.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { test } from "node:test";
@@ -220,6 +220,37 @@ test("recovery refuses backup targets that escape the managed root (issue 177)",
   assert.ok(result.skipped.every((entry) => /escapes installation root|not a managed relative path/.test(entry.reason)));
   assert.equal(existsSync(escape), false);
   assert.equal(existsSync(absolute), false);
+});
+
+test("recovery never follows symlinks in backup or target paths (issue 177)", () => {
+  const root = join(work, "recover-symlink");
+  const outside = join(work, "outside-symlink");
+  mkdirSync(root, { recursive: true });
+  mkdirSync(outside, { recursive: true });
+  const sentinel = join(outside, "sentinel");
+  writeFileSync(sentinel, "untouched");
+  const backupRoot = join(root, ".install-backup");
+  mkdirSync(backupRoot, { recursive: true });
+
+  symlinkSync(outside, join(root, "linked"));
+  const linked = join(backupRoot, "linked");
+  mkdirSync(linked, { recursive: true });
+  writeFileSync(join(linked, "payload"), "crafted");
+  writeFileSync(`${linked}.target`, "linked/escaped\n");
+
+  const outsideBackup = join(outside, "backup");
+  mkdirSync(outsideBackup, { recursive: true });
+  writeFileSync(join(outsideBackup, "payload"), "crafted");
+  symlinkSync(outsideBackup, join(backupRoot, "linked-backup"));
+  writeFileSync(join(backupRoot, "linked-backup.target"), "safe-target\n");
+
+  const result = recoverInstallation(root);
+  assert.equal(result.restored.length, 0);
+  assert.equal(result.skipped.length, 2);
+  assert.ok(result.skipped.every((entry) => /symlink/.test(entry.reason)));
+  assert.equal(existsSync(join(outside, "escaped")), false);
+  assert.equal(existsSync(join(root, "safe-target")), false);
+  assert.equal(readFileSync(sentinel, "utf8"), "untouched");
 });
 
 test("the lock rejects a live installer and recovery clears a dead one", () => {

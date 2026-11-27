@@ -7,6 +7,7 @@ import {
   cpSync,
   createWriteStream,
   existsSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -17,13 +18,34 @@ import {
   statfsSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { ownedPath } from "./manifest.mjs";
 
 const LOCK = ".install.lock";
 const STAGING = ".install-staging";
 const BACKUP = ".install-backup";
+
+/** First symlinked component of a managed path, or null when safe to use. */
+function symlinkInPath(rootPath, target) {
+  let current = resolve(rootPath);
+  try {
+    if (lstatSync(current).isSymbolicLink()) return current;
+  } catch {
+    return current;
+  }
+  for (const part of relative(rootPath, target).split(sep).filter(Boolean)) {
+    current = join(current, part);
+    try {
+      if (lstatSync(current).isSymbolicLink()) return current;
+    } catch (error) {
+      // Missing components will be created; deeper symlinks cannot exist yet.
+      if (error.code !== "ENOENT") return current;
+      break;
+    }
+  }
+  return null;
+}
 
 export class InstallLock {
   constructor(root) {
@@ -172,6 +194,7 @@ export function activateComponent(root, id, staged, target) {
     if (hadPrevious && existsSync(backup)) {
       try {
         const previous = ownedPath(rootPath, readFileSync(`${backup}.target`, "utf8").trim());
+        if (symlinkInPath(rootPath, previous)) throw new Error("symlink in recovery path");
         renameSync(backup, previous);
       } catch {
         // A tampered target never becomes a restore destination; keep the
@@ -196,6 +219,10 @@ export function recoverInstallation(root) {
       const backup = join(backupRoot, id);
       const targetFile = `${backup}.target`;
       if (!existsSync(targetFile)) continue;
+      if (symlinkInPath(rootPath, backup)) {
+        skipped.push({ id, reason: "symlink in backup path; not followed" });
+        continue;
+      }
       // ISSUE-177: recovery metadata is mutable local state, not a trusted
       // path. Never restore outside the managed root.
       let target;
@@ -203,6 +230,10 @@ export function recoverInstallation(root) {
         target = ownedPath(rootPath, readFileSync(targetFile, "utf8").trim());
       } catch (error) {
         skipped.push({ id, reason: error.message });
+        continue;
+      }
+      if (symlinkInPath(rootPath, target)) {
+        skipped.push({ id, reason: "symlink in recovery path; not followed" });
         continue;
       }
       if (existsSync(target)) continue;

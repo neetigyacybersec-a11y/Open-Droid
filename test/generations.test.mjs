@@ -78,6 +78,27 @@ test("a generation restores partial dist output and node_modules (issue 176)", (
   assert.ok(result.doctor, "rollback reports doctor health");
 });
 
+test("a legacy manifest still snapshots the complete MCP runtime (issue 176)", () => {
+  const root = join(work, "legacy-manifest");
+  fixture(root);
+  const manifestFile = join(root, ".toolchain", "install-manifest.json");
+  const manifest = JSON.parse(readFileSync(manifestFile, "utf8"));
+  manifest.components.mcp.paths = ["dist/index.js"];
+  writeManifest(join(root, ".toolchain"), manifest);
+
+  const generation = createGeneration(join(root, ".toolchain"), { mode: "source" });
+  assert.deepEqual(
+    generation.paths.map((entry) => entry.relative.split("\\").join("/")).sort(),
+    [".toolchain/gradle", "dist", "node_modules"],
+  );
+  rmSync(join(root, "dist", "extra.js"));
+  rmSync(join(root, "node_modules", "dep"), { recursive: true, force: true });
+  const result = rollbackGeneration(join(root, ".toolchain"), { id: generation.id });
+  assert.equal(readFileSync(join(root, "dist", "extra.js"), "utf8"), "module-v1");
+  assert.equal(readFileSync(join(root, "node_modules", "dep", "index.js"), "utf8"), "dep-v1");
+  assert.ok(result.restored.includes("dist") && result.restored.includes("node_modules"));
+});
+
 test("an absent manifest cannot create a rollback snapshot", () => {
   const root = join(work, "no-manifest");
   mkdirSync(join(root, ".toolchain"), { recursive: true });
