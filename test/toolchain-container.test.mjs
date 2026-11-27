@@ -81,6 +81,22 @@ test("mounts keep the repo read-only and exclude the host toolchain", () => {
   );
 });
 
+posixTest("the repo root is mounted once when it is also the workspace (audit 7)", () => {
+  const mounts = toolchainMounts(REPO, { PATH: "/usr/bin" });
+  const repoMounts = mounts.filter((mount) => mount.source === REPO);
+  assert.equal(repoMounts.length, 1, "duplicate Docker bind targets are rejected by Docker");
+  assert.equal(repoMounts[0].readOnly, false, "the writable workspace mount wins");
+
+  const inv = containerInvocation("gradle", ["tasks"], {
+    image: "open-droid:1",
+    platform: "linux",
+    cwd: REPO,
+    env: { PATH: "/usr/bin" },
+  });
+  assert.ok(inv?.ok);
+  assert.equal(inv.args.filter((arg) => arg.startsWith(`${REPO}:`)).length, 1);
+});
+
 test("Windows fails closed instead of silently using host tools", () => {
   const inv = containerInvocation("gradle", ["assembleDebug"], {
     image: "open-droid:1",

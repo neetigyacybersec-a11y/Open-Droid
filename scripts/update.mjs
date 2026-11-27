@@ -8,6 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createGeneration, rollbackGeneration, verifyGeneration } from "./generations.mjs";
 import { runtimeReady } from "./build-state.mjs";
+import { collectDoctor } from "./installer/doctor.mjs";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const NPM = process.platform === "win32" ? "npm.cmd" : "npm";
@@ -35,8 +36,14 @@ function stage(label, command, args, cwd) {
     // half-updated, and success is not claimed until health checks pass.
     if (savedGeneration) {
       try {
-        const restored = rollbackGeneration(join(cwd, ".toolchain"), { id: savedGeneration.id });
-        if (restored.doctor?.summary.ok && runtimeReady(cwd)) {
+        const toolRoot = join(cwd, ".toolchain");
+        const restored = rollbackGeneration(toolRoot, { id: savedGeneration.id, verify: false });
+        // The fast-forward advanced src after the snapshot, so a restored dist
+        // is stale until it is rebuilt from the current source (audit 4).
+        const rebuild = spawnSync(NPM, ["run", "build"], { cwd, stdio: "inherit" });
+        if (rebuild.status !== 0) throw new Error(`rebuild failed (exit ${rebuild.status ?? "unknown"})`);
+        const doctor = collectDoctor({ root: cwd, installRoot: toolRoot });
+        if (doctor.summary.ok && runtimeReady(cwd)) {
           console.error(`restored verified last-known-good generation ${restored.state.id}`);
         } else {
           console.error(

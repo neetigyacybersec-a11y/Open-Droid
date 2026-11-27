@@ -35,7 +35,10 @@ function versionOf(path, platform) {
 function registeredTools(root) {
   try {
     const text = readFileSync(join(root, "docs", "tool-catalogue.md"), "utf8");
-    return [...new Set([...text.matchAll(/`(adb_install|gradle_task|apk_info|apk_decompile|compose_preview_render|android_skills_search|frida_ps|net_capture|maestro_run|android_env_check)`/g)].map((m) => m[1]))];
+    // The generated catalogue has one six-column table row per registered
+    // tool. Do not keep a second, hand-maintained list of tool names (audit 9).
+    const rows = text.matchAll(/^\|\s*`([a-z0-9_]+)`\s*\|(?:[^|\n]*\|){5}/gm);
+    return [...new Set([...rows].map((match) => match[1]))];
   } catch {
     return [];
   }

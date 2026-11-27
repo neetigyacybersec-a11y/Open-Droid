@@ -91,16 +91,16 @@ export function toolchainMounts(
   cwd: string | undefined,
   env: NodeJS.ProcessEnv = process.env,
 ): ToolchainMount[] {
-  const mounts: ToolchainMount[] = [];
-  const seen = new Set<string>();
+  const mounts = new Map<string, ToolchainMount>();
   const add = (path: string | undefined, readOnly: boolean): void => {
     if (!path) return;
     const source = canonical(path);
     if (!source) return;
-    const key = `${source}:${readOnly}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    mounts.push({ source, target: source, readOnly });
+    const existing = mounts.get(source);
+    // Docker rejects duplicate bind targets; a writable workspace mount wins
+    // over the read-only repo mount added for Frida scripts (audit 7).
+    if (existing && (readOnly || !existing.readOnly)) return;
+    mounts.set(source, { source, target: source, readOnly });
   };
   add(cwd, false);
   add(env.ANDROID_MCP_WORKSPACE, false);
@@ -116,7 +116,9 @@ export function toolchainMounts(
   add(env.GRADLE_USER_HOME ?? join(homedir(), ".gradle"), false);
   // Docker applies overlapping binds in argv order: mount parents before
   // children or `/tmp` would hide a project that lives under it.
-  return mounts.sort((a, b) => a.source.split("/").length - b.source.split("/").length);
+  return [...mounts.values()].sort(
+    (a, b) => a.source.split("/").length - b.source.split("/").length,
+  );
 }
 
 /** Device endpoints only; host paths and arbitrary env are not forwarded. */

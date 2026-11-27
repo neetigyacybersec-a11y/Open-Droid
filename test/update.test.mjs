@@ -5,6 +5,8 @@ import { strict as assert } from "node:assert";
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { writeManifest } from "../scripts/installer/manifest.mjs";
+import { sourceFingerprint } from "../scripts/build-manifest.mjs";
+import { runtimeReady } from "../scripts/build-state.mjs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test as nodeTest, skip } from "node:test";
@@ -65,7 +67,7 @@ function advance(seed, text = "two\n") {
   git(seed, ["commit", "-m", "upstream change"]);
   git(seed, ["push", "origin", "HEAD:main"]);
 }
-function npmStub(base, { failAt } = {}) {
+function npmStub(base, { failAt, failFirstAt, buildRoot, buildFingerprint } = {}) {
   const bin = join(base, "bin");
   const record = join(base, "npm-calls.txt");
   mkdirSync(bin, { recursive: true });
@@ -74,6 +76,14 @@ function npmStub(base, { failAt } = {}) {
     join(bin, "npm"),
     `#!/bin/sh
 printf '%s\\n' "$*" >> "${record}"
+if [ "$*" = "run build" ] && [ -n "${buildFingerprint ?? ""}" ]; then
+  printf '{"sourceFingerprint":"%s"}\n' "${buildFingerprint}" > "${buildRoot}/dist/build-manifest.json"
+fi
+if [ "$*" = "${failFirstAt}" ] && [ ! -e "${record}.once" ]; then
+  : > "${record}.once"
+  echo "npm stub failed once: $*" >&2
+  exit 7
+fi
 if [ "$*" = "${failAt}" ]; then
   echo "npm stub failed: $*" >&2
   exit 7
@@ -215,6 +225,32 @@ exit 0
   }
 });
 
+posixTest("a failed build after fast-forward rebuilds before claiming rollback (audit 4)", () => {
+  const f = fixture();
+  try {
+    mkdirSync(join(f.seed, "src"), { recursive: true });
+    writeFileSync(join(f.seed, "src", "main.ts"), "export {};\n");
+    git(f.seed, ["add", "."]);
+    git(f.seed, ["commit", "-m", "add source tree"]);
+    git(f.seed, ["push", "origin", "HEAD:main"]);
+    advance(f.seed);
+    const fingerprint = sourceFingerprint(f.seed);
+    const stub = npmStub(f.base, {
+      failFirstAt: "run build",
+      buildRoot: f.work,
+      buildFingerprint: fingerprint,
+    });
+    const result = update(f.work, stub.bin);
+    assert.equal(result.status, 1, "the update still aborts at the failed stage");
+    assert.deepEqual(stub.calls(), ["ci", "run build", "run build"]);
+    const manifest = JSON.parse(readFileSync(join(f.work, "dist", "build-manifest.json"), "utf8"));
+    assert.equal(manifest.sourceFingerprint, fingerprint);
+    assert.equal(runtimeReady(f.work), true, "npm start must accept the restored runtime");
+  } finally {
+    rmSync(f.base, { recursive: true, force: true });
+  }
+});
+
 posixTest("a failing build stage stops before verify and reports the stage", () => {
   const f = fixture();
   try {
@@ -223,7 +259,7 @@ posixTest("a failing build stage stops before verify and reports the stage", () 
     const result = update(f.work, stub.bin);
     assert.equal(result.status, 1);
     assert.match(result.stderr, /build failed/);
-    assert.deepEqual(stub.calls(), ["ci", "run build"]);
+    assert.deepEqual(stub.calls(), ["ci", "run build", "run build"]);
   } finally {
     rmSync(f.base, { recursive: true, force: true });
   }

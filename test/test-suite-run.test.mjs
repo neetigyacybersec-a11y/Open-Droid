@@ -305,6 +305,48 @@ test("runner is read-only; render contains status line", async () => {
   }
 });
 
+test("continueOnFailure=false stops after the first failed suite (audit 5)", async () => {
+  const root = fixture({
+    ...UNIT_FIXTURE,
+    "app/src/androidTest/java/com/demo/MathAndroidTest.kt": "class MathAndroidTest\n",
+  });
+  try {
+    const { runner, calls } = fakeRunner(() => ({ code: 1, stdout: "", stderr: "fail" }));
+    const report = await runSuite(
+      { projectPath: root, suite: "all", continueOnFailure: false },
+      runner,
+    );
+    assert.equal(report.status, "failed");
+    assert.deepEqual(report.suites.map((suite) => suite.name), ["unit"]);
+    assert.equal(calls.length, 1, "later suites must not run after a failure");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("gradleArgs and offline apply to every Gradle-backed suite (audit 6)", async () => {
+  const root = fixture({
+    ...UNIT_FIXTURE,
+    "app/src/androidTest/java/com/demo/MathAndroidTest.kt": "class MathAndroidTest\n",
+  });
+  try {
+    const { runner, calls } = fakeRunner(() => ({ code: 0, stdout: "", stderr: "" }));
+    const report = await runSuite(
+      { projectPath: root, suite: "all", gradleArgs: ["--info"], offline: true },
+      runner,
+    );
+    assert.equal(report.status, "ok");
+    assert.equal(calls.length, 2);
+    for (const call of calls) {
+      const cmdline = [call.cmd, ...call.args].join(" ");
+      assert.match(cmdline, /--info/, cmdline);
+      assert.match(cmdline, /--offline/, cmdline);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("registry registers android_test_suite_run as an expert destructive runner tool", () => {
   const entry = TOOL_REGISTRY.find((t) => t.name === "android_test_suite_run");
   assert.ok(entry, "android_test_suite_run is registered");

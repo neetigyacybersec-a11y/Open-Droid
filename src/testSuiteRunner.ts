@@ -369,8 +369,8 @@ async function executeSuite(
   runner: SuiteRunner,
 ): Promise<{ suite: SuiteRunResult; command: string }> {
   const command = [...spec.commands[0]];
-  if (spec.name === "unit" && input.gradleArgs?.length) command.push(...input.gradleArgs);
-  if (spec.name === "unit" && input.offline) command.push("--offline");
+  if (command[0] === "gradle" && input.gradleArgs?.length) command.push(...input.gradleArgs);
+  if (command[0] === "gradle" && input.offline) command.push("--offline");
   const started = Date.now();
   const before = xmlDigests(spec.artifactDirs);
   const argv = command[0] === "gradle" ? gradleArgv(command.slice(1)) : command;
@@ -409,6 +409,7 @@ export async function runSuite(
     const { suite, command } = await executeSuite(input, spec, runner);
     suites.push(suite);
     commands.push(command);
+    if (input.continueOnFailure === false && suite.exitCode !== 0) break;
   }
   for (const { name, reason } of missing) suites.push(skippedSuite(name, reason));
   const anyFailed = suites.some((suite) => suite.status === "ran" && suite.exitCode !== 0);

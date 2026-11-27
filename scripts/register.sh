@@ -184,7 +184,11 @@ if [ -f "$MCP_SCRIPT" ] && [ -f "$ROOT/dist/index.js" ]; then
           command: ["bash", process.env.ANDROID_MCP_FILE],
         };
         fs.mkdirSync(require("path").dirname(cfgPath), { recursive: true });
-        fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + "\n");
+        // Atomic replace: a crash or a second registration cannot leave a
+        // half-written global config (audit 8).
+        const tmp = cfgPath + "." + process.pid + ".tmp";
+        fs.writeFileSync(tmp, JSON.stringify(cfg, null, 2) + "\n");
+        fs.renameSync(tmp, cfgPath);
         console.log("[register] wrote " + cfgPath);
       '
     fi

@@ -4,7 +4,7 @@
 import { test, skip } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -66,6 +66,28 @@ test("a config mention without a server entry is not reported as registered", (t
   );
   assert.match(result.stdout, /verification failed: android-mcp not in global opencode config/);
 });
+posixTest("global config registration replaces the file atomically (audit 8)", (t) => {
+  const context = fixture();
+  t.after(() => rmSync(context.root, { recursive: true, force: true }));
+  const dir = join(context.home, ".config", "opencode");
+  mkdirSync(dir, { recursive: true });
+  const outside = join(context.root, "outside-config.json");
+  writeFileSync(outside, '{"other":true}\n');
+  const config = join(dir, "opencode.json");
+  symlinkSync(outside, config);
+
+  const bin = join(context.root, "bin");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, "opencode"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+
+  const result = register(context, { ANDROID_MCP_SKIP_MCP_REGISTRATION: "0" }, bin);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(lstatSync(config).isSymbolicLink(), false, "a rename must replace the link, not follow it");
+  assert.equal(readFileSync(outside, "utf8"), '{"other":true}\n', "the linked file is untouched");
+  const parsed = JSON.parse(readFileSync(config, "utf8"));
+  assert.ok(parsed.mcp.servers["android-mcp"]);
+});
+
 test("a fresh registration installs nested references, templates and examples", (t) => {
   const context = fixture({
     "hub/SKILL.md": "---\nname: hub\n---\nSee references/motion/timing.md.\n",

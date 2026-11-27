@@ -49,7 +49,9 @@ test("doctor JSON validates against the committed schema", () => {
   mkdirSync(join(root, "docs"), { recursive: true });
   writeFileSync(
     join(root, "docs", "tool-catalogue.md"),
-    "| `adb_install` | `gradle_task` | `apk_info` |\n",
+    ["adb_install", "gradle_task", "apk_info"]
+      .map((name) => `| \`${name}\` | \`read-only\` | \`read-only\` | none | yes | \`mcp\` |`)
+      .join("\n"),
   );
   const report = collectDoctor({
     root,
@@ -62,6 +64,19 @@ test("doctor JSON validates against the committed schema", () => {
   assert.ok(report.registeredTools.includes("gradle_task"));
   assert.ok(!report.runnableTools.includes("gradle_task"));
   assert.match(formatDoctor(report), /registered tools: \d+; runnable: \d+/);
+});
+
+test("doctor lists every catalogue tool instead of a fixed ten (audit 9)", () => {
+  const root = join(work, "doctor-catalogue");
+  mkdirSync(join(root, "docs"), { recursive: true });
+  const names = ["android_test_plan", "privacy_scan", "apk_serve", "tool_catalog"];
+  writeFileSync(
+    join(root, "docs", "tool-catalogue.md"),
+    names.map((name) => `| \`${name}\` | \`read-only\` | \`read-only\` | none | yes | \`mcp\` |`).join("\n"),
+  );
+  const report = collectDoctor({ root, platform: "linux", lookup: () => null });
+  assert.deepEqual(report.registeredTools, names);
+  assert.match(formatDoctor(report), /registered tools: 4; runnable: 0/);
 });
 
 // ISSUE-183: on Windows, URL.pathname starts with /C:/..., which the path
