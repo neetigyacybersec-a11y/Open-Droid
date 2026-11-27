@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { createGeneration, listGenerations, rollbackGeneration, verifyGeneration } from "../scripts/generations.mjs";
+import * as generations from "../scripts/generations.mjs";
 import { writeManifest } from "../scripts/installer/manifest.mjs";
 
 const REPO = resolve(import.meta.dirname, "..");
@@ -121,6 +122,14 @@ test("unknown and corrupt generations are refused", () => {
     () => rollbackGeneration(join(root, ".toolchain"), { id: generation.id, verify: false }),
     /escapes installation root/,
   );
+});
+
+test("generation containment rejects cross-drive and UNC Windows targets (audit 2)", () => {
+  assert.equal(generations.escapesRoot?.("C:\\repo", "D:\\evil", "win32"), true);
+  assert.equal(generations.escapesRoot?.("C:\\repo", "\\\\server\\share\\evil", "win32"), true);
+  assert.equal(generations.escapesRoot?.("C:\\repo", "C:\\repo\\dist", "win32"), false);
+  assert.equal(generations.escapesRoot?.("/repo", "/outside", "posix"), true);
+  assert.equal(generations.escapesRoot?.("/repo", "/repo/dist", "posix"), false);
 });
 
 test("no generation path performs destructive Git operations", () => {

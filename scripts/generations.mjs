@@ -2,7 +2,7 @@
 // Rollback restores only installer-owned runtime paths from that generation;
 // it performs no destructive Git operations and never touches user projects.
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep, win32 } from "node:path";
 import { collectDoctor } from "./installer/doctor.mjs";
 import { ownedPaths, readManifest, writeManifest } from "./installer/manifest.mjs";
 
@@ -18,6 +18,19 @@ function generationRoot(root) {
 // Manifest paths are relative to the repository root, not the managed
 // .toolchain directory where the manifest itself lives.
 const repoRoot = (root) => resolve(root, "..");
+
+/** True when a candidate path resolves outside the installation root. */
+export function escapesRoot(root, target, platform = process.platform) {
+  const path = platform === "win32" ? win32 : { relative, resolve, isAbsolute, sep };
+  const rel = path.relative(path.resolve(root), path.resolve(target));
+  return (
+    rel === "" ||
+    rel.startsWith("..") ||
+    rel.startsWith(`${path.sep}..`) ||
+    path.isAbsolute(rel) ||
+    rel.split(path.sep).includes("..")
+  );
+}
 
 export function listGenerations(root) {
   const dir = generationRoot(root);
@@ -105,9 +118,9 @@ export function rollbackGeneration(root, { id, verify = true } = {}) {
   const restored = [];
   for (const entry of state.paths) {
     const absolute = resolve(repoRoot(root), entry.relative);
-    // Defence in depth: never restore outside the managed root.
-    const rel = relative(repoRoot(root), absolute);
-    if (rel.startsWith("..") || rel.startsWith(`${sep}..`)) {
+    // Defence in depth: never restore outside the managed root, including
+    // Windows cross-drive paths, which `relative` reports as absolute.
+    if (escapesRoot(repoRoot(root), absolute)) {
       throw new Error(`generation path escapes installation root: ${entry.relative}`);
     }
     const source = join(dir, "components", entry.id, entry.relative, entry.name);

@@ -603,3 +603,47 @@ test("workspace selection comes from the environment, not the caller path", () =
     rmSync(f.base, { recursive: true, force: true });
   }
 });
+
+test("diagnostic evidence paths are workspace-checked before the handler runs (audit 1)", async () => {
+  const f = fixture();
+  try {
+    const report = join(f.root, "report.xml");
+    writeFileSync(report, "<testsuite/>");
+    let handlerRuns = 0;
+    const handler = async () => {
+      handlerRuns++;
+      return { content: [{ type: "text", text: "ok" }], isError: false };
+    };
+    const result = await runWithBoundary(
+      "android_test_failure_analyze",
+      { reportPath: report, logcatPath: join(f.outside, "secret.txt") },
+      handler,
+      boundaryOptions(policyFor(f)),
+    );
+    assert.equal(result.isError, true);
+    assert.equal(handlerRuns, 0, "an outside evidence file must not reach the handler");
+  } finally {
+    rmSync(f.base, { recursive: true, force: true });
+  }
+});
+
+test("test-plan feature specs are workspace-checked before the handler runs (audit 1)", async () => {
+  const f = fixture();
+  try {
+    let handlerRuns = 0;
+    const handler = async () => {
+      handlerRuns++;
+      return { content: [{ type: "text", text: "ok" }], isError: false };
+    };
+    const result = await runWithBoundary(
+      "android_test_plan",
+      { projectPath: f.root, featureSpecPath: join(f.outside, "secret.txt") },
+      handler,
+      boundaryOptions(policyFor(f)),
+    );
+    assert.equal(result.isError, true);
+    assert.equal(handlerRuns, 0, "an outside feature spec must not reach the handler");
+  } finally {
+    rmSync(f.base, { recursive: true, force: true });
+  }
+});

@@ -1,6 +1,7 @@
 // ISSUE-51: project checkpoints and guarded restore.
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
@@ -118,13 +119,13 @@ test("restoreCheckpoint is dry-run by default and restores on confirm", async ()
   try {
     await createCheckpoint({ projectPath: root, name: "restore-me" });
     writeFileSync(join(root, "a.txt"), "broken\n");
-    const dry = restoreCheckpoint({ name: "restore-me", dryRun: true });
+    const dry = restoreCheckpoint({ name: "restore-me", projectPath: root, dryRun: true });
     assert.equal(dry.restored, 0);
     assert.deepEqual(dry.changes, [{ path: "a.txt", change: "restore", from: "one\n" }]);
     assert.equal(readFileSync(join(root, "a.txt"), "utf8"), "broken\n", "dry run changes nothing");
-    const blocked = restoreCheckpoint({ name: "restore-me" });
+    const blocked = restoreCheckpoint({ name: "restore-me", projectPath: root });
     assert.equal(blocked.error, true);
-    const res = restoreCheckpoint({ name: "restore-me", confirm: true });
+    const res = restoreCheckpoint({ name: "restore-me", projectPath: root, confirm: true });
     assert.equal(res.restored, 1);
     assert.equal(readFileSync(join(root, "a.txt"), "utf8"), "one\n", "file restored");
   } finally {
@@ -142,7 +143,7 @@ test("secrets are never snapshotted and restore never touches excluded files or 
     writeFileSync(join(root, "local.properties"), "keystorePassword=changed-after\n");
     const diff = diffCheckpoint({ name: "secrets-me", projectPath: root });
     assert.ok(!diff.changes.some((c) => c.path === "unrelated-new.txt"), "new unrelated file not in diff");
-    const restored = restoreCheckpoint({ name: "secrets-me", confirm: true });
+    const restored = restoreCheckpoint({ name: "secrets-me", projectPath: root, confirm: true });
     assert.ok(restored.changes.every((c) => c.path !== "unrelated-new.txt" && c.path !== "local.properties"), "restore only lists manifest files");
     assert.equal(readFileSync(join(root, "unrelated-new.txt"), "utf8"), "user notes\n", "unrelated new files untouched by restore");
     assert.equal(readFileSync(join(root, "local.properties"), "utf8"), "keystorePassword=changed-after\n", "excluded secret untouched by restore");
@@ -157,7 +158,7 @@ test("partial restore only touches files that differed or were missing", async (
     await createCheckpoint({ projectPath: root, name: "partial" });
     writeFileSync(join(root, "a.txt"), "changed\n");
     rmSync(join(root, "b.txt"));
-    const res = restoreCheckpoint({ name: "partial", confirm: true });
+    const res = restoreCheckpoint({ name: "partial", projectPath: root, confirm: true });
     assert.equal(res.restored, 2);
     assert.deepEqual(res.changes.map((c) => c.path).sort(), ["a.txt", "b.txt"]);
   } finally {
@@ -183,7 +184,7 @@ test("restore reports a missing snapshot copy instead of claiming success", asyn
     rmSync(join(checkpointsDir(), cp.name, "files", "b.txt"));
     writeFileSync(join(root, "a.txt"), "changed a\n");
     writeFileSync(join(root, "b.txt"), "changed b\n");
-    const res = restoreCheckpoint({ name: cp.name, confirm: true });
+    const res = restoreCheckpoint({ name: cp.name, projectPath: root, confirm: true });
     assert.equal(res.restored, 1);
     assert.match(String(res.error), /missing snapshot copy/);
     assert.deepEqual(res.failed, ["b.txt"]);
@@ -226,6 +227,78 @@ test("checkpoint names cannot escape the checkpoint store", async () => {
     process.env.ANDROID_MCP_CHECKPOINTS_DIR = previousStore;
     rmSync(base, { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("restore refuses checkpoint metadata that names its own target project (audit 3)", async () => {
+  const victim = project({ "notes.txt": "CURRENT\n" });
+  const cpDir = join(checkpointsDir(), "evil-root");
+  try {
+    mkdirSync(join(cpDir, "files"), { recursive: true });
+    writeFileSync(join(cpDir, "files", "notes.txt"), "OLD\n");
+    writeFileSync(
+      join(cpDir, "checkpoint.json"),
+      JSON.stringify({
+        name: "evil-root",
+        createdAt: new Date().toISOString(),
+        root: victim,
+        baseCommit: null,
+        excludeDirs: [],
+        omittedFiles: [],
+        files: [
+          {
+            path: "notes.txt",
+            sha256: createHash("sha256").update("OLD\n").digest("hex"),
+            bytes: 4,
+            mode: 0o644,
+          },
+        ],
+      }),
+    );
+    const result = restoreCheckpoint({ name: "evil-root", confirm: true });
+    assert.equal(result.restored, 0);
+    assert.match(String(result.error), /projectPath/);
+    assert.equal(readFileSync(join(victim, "notes.txt"), "utf8"), "CURRENT\n");
+  } finally {
+    rmSync(cpDir, { recursive: true, force: true });
+    rmSync(victim, { recursive: true, force: true });
+  }
+});
+
+test("restore refuses checkpoint file paths that leave the target project (audit 3)", async () => {
+  const root = project({ "notes.txt": "CURRENT\n" });
+  const outside = join(root, "..", "outside-audit-3.txt");
+  writeFileSync(outside, "OUTSIDE\n");
+  const cpDir = join(checkpointsDir(), "evil-path");
+  try {
+    mkdirSync(join(cpDir, "files"), { recursive: true });
+    writeFileSync(
+      join(cpDir, "checkpoint.json"),
+      JSON.stringify({
+        name: "evil-path",
+        createdAt: new Date().toISOString(),
+        root,
+        baseCommit: null,
+        excludeDirs: [],
+        omittedFiles: [],
+        files: [
+          {
+            path: join("..", "outside-audit-3.txt"),
+            sha256: createHash("sha256").update("OUTSIDE\n").digest("hex"),
+            bytes: 8,
+            mode: 0o644,
+          },
+        ],
+      }),
+    );
+    const result = restoreCheckpoint({ name: "evil-path", projectPath: root, confirm: true });
+    assert.equal(result.restored, 0);
+    assert.match(String(result.error), /unsafe|escape/i);
+    assert.equal(readFileSync(outside, "utf8"), "OUTSIDE\n");
+  } finally {
+    rmSync(cpDir, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+    rmSync(outside, { force: true });
   }
 });
 

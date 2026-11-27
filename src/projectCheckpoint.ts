@@ -13,7 +13,7 @@ import {
   chmodSync,
   statSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
 import { run } from "./services/process-runner.js";
@@ -169,6 +169,13 @@ function readCheckpointAt(cpDir: string): Checkpoint | null {
 function cpDirFor(name: string): string {
   if (!isValidCheckpointName(name)) throw new Error(`invalid checkpoint name: ${name}`);
   return join(checkpointsDir(), name);
+}
+
+/** A checkpoint file path must name a file inside the restore target. */
+function safeCheckpointPath(root: string, path: string): boolean {
+  if (!path || isAbsolute(path)) return false;
+  const rel = relative(root, resolve(root, path));
+  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel) && !rel.split(sep).includes("..");
 }
 
 function checkpointName(inputName?: string): string {
@@ -337,7 +344,29 @@ export function restoreCheckpoint(input: {
       changes: [],
       error: `checkpoint not found: ${input.name}`,
     };
-  const root = input.projectPath?.trim() || cp.root;
+  // The caller chooses the restore target; checkpoint.json is local mutable
+  // metadata and must not direct writes into another project (audit 3).
+  const requestedRoot = input.projectPath?.trim();
+  if (!requestedRoot) {
+    return {
+      name: cp.name,
+      restored: 0,
+      changes: [],
+      error: "projectPath is required for restore",
+    };
+  }
+  const root = resolve(requestedRoot);
+  const unsafe = cp.files
+    .filter((file) => !safeCheckpointPath(root, file.path))
+    .map((file) => file.path);
+  if (unsafe.length > 0) {
+    return {
+      name: cp.name,
+      restored: 0,
+      changes: [],
+      error: `unsafe checkpoint paths: ${unsafe.join(", ")}`,
+    };
+  }
   const excludeDirs = input.excludeDirs ?? cp.excludeDirs;
   const current = new Map<string, string>();
   for (const path of snapshotFiles(root, excludeDirs).included)

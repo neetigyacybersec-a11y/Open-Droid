@@ -893,7 +893,7 @@ Diagnose a JUnit/Gradle test failure from the report and optional logcat, emulat
 - Impact: `read-only`
 - Preconditions: ANDROID_MCP_WORKSPACE covers the project, APK or output path used
 - Side effects: `host-read`
-- Path arguments: `reportPath` (read)
+- Path arguments: `reportPath` (read), `logcatPath` (read), `gradlePath` (read), `emulatorPath` (read), `screenshotPath` (read)
 - Safer alternative: Read the JUnit XML report by hand
 - Output limit: 24000 bytes
 - Verification: npm test — smoke registration and evidence-backed diagnosis tests
@@ -907,7 +907,7 @@ Write a redacted, reproducible diagnostic bundle with metadata, evidence paths a
 - Policy key: `host.file.write`
 - Preconditions: ANDROID_MCP_WORKSPACE covers the project, APK or output path used
 - Side effects: `host-read`, `host-write`
-- Path arguments: `reportPath` (read)
+- Path arguments: `reportPath` (read), `logcatPath` (read), `gradlePath` (read), `emulatorPath` (read), `screenshotPath` (read)
 - Safer alternative: Attach the raw report and logs manually
 - Output limit: 24000 bytes
 - Verification: npm test — smoke registration and bundle artifact tests
@@ -920,7 +920,7 @@ Plan tests for a feature or changed files: detect frameworks, inventory existing
 - Impact: `read-only`
 - Preconditions: ANDROID_MCP_WORKSPACE covers the project, APK or output path used
 - Side effects: `host-read`
-- Path arguments: `projectPath` (read)
+- Path arguments: `projectPath` (read), `featureSpecPath` (read)
 - Safer alternative: Derive a test list by hand from the feature spec
 - Default timeout: 120000 ms
 - Output limit: 24000 bytes
@@ -935,7 +935,7 @@ Run a configured Android test suite or all configured suites (unit, instrumented
 - Policy key: `gradle.task`
 - Preconditions: ANDROID_MCP_WORKSPACE covers the project, APK or output path used
 - Side effects: `host-read`, `host-write`, `process-spawn`
-- Path arguments: `projectPath` (read)
+- Path arguments: `projectPath` (read), `flowPaths` (read)
 - Safer alternative: Run the suite's Gradle task or Maestro flow directly
 - Default timeout: 600000 ms
 - Output limit: 24000 bytes
