@@ -40,7 +40,7 @@ export function newManifest(plan, extra = {}) {
             version: component.version ?? null,
             required: Boolean(component.required),
             source: component.kind === "download" ? component.url : component.kind,
-            paths: component.path ? [component.path] : [],
+            paths: component.paths ?? (component.path ? [component.path] : []),
           },
         ]),
     ),

@@ -9,6 +9,27 @@ import path from "node:path";
 
 const { readBuildIdentity, checkRestartRequired } = await import("../dist/buildInfo.js");
 const { handleEnvCheck } = await import("../dist/tools.js");
+const { runtimeReady } = await import("../scripts/build-state.mjs");
+
+test("runtimeReady rejects a missing or unparseable MCP entrypoint (issue 176)", () => {
+  const work = mkdtempSync(path.join(tmpdir(), "runtime-ready-"));
+  try {
+    const root = path.join(work, "repo");
+    const dist = path.join(root, "dist");
+    mkdirSync(dist, { recursive: true });
+    assert.equal(runtimeReady(root), false, "no entrypoint");
+    writeFileSync(
+      path.join(dist, "build-manifest.json"),
+      JSON.stringify({ sourceFingerprint: "test" }),
+    );
+    writeFileSync(path.join(dist, "index.js"), "this is not ( valid js");
+    assert.equal(runtimeReady(root), false, "entrypoint must parse");
+    writeFileSync(path.join(dist, "index.js"), "console.log('ok');\n");
+    assert.equal(runtimeReady(root), true, "a current, parseable runtime is ready");
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
 
 function makeBuild({ version = "0.1.0", name = "android-mcp", files = {} } = {}) {
   const root = mkdtempSync(path.join(tmpdir(), "build-info-"));

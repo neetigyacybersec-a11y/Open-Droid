@@ -2,6 +2,7 @@
 // ISSUE-144: distinguish missing, stale and current dist/ before a launch
 // script starts serving older compiled code. Production images have no src/
 // tree, so the manifest alone is authoritative there.
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -41,6 +42,15 @@ export function buildState(root = REPO) {
     };
   }
   return { state: "current", detail: `built ${manifest.builtAt ?? "unknown"}` };
+}
+
+/** Launch readiness: the compiled entrypoint must parse and be up to date. */
+export function runtimeReady(root = REPO) {
+  if (buildState(root).state !== "current") return false;
+  const check = spawnSync(process.execPath, ["--check", join(root, "dist", "index.js")], {
+    encoding: "utf8",
+  });
+  return check.status === 0;
 }
 
 const isMain =

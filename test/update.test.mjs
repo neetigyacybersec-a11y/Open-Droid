@@ -3,7 +3,8 @@
 // recording npm stub, so no real install/build runs.
 import { strict as assert } from "node:assert";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { writeManifest } from "../scripts/installer/manifest.mjs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test as nodeTest, skip } from "node:test";
@@ -26,7 +27,7 @@ function git(cwd, args) {
   assert.equal(result.status, 0, `git ${args.join(" ")} failed: ${result.stderr}`);
   return result.stdout.trim();
 }
-function fixture() {
+function fixture({ withManifest = true } = {}) {
   const base = mkdtempSync(join(tmpdir(), "update-"));
   const origin = join(base, "origin.git");
   git(base, ["init", "--bare", "origin.git"]);
@@ -35,6 +36,19 @@ function fixture() {
   git(base, ["clone", origin, seed]);
   writeFileSync(join(seed, "package.json"), JSON.stringify({ name: "fixture", version: "1.0.0" }));
   writeFileSync(join(seed, "tracked.txt"), "one\n");
+  // ISSUE-176: a real source checkout owns the whole MCP runtime, so the
+  // updater can snapshot it before advancing Git.
+  mkdirSync(join(seed, "dist"), { recursive: true });
+  mkdirSync(join(seed, "node_modules", "dep"), { recursive: true });
+  writeFileSync(join(seed, "dist", "index.js"), "console.log('v1');\n");
+  writeFileSync(join(seed, "dist", "build-manifest.json"), JSON.stringify({ sourceFingerprint: "test" }));
+  writeFileSync(join(seed, "node_modules", "dep", "index.js"), "module.exports = 1;\n");
+  if (withManifest)
+    writeManifest(join(seed, ".toolchain"), {
+      schema: 1,
+      profile: "core",
+      components: { mcp: { required: true, paths: ["dist", "node_modules"] } },
+    });
   git(seed, ["add", "."]);
   git(seed, ["commit", "-m", "initial"]);
   git(seed, ["branch", "-M", "main"]);
@@ -152,6 +166,55 @@ posixTest("detached HEAD and fetch failure abort safely", () => {
     rmSync(f.base, { recursive: true, force: true });
   }
 });
+posixTest("an absent install manifest fails closed before the fast-forward", () => {
+  const f = fixture({ withManifest: false });
+  try {
+    advance(f.seed);
+    const before = git(f.work, ["rev-parse", "HEAD"]);
+    const stub = npmStub(f.base);
+    const result = update(f.work, stub.bin);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /no last-known-good runtime snapshot/);
+    assert.equal(git(f.work, ["rev-parse", "HEAD"]), before, "checkout must not advance");
+    assert.deepEqual(stub.calls(), [], "no install/build ran without a snapshot");
+  } finally {
+    rmSync(f.base, { recursive: true, force: true });
+  }
+});
+
+posixTest("a broken build restores the whole MCP runtime before reporting", () => {
+  const f = fixture();
+  try {
+    advance(f.seed);
+    const bin = join(f.base, "bin-mutate");
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(
+      join(bin, "npm"),
+      `#!/bin/sh
+if [ "$*" = "ci" ]; then
+  echo "broken" > "${f.work}/dist/index.js"
+  rm -rf "${f.work}/node_modules/dep"
+fi
+if [ "$*" = "run build" ]; then exit 7; fi
+exit 0
+`,
+    );
+    chmodSync(join(bin, "npm"), 0o755);
+    const result = update(f.work, bin);
+    assert.equal(result.status, 1);
+    assert.equal(
+      readFileSync(join(f.work, "dist", "index.js"), "utf8"),
+      "console.log('v1');\n",
+      "compiled entrypoint must be restored from the generation",
+    );
+    assert.equal(existsSync(join(f.work, "node_modules", "dep", "index.js")), true, "dependencies must be restored too");
+    assert.match(result.stderr, /restored verified|manual recovery required/, "rollback outcome must be explicit");
+    assert.doesNotMatch(result.stderr, /restored last-known-good generation/, "no unverified success claim");
+  } finally {
+    rmSync(f.base, { recursive: true, force: true });
+  }
+});
+
 posixTest("a failing build stage stops before verify and reports the stage", () => {
   const f = fixture();
   try {

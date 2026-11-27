@@ -16,11 +16,19 @@ function fixture(root) {
   mkdirSync(join(root, "projects", "my-app"), { recursive: true });
   writeFileSync(join(root, ".toolchain", "gradle", "healthy"), "v1");
   writeFileSync(join(root, "projects", "my-app", "Main.kt"), "user work");
+  mkdirSync(join(root, "dist"), { recursive: true });
+  mkdirSync(join(root, "node_modules", "dep"), { recursive: true });
+  writeFileSync(join(root, "dist", "index.js"), "entry-v1");
+  writeFileSync(join(root, "dist", "extra.js"), "module-v1");
+  writeFileSync(join(root, "node_modules", "dep", "index.js"), "dep-v1");
   writeManifest(join(root, ".toolchain"), {
     schema: 1,
     profile: "core",
     version: "1.0.0",
-    components: { gradle: { required: true, paths: [".toolchain/gradle"] } },
+    components: {
+      gradle: { required: true, paths: [".toolchain/gradle"] },
+      mcp: { required: true, paths: ["dist", "node_modules"] },
+    },
   });
 }
 
@@ -40,6 +48,41 @@ test("create, verify and roll back a generation without touching user files", ()
   const history = readFileSync(join(root, ".toolchain", "generations", "rollback-history.jsonl"), "utf8");
   assert.match(history, /generation-created/);
   assert.match(history, /rollback/);
+});
+
+test("a generation restores partial dist output and node_modules (issue 176)", () => {
+  const root = join(work, "mcp-runtime");
+  fixture(root);
+  const generation = createGeneration(join(root, ".toolchain"), {
+    mode: "source",
+    reason: "pre-update",
+    sourceCommit: "abc123",
+  });
+  assert.deepEqual(generation.paths.map((entry) => entry.relative).sort(), [
+    ".toolchain/gradle",
+    "dist",
+    "node_modules",
+  ]);
+  const state = JSON.parse(
+    readFileSync(join(root, ".toolchain", "generations", generation.id, "state.json"), "utf8"),
+  );
+  assert.equal(state.sourceCommit, "abc123");
+  rmSync(join(root, "dist", "extra.js"));
+  rmSync(join(root, "node_modules", "dep"), { recursive: true, force: true });
+  writeFileSync(join(root, "dist", "index.js"), "broken");
+  const result = rollbackGeneration(join(root, ".toolchain"), { id: generation.id });
+  assert.equal(readFileSync(join(root, "dist", "extra.js"), "utf8"), "module-v1");
+  assert.equal(readFileSync(join(root, "dist", "index.js"), "utf8"), "entry-v1");
+  assert.equal(readFileSync(join(root, "node_modules", "dep", "index.js"), "utf8"), "dep-v1");
+  assert.ok(result.restored.includes("dist"));
+  assert.ok(result.restored.includes("node_modules"));
+  assert.ok(result.doctor, "rollback reports doctor health");
+});
+
+test("an absent manifest cannot create a rollback snapshot", () => {
+  const root = join(work, "no-manifest");
+  mkdirSync(join(root, ".toolchain"), { recursive: true });
+  assert.throws(() => createGeneration(join(root, ".toolchain")), /no install manifest/);
 });
 
 test("unknown and corrupt generations are refused", () => {

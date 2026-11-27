@@ -19,6 +19,7 @@ import {
 } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
+import { ownedPath } from "./manifest.mjs";
 
 const LOCK = ".install.lock";
 const STAGING = ".install-staging";
@@ -169,8 +170,13 @@ export function activateComponent(root, id, staged, target) {
     return { activated: true, backedUp: hadPrevious };
   } catch (error) {
     if (hadPrevious && existsSync(backup)) {
-      const previous = readFileSync(`${backup}.target`, "utf8").trim();
-      renameSync(backup, resolve(rootPath, previous));
+      try {
+        const previous = ownedPath(rootPath, readFileSync(`${backup}.target`, "utf8").trim());
+        renameSync(backup, previous);
+      } catch {
+        // A tampered target never becomes a restore destination; keep the
+        // backup in place for inspection.
+      }
     }
     throw error;
   }
@@ -183,13 +189,22 @@ export function recoverInstallation(root) {
   if (existsSync(lock) && !isAlive(readPid(lock))) rmSync(lock, { force: true });
   const backupRoot = join(rootPath, BACKUP);
   const restored = [];
+  const skipped = [];
   if (existsSync(backupRoot)) {
     for (const id of readdirSync(backupRoot)) {
       if (id.endsWith(".target")) continue;
       const backup = join(backupRoot, id);
       const targetFile = `${backup}.target`;
       if (!existsSync(targetFile)) continue;
-      const target = resolve(rootPath, readFileSync(targetFile, "utf8").trim());
+      // ISSUE-177: recovery metadata is mutable local state, not a trusted
+      // path. Never restore outside the managed root.
+      let target;
+      try {
+        target = ownedPath(rootPath, readFileSync(targetFile, "utf8").trim());
+      } catch (error) {
+        skipped.push({ id, reason: error.message });
+        continue;
+      }
       if (existsSync(target)) continue;
       mkdirSync(dirname(target), { recursive: true });
       cpSync(backup, target, { recursive: true });
@@ -198,7 +213,7 @@ export function recoverInstallation(root) {
   }
   const staging = join(rootPath, STAGING);
   rmSync(staging, { recursive: true, force: true });
-  return { restored, stagingRemoved: !existsSync(staging) };
+  return { restored, skipped, stagingRemoved: !existsSync(staging) };
 }
 
 export { STAGING, BACKUP };

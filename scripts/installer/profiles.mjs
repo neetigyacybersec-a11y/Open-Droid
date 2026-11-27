@@ -47,7 +47,9 @@ export function componentCatalog(pins) {
     mcp: {
       label: "MCP server (dist + node_modules)",
       kind: "builtin",
-      path: "dist/index.js",
+      // ISSUE-176: own the whole runtime, not just the entrypoint, so a
+      // generation can restore node_modules and every compiled module.
+      paths: ["dist", "node_modules"],
     },
     gradle: {
       label: "Gradle",

@@ -7,6 +7,7 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createGeneration, rollbackGeneration, verifyGeneration } from "./generations.mjs";
+import { runtimeReady } from "./build-state.mjs";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const NPM = process.platform === "win32" ? "npm.cmd" : "npm";
@@ -25,15 +26,23 @@ function abort(message, code = 1) {
 }
 
 let savedGeneration = null;
+
 function stage(label, command, args, cwd) {
   console.log(`\n== ${label} ==`);
   const result = spawnSync(command, args, { cwd, stdio: "inherit" });
   if (result.status !== 0) {
-    // ISSUE-153: a failed stage never leaves the active runtime half-updated.
+    // ISSUE-153/176: a failed stage never leaves the active runtime
+    // half-updated, and success is not claimed until health checks pass.
     if (savedGeneration) {
       try {
-        const restored = rollbackGeneration(join(cwd, ".toolchain"), { id: savedGeneration.id, verify: false });
-        console.error(`restored last-known-good generation ${restored.state.id}`);
+        const restored = rollbackGeneration(join(cwd, ".toolchain"), { id: savedGeneration.id });
+        if (restored.doctor?.summary.ok && runtimeReady(cwd)) {
+          console.error(`restored verified last-known-good generation ${restored.state.id}`);
+        } else {
+          console.error(
+            `manual recovery required: rollback verification failed for ${restored.state.id}`,
+          );
+        }
       } catch (error) {
         console.error(`manual recovery required: rollback failed: ${error.message}`);
       }
@@ -110,11 +119,15 @@ try {
   savedGeneration = createGeneration(join(root, ".toolchain"), {
     mode: "source",
     reason: "pre-update",
-    sourceCommit: git(root, ["rev-parse", "HEAD"]),
+    sourceCommit: output(git(root, ["rev-parse", "HEAD"])),
   });
   console.log(`last-known-good generation: ${savedGeneration.id}`);
 } catch (error) {
-  console.log(`no runtime generation was saved (${error.message}); update continues`);
+  abort(
+    `no last-known-good runtime snapshot: ${error.message}. ` +
+      "Install the runtime first (npm run install:core) before updating; " +
+      "an update without a rollback snapshot is not allowed.",
+  );
 }
 
 const merge = git(root, ["merge", "--ff-only", "@{u}"]);

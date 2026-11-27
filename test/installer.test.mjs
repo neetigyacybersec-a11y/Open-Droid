@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { test } from "node:test";
 import { ownedPath, ownedPaths, readManifest } from "../scripts/installer/manifest.mjs";
 import { formatPlan, resolvePlan } from "../scripts/installer/profiles.mjs";
@@ -195,6 +195,31 @@ test("recovery restores a last-known-good component after an interrupted activat
   const result = recoverInstallation(root);
   assert.deepEqual(result.restored, ["gradle"]);
   assert.equal(readFileSync(join(target, "healthy"), "utf8"), "ok");
+});
+
+test("recovery refuses backup targets that escape the managed root (issue 177)", () => {
+  const root = join(work, "recover-escape");
+  const outside = join(work, "outside");
+  mkdirSync(outside, { recursive: true });
+  const escape = join(outside, "escape-target");
+  const absolute = join(outside, "absolute-target");
+  const backupDir = join(root, ".install-backup");
+  mkdirSync(backupDir, { recursive: true });
+  for (const [id, value] of [
+    ["relative", relative(root, escape)],
+    ["absolute", absolute],
+  ]) {
+    const backup = join(backupDir, id);
+    mkdirSync(backup, { recursive: true });
+    writeFileSync(join(backup, "payload"), "crafted");
+    writeFileSync(`${backup}.target`, `${value}\n`);
+  }
+  const result = recoverInstallation(root);
+  assert.deepEqual(result.restored, []);
+  assert.equal(result.skipped.length, 2, "both crafted targets are rejected");
+  assert.ok(result.skipped.every((entry) => /escapes installation root|not a managed relative path/.test(entry.reason)));
+  assert.equal(existsSync(escape), false);
+  assert.equal(existsSync(absolute), false);
 });
 
 test("the lock rejects a live installer and recovery clears a dead one", () => {
