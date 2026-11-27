@@ -58,11 +58,10 @@ test("a generation restores partial dist output and node_modules (issue 176)", (
     reason: "pre-update",
     sourceCommit: "abc123",
   });
-  assert.deepEqual(generation.paths.map((entry) => entry.relative).sort(), [
-    ".toolchain/gradle",
-    "dist",
-    "node_modules",
-  ]);
+  assert.deepEqual(
+    generation.paths.map((entry) => entry.relative.split("\\").join("/")).sort(),
+    [".toolchain/gradle", "dist", "node_modules"],
+  );
   const state = JSON.parse(
     readFileSync(join(root, ".toolchain", "generations", generation.id, "state.json"), "utf8"),
   );
